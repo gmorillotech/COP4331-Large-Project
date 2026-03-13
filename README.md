@@ -3,7 +3,7 @@
 ## Team Members
 - Brian Huang
 - George Morillo
-- Ava Sandford
+- Ava Sanford
 - Vaishal Devasenapathy
 - Aidan Alich
 - Bhagyesh Jethwani
