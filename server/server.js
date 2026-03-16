@@ -24,7 +24,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api", authRoutes);
 app.use("/api", cardRoutes);
 
-const PORT = process.env.PORT || 5050;
+const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   try {
