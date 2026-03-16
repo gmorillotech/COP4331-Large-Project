@@ -5,7 +5,7 @@ const connectDB = require("./config/db");
 
 const app = express();
 
-connectDB();
+//connectDB(); // DB credentials not setup yet
 
 app.use(cors());
 app.use(express.json());
