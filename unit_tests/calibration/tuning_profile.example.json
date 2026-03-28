@@ -1,0 +1,18 @@
+{
+  "reportHalfLifeMs": 240000,
+  "varianceSoftCap": 18,
+  "peerToleranceDb": 8,
+  "historicalToleranceDb": 12,
+  "minSessionCorrectionWF": 0.4,
+  "trustDeadband": 0.1,
+  "trustExponent": 1.35,
+  "occupancyOverreportRate": 0.1,
+  "occupancyUnderreportRate": 0.04,
+  "noiseOverreportRate": 0.05,
+  "noiseUnderreportRate": 0.09,
+  "componentWeights": {
+    "historical": 0.35,
+    "user": 0.2,
+    "peer": 0.45
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "cop4331-large-project-unit-tests",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node dist/unit_tests/a1_service.test.js",
+    "calibrate": "npm run build && node dist/unit_tests/calibration/a1_calibration_harness.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.3"
+  }
+}
