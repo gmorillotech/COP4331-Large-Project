@@ -6,6 +6,11 @@ const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const cardRoutes = require("./routes/cardRoutes");
 
+const Users = require("./models/User");
+const LocationGroup = require("./models/LocationGroup");
+const StudyLocation = require("./models/StudyLocation");
+const Report = require("./models/Report");
+
 const app = express();
 
 app.use(cors());

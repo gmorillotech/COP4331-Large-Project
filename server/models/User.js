@@ -21,11 +21,26 @@ const UserSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique:true,
-            trim:true,
+            trim: true,
         },
         password: {
             type: String,
             required: true,
+        },
+        favorites : [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "StudyLocation",
+            },
+        ],
+        lastLocation: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "StudyLocation",
+            default: null,
+        },
+        lastLocTime: {
+            type: Date,
+            default: null,
         },
     },
     { timestamps: true }
