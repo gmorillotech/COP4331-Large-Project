@@ -1,0 +1,19 @@
+<svg width="920" height="300" viewBox="0 0 920 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="heatScale" x1="116" y1="0" x2="794" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.33" stop-color="#06B6D4"/>
+      <stop offset="0.68" stop-color="#FACC15"/>
+      <stop offset="1" stop-color="#DC2626"/>
+    </linearGradient>
+  </defs>
+  <rect width="920" height="300" rx="38" fill="#0B1F34"/>
+  <text x="72" y="78" fill="#DDF0FF" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">QUALITATIVE NOISE BAR</text>
+  <rect x="72" y="126" width="776" height="42" rx="21" fill="#17324A"/>
+  <rect x="72" y="126" width="658" height="42" rx="21" fill="url(#heatScale)"/>
+  <rect x="718" y="114" width="6" height="66" rx="3" fill="#F7FBFF" fill-opacity="0.88"/>
+  <text x="72" y="222" fill="#F7FBFF" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700">Moderate</text>
+  <text x="304" y="222" fill="#B8D0E7" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">same gradient family as the heatmap</text>
+  <text x="72" y="260" fill="#93B0CC" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">Quiet</text>
+  <text x="809" y="260" text-anchor="end" fill="#93B0CC" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">Loud</text>
+</svg>
