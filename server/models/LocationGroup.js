@@ -1,44 +1,32 @@
-const mongoose = require("mongoose");
+// server/models/LocationGroup.js
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const { Schema } = mongoose;
-
-const locationGroupSchema = new Schema(
-  {
-    locationGroupId: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-      trim: true,
-    },
+const LocationGroupSchema = new Schema({
     name: {
-      type: String,
-      required: true,
-      trim: true,
+        type: String,
+        required: true
     },
-    currentNoiseLevel: {
-      type: Number,
-      default: null,
-      min: 0,
+    description: {
+        type: String
     },
-    currentOccupancyLevel: {
-      type: Number,
-      default: null,
-      min: 0,
-      max: 5,
+    coordinates: {
+    type: [Number], // Stored as [longitude, latitude]
+    required: true,
+    index: '2dsphere' // You can also define the index directly in the schema
     },
-    updatedAt: {
-      type: Date,
-      default: null,
-      index: true,
+    currNoiseLevel: {
+        type: String,
+        default: 'Unknown' // Default value until first report
     },
-  },
-  {
-    timestamps: true,
-    versionKey: false,
-  },
-);
+    currOccupancyLevel: {
+        type: String,
+        default: 'Unknown' // Default value until first report
+    }
+}, { 
+    timestamps: true // This automatically adds createdAt and updatedAt fields
+});
 
-module.exports =
-  mongoose.models.LocationGroup ||
-  mongoose.model("LocationGroup", locationGroupSchema);
+module.exports = mongoose.model('LocationGroup', LocationGroupSchema);
+
+
