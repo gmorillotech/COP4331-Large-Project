@@ -28,3 +28,5 @@ const LocationGroupSchema = new Schema({
 });
 
 module.exports = mongoose.model('LocationGroup', LocationGroupSchema);
+
+

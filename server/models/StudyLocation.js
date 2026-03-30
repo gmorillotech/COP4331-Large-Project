@@ -32,3 +32,4 @@ const StudyLocationSchema = new Schema({
 });
 
 module.exports = mongoose.model('StudyLocation', StudyLocationSchema);
+

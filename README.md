@@ -20,9 +20,9 @@ Frontend:
 - npm run dev
 
 ## Tech Stack
-Frontend:
-Backend:
-Database:
+Frontend: React + vite, Typescript
+Backend: Express, Node
+Database: MongoDB
 
 ## Project Description
 A MERN-stack decibel tracker app and web app hosted on a DigitalOcean droplet.
