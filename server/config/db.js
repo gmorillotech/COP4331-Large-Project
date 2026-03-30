@@ -1,14 +1,14 @@
+// FINAL CORRECTED VERSION for config/db.js
 const mongoose = require("mongoose");
 
 const connectDB = async () => {
   try {
-    console.log("MONGO_URI:", process.env.MONGO_URI);
+    // This is now a simple utility function. It no longer has req, res, or next.
     const conn = await mongoose.connect(process.env.MONGO_URI);
-
     console.log(`MongoDB Connected: ${conn.connection.host}`);
-  } catch (error) {
-    console.error(error);
-    process.exit(1);
+  } catch (err) {
+    console.error(`Error connecting to MongoDB: ${err.message}`);
+    process.exit(1); // Exit process with failure
   }
 };
 
