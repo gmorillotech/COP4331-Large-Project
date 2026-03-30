@@ -9,6 +9,11 @@ const locationRoutes = require("./routes/locationRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const cardRoutes = require("./routes/cardRoutes");
 
+const Users = require("./models/User");
+const LocationGroup = require("./models/LocationGroup");
+const StudyLocation = require("./models/StudyLocation");
+const Report = require("./models/Report");
+
 const app = express();
 
 app.use(cors());
