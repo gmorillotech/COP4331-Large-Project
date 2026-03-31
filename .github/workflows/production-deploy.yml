@@ -1,0 +1,34 @@
+name: Prod Server Auto-Deploy
+on:
+    push:
+        branches:
+            - main
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@v4
+
+            - name: Deploy to prod via SSH
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                host: ${{secrets.PROD_SERVER_IP}}
+                username: "root"
+                key: ${{secrets.SSH_PRIVATE_KEY}}
+                script: |
+                  cd /var/www/COP4331-Large-Project
+                  git fetch origin
+                  git checkout main
+                  git pull origin main
+
+                  cd server
+                  npm install --production
+
+                  cd ../client
+                  npm install
+                  npm run build
+
+                  cd ../server
+                  pm2 reload prod-api || pm2 start server.js --name "prod-api"
