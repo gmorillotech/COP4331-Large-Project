@@ -10,5 +10,5 @@
     "outDir": "./dist",
     "rootDir": ".."
   },
-  "include": ["./**/*.ts", "../uml_service_layout.ts", "../support_services.ts"]
+  "include": ["./**/*.ts", "../shared/src/**/*.ts"]
 }

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import {
   SessionCorrectionService,
   defaultSessionCorrectionServiceConfig,
-} from "../support_services";
+} from "../shared/src/support_services";
 import {
   A1Service,
   LocationService,
+  ReportService,
   SessionService,
   defaultA1Config,
   defaultSessionServiceConfig,
@@ -21,7 +22,7 @@ import {
   type StudyLocationRepository,
   type User,
   type UserRepository,
-} from "../uml_service_layout";
+} from "../shared/src/uml_service_layout";
 
 const registeredTests: Array<{ name: string; run: () => Promise<void> | void }> = [];
 const suiteStack: string[] = [];
@@ -599,6 +600,35 @@ describe("A1Service polling cycle", () => {
     assert.ok(storedRecord.metadata);
     assert.ok((storedRecord.metadata?.noiseWeightFactor ?? 0) > 0);
     assert.deepEqual(result.updatedUsers, []);
+  });
+});
+
+describe("ReportService.submitNewReport", () => {
+  it("accepts a ReportSubmission and initializes metadata immediately", async () => {
+    const harness = createA1Harness({
+      users: [makeUser("user-1")],
+    });
+    const reportService = new ReportService(harness.reportRepository, harness.service);
+
+    const report = await reportService.submitNewReport({
+      userId: "user-1",
+      studyLocationId: "loc-a",
+      avgNoise: 52,
+      maxNoise: 56,
+      variance: 8,
+      occupancy: 3,
+      createdAt: referenceNow(),
+    });
+
+    const storedRecord = harness.reportRepository
+      .snapshot()
+      .find((candidate) => candidate.report.reportId === report.reportId);
+
+    assert.ok(storedRecord);
+    assert.equal(storedRecord?.report.avgNoise, 52);
+    assert.ok(storedRecord?.metadata);
+    assert.equal(storedRecord?.metadata?.reportId, report.reportId);
+    assert.equal(storedRecord?.metadata?.lastEvaluatedAt.toISOString(), report.createdAt.toISOString());
   });
 });
 
