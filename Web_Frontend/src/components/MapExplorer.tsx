@@ -315,7 +315,7 @@ function MapExplorer() {
 
     async function fetchAnnotations(): Promise<void> {
       try {
-        const response = await fetch('http://localhost:5000/api/map-annotations');
+        const response = await fetch('http://localhost:5050/api/map-annotations');
         const payload: MapAnnotationsResponse = await response.json();
 
         if (!isActive) {

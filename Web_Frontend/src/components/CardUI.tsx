@@ -49,7 +49,7 @@ function CardUI() {
     setMessage('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/addcard', {
+      const response = await fetch('http://localhost:5050/api/addcard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -76,7 +76,7 @@ function CardUI() {
     setResults('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/searchcards', {
+      const response = await fetch('http://localhost:5050/api/searchcards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
