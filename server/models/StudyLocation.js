@@ -1,35 +1,64 @@
-// server/models/StudyLocation.js
-const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
+const mongoose = require("mongoose");
 
-const StudyLocationSchema = new Schema({
-    name: {
-        type: String,
-        required: true
+const { Schema } = mongoose;
+
+const studyLocationSchema = new Schema(
+  {
+    studyLocationId: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
     },
     locationGroupId: {
-        type: Schema.Types.ObjectId,
-        ref: 'LocationGroup', // This creates the link to the LocationGroup model
-        required: true
+      type: String,
+      required: true,
+      index: true,
+      trim: true,
+      ref: "LocationGroup",
     },
-    coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true
+    name: {
+      type: String,
+      required: true,
+      trim: true,
     },
-    preciseLocation: {
-        type: String // e.g., "Second floor, near the windows"
+    latitude: {
+      type: Number,
+      required: true,
+      min: -90,
+      max: 90,
     },
-    currNoiseLevel: {
-        type: String,
-        default: 'Unknown'
+    longitude: {
+      type: Number,
+      required: true,
+      min: -180,
+      max: 180,
     },
-    currOccupancyLevel: {
-        type: String,
-        default: 'Unknown'
-    }
-}, { 
-    timestamps: true // This automatically adds createdAt and updatedAt fields
-});
+    currentNoiseLevel: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    currentOccupancyLevel: {
+      type: Number,
+      default: null,
+      min: 1,
+      max: 5,
+    },
+    updatedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    timestamps: { createdAt: true, updatedAt: false },
+    versionKey: false,
+  },
+);
 
-module.exports = mongoose.model('StudyLocation', StudyLocationSchema);
+studyLocationSchema.index({ locationGroupId: 1, name: 1 });
+studyLocationSchema.index({ latitude: 1, longitude: 1 });
 
+module.exports =
+  mongoose.models.StudyLocation || mongoose.model("StudyLocation", studyLocationSchema);

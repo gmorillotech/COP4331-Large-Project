@@ -1,27 +1,42 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const jwt = require("jsonwebtoken");
 
-const protect = async (req, res, next) => {
-    let token;
+const User = require("../models/User");
 
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        try {
-            token = req.headers.authorization.split(' ')[1];
-            const decodedPayload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-            req.user = await User.findById(decodedPayload.userId).select('-password');
-            
-            if (!req.user) {
-                return res.status(401).json({ error: 'Not authorized, user not found' });
-            }
-            next();
-        } catch (error) {
-            return res.status(401).json({ error: 'Not authorized, token failed' });
-        }
-    }
+const attachUserFromBearerToken = async (req) => {
+  if (!req.headers.authorization || !req.headers.authorization.startsWith("Bearer")) {
+    return null;
+  }
 
-    if (!token) {
-        return res.status(401).json({ error: 'Not authorized, no token provided' });
-    }
+  const token = req.headers.authorization.split(" ")[1];
+  const decodedPayload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+  return User.findOne({ userId: decodedPayload.userId }).select("-passwordHash");
 };
 
-module.exports = { protect };
+const protect = async (req, res, next) => {
+  try {
+    const user = await attachUserFromBearerToken(req);
+    if (!user) {
+      return res.status(401).json({ error: "Not authorized, no token provided" });
+    }
+
+    req.user = user;
+    return next();
+  } catch (_error) {
+    return res.status(401).json({ error: "Not authorized, token failed" });
+  }
+};
+
+const optionalProtect = async (req, _res, next) => {
+  try {
+    const user = await attachUserFromBearerToken(req);
+    if (user) {
+      req.user = user;
+    }
+  } catch (_error) {
+    req.user = null;
+  }
+
+  return next();
+};
+
+module.exports = { protect, optionalProtect };

@@ -1,177 +1,229 @@
-const express = require('express');
-const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
-const User =require('../models/User');
-const { protect } = require('../middleware/authMiddleware');
-const tokenService = require('../createJWT.js');
+const express = require("express");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const nodemailer = require("nodemailer");
+
+const User = require("../models/User");
+const { protect } = require("../middleware/authMiddleware");
+const tokenService = require("../createJWT");
 
 const router = express.Router();
 
-// Nodemailer setup
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
 });
 
-// 1. POST /api/auth/register
-router.post('/register', async (req, res) => {
-    try {
-        const { firstName, lastName, login, password } = req.body;
-        if (!firstName || !lastName || !login || !password) {
-            return res.status(400).json({ error: 'Please provide all required fields.' });
-        }
-        const existingUser = await User.findOne({ login });
-        if (existingUser) {
-            return res.status(409).json({ error: 'An account with that email already exists.' });
-        }
-        
-        const verificationToken = crypto.randomBytes(32).toString('hex');
-        const newUser = new User({ firstName, lastName, login, password, verificationToken });
-        await newUser.save();
+router.post("/register", async (req, res) => {
+  try {
+    const { firstName, lastName, displayName, login, email, password } = req.body ?? {};
+    if (!login || !email || !password) {
+      return res.status(400).json({ error: "Please provide login, email, and password." });
+    }
 
-        const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
-        await transporter.sendMail({
-            to: login,
-            from: `Meta Location <${process.env.EMAIL_USER}>`,
-            subject: 'Verify Your Account',
-            html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-        });
-
-        res.status(201).json({ message: 'Registration successful. Please check your email to verify.' });
-   } catch (error) {
-    // This will make the error very obvious in your terminal
-    console.error("--- REGISTRATION FAILED ---");
-    console.error(error); 
-    console.error("---------------------------");
-
-    // This sends the specific error message back to Postman
-    res.status(500).json({ 
-        error: "Server error during registration.",
-        details: error.message 
+    const normalizedLogin = login.trim().toLowerCase();
+    const normalizedEmail = email.trim().toLowerCase();
+    const existingUser = await User.findOne({
+      $or: [{ login: normalizedLogin }, { email: normalizedEmail }],
     });
-}
-});
 
-// 2. POST /api/auth/login
-router.post('/login', async (req, res) => {
-    try {
-        const { login, password } = req.body;
-        const user = await User.findOne({ login });
-        if (!user || !(await bcrypt.compare(password, user.password))) {
-            return res.status(401).json({ error: 'Invalid credentials.' });
-        }
-        if (!user.isVerified) {
-            return res.status(403).json({ error: 'Please verify your email before logging in.' });
-        }
-        
-        const token = tokenService.createToken(user.firstName, user.lastName, user._id);
-        res.status(200).json({ accessToken: token.accessToken });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error during login.' });
+    if (existingUser) {
+      return res.status(409).json({ error: "An account with that login or email already exists." });
     }
-});
 
-// 3. POST /api/auth/verify-email
-router.post('/verify-email', async (req, res) => {
-    try {
-        const { token } = req.body;
-        const user = await User.findOne({ verificationToken: token });
-        if (!user) {
-            return res.status(400).json({ error: 'Invalid or expired verification token.' });
-        }
-        user.isVerified = true;
-        user.verificationToken = undefined;
-        await user.save();
-        res.status(200).json({ message: 'Email verified successfully. You can now log in.' });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error during email verification.' });
+    const emailVerificationToken = crypto.randomBytes(32).toString("hex");
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const newUser = new User({
+      userId: crypto.randomUUID(),
+      login: normalizedLogin,
+      email: normalizedEmail,
+      passwordHash,
+      firstName: firstName ?? null,
+      lastName: lastName ?? null,
+      displayName: displayName ?? null,
+      favorites: [],
+      userNoiseWF: 1,
+      userOccupancyWF: 1,
+      emailVerificationToken,
+      emailVerifiedAt: null,
+    });
+
+    await newUser.save();
+
+    if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const verificationLink =
+        `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`;
+      await transporter.sendMail({
+        to: normalizedEmail,
+        from: `Meta Location <${process.env.EMAIL_USER}>`,
+        subject: "Verify Your Account",
+        html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+      });
     }
+
+    return res.status(201).json({
+      userId: newUser.userId,
+      login: newUser.login,
+      email: newUser.email,
+      message: "Registration successful. Please verify your email before logging in.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: "Server error during registration.",
+      details: error.message,
+    });
+  }
 });
 
-// 4. POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res) => {
-    try {
-        const { login } = req.body;
-        const user = await User.findOne({ login });
-        if (!user) {
-            // Still send a success message to prevent user enumeration
-            return res.status(200).json({ message: 'If an account with that email exists, a password reset link has been sent.' });
-        }
-
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        user.resetPasswordToken = resetToken;
-        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
-        await user.save();
-
-        const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-        await transporter.sendMail({
-            to: user.login,
-            from: `Meta Location <${process.env.EMAIL_USER}>`,
-            subject: 'Password Reset Request',
-            html: `<p>You requested a password reset. Click this link to continue: <a href="${resetLink}">${resetLink}</a>. This link will expire in one hour.</p>`,
-        });
-
-        res.status(200).json({ message: 'If an account with that email exists, a password reset link has been sent.' });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error.' });
+router.post("/login", async (req, res) => {
+  try {
+    const { login, password } = req.body ?? {};
+    if (!login || !password) {
+      return res.status(400).json({ error: "Missing login or password" });
     }
-});
 
-// 5. POST /api/auth/reset-password
-router.post('/reset-password', async (req, res) => {
-    try {
-        const { token, newPassword } = req.body;
-        const user = await User.findOne({
-            resetPasswordToken: token,
-            resetPasswordExpires: { $gt: Date.now() },
-        });
-
-        if (!user) {
-            return res.status(400).json({ error: 'Password reset token is invalid or has expired.' });
-        }
-
-        user.password = newPassword;
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpires = undefined;
-        await user.save();
-
-        res.status(200).json({ message: 'Password has been successfully reset.' });
-    } catch (error) {
-        res.status(500).json({ error: 'Server error.' });
+    const normalizedLogin = login.trim().toLowerCase();
+    const user = await User.findOne({ login: normalizedLogin });
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      return res.status(401).json({ error: "Invalid credentials." });
     }
-});
 
-// 6. GET /api/auth/profile
-router.get('/profile', protect, (req, res) => {
-    res.status(200).json(req.user);
-});
-
-// 7. PUT /api/auth/profile
-router.put('/profile', protect, async (req, res) => {
-    try {
-        const { firstName, lastName } = req.body;
-        const user = await User.findById(req.user._id);
-
-        if (user) {
-            user.firstName = firstName || user.firstName;
-            user.lastName = lastName || user.lastName;
-            const updatedUser = await user.save();
-            res.status(200).json({
-                _id: updatedUser._id,
-                firstName: updatedUser.firstName,
-                lastName: updatedUser.lastName,
-                login: updatedUser.login,
-            });
-        } else {
-            res.status(404).json({ error: 'User not found' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: 'Server error while updating profile.' });
+    if (!user.emailVerifiedAt) {
+      return res.status(403).json({ error: "Please verify your email before logging in." });
     }
+
+    const token = tokenService.createToken(user.firstName, user.lastName, user.userId);
+    return res.status(200).json({
+      accessToken: token.accessToken,
+      user: {
+        userId: user.userId,
+        login: user.login,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        displayName: user.displayName,
+        favorites: user.favorites,
+        userNoiseWF: user.userNoiseWF,
+        userOccupancyWF: user.userOccupancyWF,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error during login." });
+  }
+});
+
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { token } = req.body ?? {};
+    const user = await User.findOne({ emailVerificationToken: token });
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired verification token." });
+    }
+
+    user.emailVerifiedAt = new Date();
+    user.emailVerificationToken = null;
+    await user.save();
+    return res.status(200).json({ message: "Email verified successfully. You can now log in." });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error during email verification." });
+  }
+});
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body ?? {};
+    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    const user = normalizedEmail ? await User.findOne({ email: normalizedEmail }) : null;
+
+    if (!user) {
+      return res.status(200).json({
+        message: "If an account with that email exists, a password reset link has been sent.",
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    user.passwordResetToken = resetToken;
+    user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save();
+
+    if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+      await transporter.sendMail({
+        to: user.email,
+        from: `Meta Location <${process.env.EMAIL_USER}>`,
+        subject: "Password Reset Request",
+        html: `<p>You requested a password reset. Click this link to continue: <a href="${resetLink}">${resetLink}</a>. This link will expire in one hour.</p>`,
+      });
+    }
+
+    return res.status(200).json({
+      message: "If an account with that email exists, a password reset link has been sent.",
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error." });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body ?? {};
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetExpiresAt: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Password reset token is invalid or has expired." });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.passwordResetToken = null;
+    user.passwordResetExpiresAt = null;
+    await user.save();
+
+    return res.status(200).json({ message: "Password has been successfully reset." });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error." });
+  }
+});
+
+router.get("/profile", protect, (req, res) => {
+  return res.status(200).json(req.user);
+});
+
+router.put("/profile", protect, async (req, res) => {
+  try {
+    const { firstName, lastName, displayName, favorites } = req.body ?? {};
+    const user = await User.findOne({ userId: req.user.userId });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
+    if (displayName !== undefined) user.displayName = displayName;
+    if (favorites !== undefined && Array.isArray(favorites)) user.favorites = favorites;
+
+    const updatedUser = await user.save();
+    return res.status(200).json({
+      userId: updatedUser.userId,
+      login: updatedUser.login,
+      email: updatedUser.email,
+      firstName: updatedUser.firstName,
+      lastName: updatedUser.lastName,
+      displayName: updatedUser.displayName,
+      favorites: updatedUser.favorites,
+      userNoiseWF: updatedUser.userNoiseWF,
+      userOccupancyWF: updatedUser.userOccupancyWF,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error while updating profile." });
+  }
 });
 
 module.exports = router;
