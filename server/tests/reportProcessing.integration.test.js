@@ -1,0 +1,352 @@
+const assert = require("node:assert/strict");
+
+const Report = require("../models/Report");
+const ReportTagMetadata = require("../models/ReportTagMetadata");
+const StudyLocation = require("../models/StudyLocation");
+const LocationGroup = require("../models/LocationGroup");
+const User = require("../models/User");
+const { ReportProcessingService } = require("../services/reportProcessingService");
+
+const registeredTests = [];
+
+function it(name, run) {
+  registeredTests.push({ name, run });
+}
+
+function createChain(value) {
+  return {
+    lean: async () => clone(value),
+    select: () => ({
+      lean: async () => clone(value),
+      then: (resolve, reject) => Promise.resolve(clone(value)).then(resolve, reject),
+    }),
+    sort: () => ({
+      lean: async () => clone(value),
+      limit: async () => clone(value),
+      then: (resolve, reject) => Promise.resolve(clone(value)).then(resolve, reject),
+    }),
+    limit: async () => clone(value),
+    then: (resolve, reject) => Promise.resolve(clone(value)).then(resolve, reject),
+  };
+}
+
+function clone(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => clone(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return {
+    ...value,
+    ...(value.createdAt ? { createdAt: new Date(value.createdAt) } : {}),
+    ...(value.updatedAt ? { updatedAt: new Date(value.updatedAt) } : {}),
+    ...(value.lastEvaluatedAt ? { lastEvaluatedAt: new Date(value.lastEvaluatedAt) } : {}),
+    ...(value.favorites ? { favorites: [...value.favorites] } : {}),
+  };
+}
+
+function installInMemoryModelPatches() {
+  const state = {
+    reports: [],
+    metadata: [],
+    users: [],
+    studyLocations: [],
+    locationGroups: [],
+  };
+
+  const originals = {
+    reportSave: Report.prototype.save,
+    reportFind: Report.find,
+    reportDeleteMany: Report.deleteMany,
+    metadataFind: ReportTagMetadata.find,
+    metadataBulkWrite: ReportTagMetadata.bulkWrite,
+    metadataDeleteMany: ReportTagMetadata.deleteMany,
+    studyLocationFind: StudyLocation.find,
+    studyLocationFindOne: StudyLocation.findOne,
+    studyLocationFindOneAndUpdate: StudyLocation.findOneAndUpdate,
+    locationGroupFind: LocationGroup.find,
+    locationGroupFindOne: LocationGroup.findOne,
+    locationGroupFindOneAndUpdate: LocationGroup.findOneAndUpdate,
+    userSave: User.prototype.save,
+    userFind: User.find,
+    userFindOne: User.findOne,
+    userFindOneAndUpdate: User.findOneAndUpdate,
+  };
+
+  Report.prototype.save = async function saveReport() {
+    const document = {
+      reportId: this.reportId,
+      userId: this.userId,
+      studyLocationId: this.studyLocationId,
+      createdAt: this.createdAt,
+      avgNoise: this.avgNoise,
+      maxNoise: this.maxNoise,
+      variance: this.variance,
+      occupancy: this.occupancy,
+    };
+    state.reports.push(clone(document));
+    return clone(document);
+  };
+
+  Report.find = (filter = {}) => {
+    let results = state.reports.filter((report) =>
+      Object.entries(filter).every(([key, value]) => {
+        if (value && typeof value === "object" && Array.isArray(value.$in)) {
+          return value.$in.includes(report[key]);
+        }
+
+        return report[key] === value;
+      }),
+    );
+
+    return {
+      sort(sortSpec) {
+        const [[key, direction]] = Object.entries(sortSpec);
+        results = [...results].sort((left, right) =>
+          direction >= 0
+            ? left[key] > right[key] ? 1 : -1
+            : left[key] < right[key] ? 1 : -1,
+        );
+
+        return {
+          lean: async () => clone(results),
+          limit: async (count) => clone(results.slice(0, count)),
+          then: (resolve, reject) => Promise.resolve(clone(results)).then(resolve, reject),
+        };
+      },
+    };
+  };
+
+  Report.deleteMany = async (filter) => {
+    const ids = filter.reportId?.$in ?? [];
+    state.reports = state.reports.filter((report) => !ids.includes(report.reportId));
+  };
+
+  ReportTagMetadata.find = (filter = {}) => {
+    const ids = filter.reportId?.$in ?? [];
+    const results =
+      ids.length === 0
+        ? state.metadata
+        : state.metadata.filter((item) => ids.includes(item.reportId));
+    return createChain(results);
+  };
+
+  ReportTagMetadata.bulkWrite = async (operations) => {
+    for (const operation of operations) {
+      const record = {
+        reportId: operation.updateOne.filter.reportId,
+        ...operation.updateOne.update.$set,
+      };
+      const index = state.metadata.findIndex((item) => item.reportId === record.reportId);
+      if (index >= 0) {
+        state.metadata[index] = clone(record);
+      } else {
+        state.metadata.push(clone(record));
+      }
+    }
+  };
+
+  ReportTagMetadata.deleteMany = async (filter) => {
+    const ids = filter.reportId?.$in ?? [];
+    state.metadata = state.metadata.filter((item) => !ids.includes(item.reportId));
+  };
+
+  StudyLocation.find = () => createChain(state.studyLocations);
+  StudyLocation.findOne = (filter) =>
+    createChain(
+      state.studyLocations.find((location) => location.studyLocationId === filter.studyLocationId) ?? null,
+    );
+  StudyLocation.findOneAndUpdate = (filter, update) => {
+    const existingIndex = state.studyLocations.findIndex(
+      (location) => location.studyLocationId === filter.studyLocationId,
+    );
+    const existing = existingIndex >= 0 ? state.studyLocations[existingIndex] : null;
+    const nextValue = {
+      ...(existing ?? {}),
+      ...(update.$setOnInsert ?? (existing ? {} : {})),
+      ...(update.$set ?? {}),
+    };
+
+    if (existingIndex >= 0) {
+      state.studyLocations[existingIndex] = clone(nextValue);
+    } else {
+      state.studyLocations.push(clone(nextValue));
+    }
+
+    return createChain(nextValue);
+  };
+
+  LocationGroup.find = () => createChain(state.locationGroups);
+  LocationGroup.findOne = (filter) =>
+    createChain(
+      state.locationGroups.find((group) => group.locationGroupId === filter.locationGroupId) ?? null,
+    );
+  LocationGroup.findOneAndUpdate = (filter, update) => {
+    const existingIndex = state.locationGroups.findIndex(
+      (group) => group.locationGroupId === filter.locationGroupId,
+    );
+    const existing = existingIndex >= 0 ? state.locationGroups[existingIndex] : null;
+    const nextValue = {
+      ...(existing ?? {}),
+      ...(update.$setOnInsert ?? (existing ? {} : {})),
+      ...(update.$set ?? {}),
+    };
+
+    if (existingIndex >= 0) {
+      state.locationGroups[existingIndex] = clone(nextValue);
+    } else {
+      state.locationGroups.push(clone(nextValue));
+    }
+
+    return createChain(nextValue);
+  };
+
+  User.prototype.save = async function saveUser() {
+    const document = {
+      userId: this.userId,
+      login: this.login,
+      email: this.email,
+      passwordHash: this.passwordHash,
+      firstName: this.firstName,
+      lastName: this.lastName,
+      displayName: this.displayName,
+      favorites: [...(this.favorites ?? [])],
+      userNoiseWF: this.userNoiseWF,
+      userOccupancyWF: this.userOccupancyWF,
+      emailVerifiedAt: this.emailVerifiedAt,
+      emailVerificationToken: this.emailVerificationToken,
+      passwordResetToken: this.passwordResetToken,
+      passwordResetExpiresAt: this.passwordResetExpiresAt,
+    };
+    state.users.push(clone(document));
+    return clone(document);
+  };
+
+  User.find = (filter = {}) => {
+    const ids = filter.userId?.$in ?? [];
+    const results =
+      ids.length === 0 ? state.users : state.users.filter((user) => ids.includes(user.userId));
+    return createChain(results);
+  };
+  User.findOne = (filter) =>
+    createChain(
+      state.users.find((user) =>
+        Object.entries(filter).every(([key, value]) => user[key] === value),
+      ) ?? null,
+    );
+  User.findOneAndUpdate = (filter, update) => {
+    const existingIndex = state.users.findIndex((user) => user.userId === filter.userId);
+    if (existingIndex < 0) {
+      return createChain(null);
+    }
+
+    state.users[existingIndex] = {
+      ...state.users[existingIndex],
+      ...update.$set,
+    };
+    return createChain(state.users[existingIndex]);
+  };
+
+  return {
+    state,
+    restore() {
+      Report.prototype.save = originals.reportSave;
+      Report.find = originals.reportFind;
+      Report.deleteMany = originals.reportDeleteMany;
+      ReportTagMetadata.find = originals.metadataFind;
+      ReportTagMetadata.bulkWrite = originals.metadataBulkWrite;
+      ReportTagMetadata.deleteMany = originals.metadataDeleteMany;
+      StudyLocation.find = originals.studyLocationFind;
+      StudyLocation.findOne = originals.studyLocationFindOne;
+      StudyLocation.findOneAndUpdate = originals.studyLocationFindOneAndUpdate;
+      LocationGroup.find = originals.locationGroupFind;
+      LocationGroup.findOne = originals.locationGroupFindOne;
+      LocationGroup.findOneAndUpdate = originals.locationGroupFindOneAndUpdate;
+      User.prototype.save = originals.userSave;
+      User.find = originals.userFind;
+      User.findOne = originals.userFindOne;
+      User.findOneAndUpdate = originals.userFindOneAndUpdate;
+    },
+  };
+}
+
+it("submitCanonicalReport persists report metadata and updates location/group/user state", async () => {
+  const harness = installInMemoryModelPatches();
+  const service = new ReportProcessingService();
+
+  try {
+    const createdAt = new Date("2026-03-30T18:00:00.000Z");
+    const first = await service.submitCanonicalReport({
+      userId: "collector-1",
+      studyLocationId: "library-floor-1-quiet",
+      createdAt,
+      avgNoise: 48,
+      maxNoise: 53,
+      variance: 4,
+      occupancy: 2,
+    });
+
+    const second = await service.submitCanonicalReport({
+      userId: "collector-2",
+      studyLocationId: "library-floor-1-quiet",
+      createdAt: new Date("2026-03-30T18:01:00.000Z"),
+      avgNoise: 60,
+      maxNoise: 66,
+      variance: 6,
+      occupancy: 4,
+    });
+
+    assert.equal(harness.state.reports.length, 2);
+    assert.equal(harness.state.metadata.length, 2);
+    assert.equal(harness.state.users.length, 2);
+    assert.equal(harness.state.studyLocations.length, 1);
+    assert.equal(harness.state.locationGroups.length, 1);
+
+    assert.ok(first.report.reportId);
+    assert.ok(first.metadata);
+    assert.ok(second.studyLocation);
+    assert.ok(second.locationGroup);
+    assert.ok(second.cycle);
+    assert.equal(second.studyLocation.studyLocationId, "library-floor-1-quiet");
+    assert.equal(
+      second.locationGroup.locationGroupId,
+      "group-john-c-hitt-library",
+    );
+    assert.ok(second.studyLocation.currentNoiseLevel > 48);
+    assert.ok(second.studyLocation.currentNoiseLevel < 60);
+    assert.ok(second.studyLocation.currentOccupancyLevel > 2);
+    assert.ok(second.studyLocation.currentOccupancyLevel < 4);
+    assert.ok(second.locationGroup.currentNoiseLevel !== null);
+    assert.ok(second.locationGroup.currentOccupancyLevel !== null);
+    assert.equal(second.cycle.activeReportCount, 2);
+  } finally {
+    harness.restore();
+  }
+});
+
+void run();
+
+async function run() {
+  let failures = 0;
+
+  for (const testCase of registeredTests) {
+    try {
+      await testCase.run();
+      console.log(`PASS ${testCase.name}`);
+    } catch (error) {
+      failures += 1;
+      console.error(`FAIL ${testCase.name}`);
+      console.error(error);
+    }
+  }
+
+  if (failures > 0) {
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`All ${registeredTests.length} report-processing integration tests passed.`);
+}

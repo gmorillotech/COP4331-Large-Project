@@ -15,7 +15,7 @@ import {
   type StudyLocationRepository,
   type User,
   type UserRepository,
-} from "../../uml_service_layout";
+} from "../../shared/src/uml_service_layout";
 
 class InMemoryUserRepository implements UserRepository {
   constructor(private readonly users: User[]) {}
