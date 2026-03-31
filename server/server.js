@@ -1,17 +1,15 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const connectDB = require("./config/db");
 
 // Import all route files
 const authRoutes = require("./routes/authRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const cardRoutes = require("./routes/cardRoutes");
-
-const Users = require("./models/User");
-const LocationGroup = require("./models/LocationGroup");
 const StudyLocation = require("./models/StudyLocation");
-const Report = require("./models/Report");
+const LocationGroup = require("./models/LocationGroup");
 
 const app = express();
 
@@ -248,6 +246,67 @@ const mapAnnotations = [
   },
 ];
 
+function toSeverity(noiseLevel) {
+  if (!Number.isFinite(noiseLevel)) {
+    return "low";
+  }
+
+  if (noiseLevel >= 68) {
+    return "high";
+  }
+
+  if (noiseLevel >= 52) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function toNoiseText(noiseLevel) {
+  if (!Number.isFinite(noiseLevel)) {
+    return "Noise unavailable";
+  }
+
+  if (noiseLevel >= 68) {
+    return `Noise: Loud (${noiseLevel.toFixed(1)} dB)`;
+  }
+
+  if (noiseLevel >= 52) {
+    return `Noise: Moderate (${noiseLevel.toFixed(1)} dB)`;
+  }
+
+  return `Noise: Quiet (${noiseLevel.toFixed(1)} dB)`;
+}
+
+function toOccupancyText(occupancyLevel) {
+  if (!Number.isFinite(occupancyLevel)) {
+    return "Occupancy unavailable";
+  }
+
+  return `Occupancy: ${occupancyLevel.toFixed(1)} / 5`;
+}
+
+function formatUpdatedAtLabel(updatedAt) {
+  if (!updatedAt) {
+    return "Awaiting live reports";
+  }
+
+  const elapsedMinutes = Math.max(
+    0,
+    Math.round((Date.now() - new Date(updatedAt).getTime()) / 60000),
+  );
+
+  if (elapsedMinutes <= 0) {
+    return "Updated just now";
+  }
+
+  if (elapsedMinutes === 1) {
+    return "Updated 1 minute ago";
+  }
+
+  return `Updated ${elapsedMinutes} minutes ago`;
+}
+
 function getCardsForUser(userId) {
   const normalizedUserId = Number.isInteger(userId) ? userId : Number(userId) || defaultUser.id;
 
@@ -281,13 +340,21 @@ const PORT = process.env.PORT || 5050;
 const startServer = async () => {
   try {
     await connectDB(); // Connect to the database first
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
   } catch (err) {
-    console.error("Failed to start server:", err.message);
-    process.exit(1);
+    const isProduction = process.env.NODE_ENV === "production";
+    if (isProduction) {
+      console.error("Failed to start server:", err.message);
+      process.exit(1);
+    }
+
+    console.warn(
+      "MongoDB unavailable. Starting in degraded local mode so fallback routes can still be tested."
+    );
   }
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 };
 
 startServer();
@@ -339,15 +406,47 @@ app.post("/api/searchcards", async (req, res) => {
   return res.status(200).json({ results, error: "" });
 });
 
-app.get("/api/map-annotations", (req, res) => {
-  res.status(200).json({
-    results: mapAnnotations,
-    error: "",
-  });
-});
+app.get("/api/map-annotations", async (req, res) => {
+  try {
+    const [locations, groups] = await Promise.all([
+      StudyLocation.find().lean(),
+      LocationGroup.find().lean(),
+    ]);
 
-const PORT = process.env.PORT || 5000;
+    const locationsById = new Map(locations.map((location) => [location.studyLocationId, location]));
+    const groupsById = new Map(groups.map((group) => [group.locationGroupId, group]));
+    const results = mapAnnotations.map((annotation) => {
+      const liveLocation = locationsById.get(annotation.id);
+      if (!liveLocation) {
+        return annotation;
+      }
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+      const liveGroup = groupsById.get(liveLocation.locationGroupId);
+      const liveNoise = liveLocation.currentNoiseLevel;
+      const liveOccupancy = liveLocation.currentOccupancyLevel;
+
+      return {
+        ...annotation,
+        buildingName: liveGroup?.name ?? annotation.buildingName,
+        severity: toSeverity(liveNoise),
+        noiseText: toNoiseText(liveNoise),
+        occupancyText: toOccupancyText(liveOccupancy),
+        statusText:
+          Number.isFinite(liveNoise) && Number.isFinite(liveOccupancy)
+            ? `Live estimate: ${liveNoise.toFixed(1)} dB, occupancy ${liveOccupancy.toFixed(1)} / 5`
+            : annotation.statusText,
+        updatedAtLabel: formatUpdatedAtLabel(liveLocation.updatedAt),
+      };
+    });
+
+    res.status(200).json({
+      results,
+      error: "",
+    });
+  } catch (_error) {
+    res.status(200).json({
+      results: mapAnnotations,
+      error: "",
+    });
+  }
 });
