@@ -1,6 +1,7 @@
 import type { ChangeEvent, MouseEvent } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './Login.css';
 
 type LoginResponse = {
   id: number;
@@ -63,7 +64,7 @@ function Login() {
 
   return (
     <div id="loginDiv">
-      <span id="inner-title">PLEASE LOG IN</span>
+      <span id="inner-title">LOG IN</span>
       <br />
       <input
         type="text"
@@ -85,7 +86,7 @@ function Login() {
         type="submit"
         id="loginButton"
         className="buttons"
-        value="Do It"
+        value="Login"
         onClick={doLogin}
       />
       <span id="loginResult">{message}</span>

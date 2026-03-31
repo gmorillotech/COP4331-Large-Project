@@ -1,0 +1,68 @@
+/* Login container */
+#loginDiv {
+  width: 320px;              /* slightly wider */
+  margin: 100px auto;        /* center horizontally with top margin */
+  padding: 25px;
+  border-radius: 15px;       /* smooth rounded corners */
+  background-color: #f0f4f8; /* light, soft background */
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1); /* subtle shadow */
+  text-align: center;
+}
+
+/* Title */
+#inner-title {
+  font-size: 1.6em;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20px;
+  display: block;
+}
+
+/* Inputs for username & password */
+input[type="text"],
+input[type="password"] {
+  width: 90%;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 12px;        /* rounded edges */
+  border: 1px solid #aaa;     /* soft border */
+  font-size: 1em;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Focus effect for inputs */
+input[type="text"]:focus,
+input[type="password"]:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+/* Login button */
+#loginButton {
+  width: 95%;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 12px;        /* rounded button */
+  border: none;
+  background-color: #007bff;  /* blue button */
+  color: white;
+  font-weight: bold;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+/* Hover effect for button */
+#loginButton:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px); /* subtle lift */
+}
+
+/* Error / message text */
+#loginResult {
+  display: block;
+  margin-top: 12px;
+  color: red;
+  font-size: 0.9em;
+}
