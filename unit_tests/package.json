@@ -3,7 +3,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build:a1": "node ./node_modules/typescript/bin/tsc -p ../shared/tsconfig.json",
+    "build:tests": "node ./node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "npm run build:a1 && npm run build:tests",
     "test": "npm run build && node dist/unit_tests/a1_service.test.js",
     "calibrate": "npm run build && node dist/unit_tests/calibration/a1_calibration_harness.js"
   },

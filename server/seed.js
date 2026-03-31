@@ -1,11 +1,12 @@
-
 require("dotenv").config();
-const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const connectDB = require("./config/db");
 
 const LocationGroup = require("./models/LocationGroup");
 const StudyLocation = require("./models/StudyLocation");
+const User = require("./models/User");
+const { locationGroups, studyLocations } = require("./services/locationCatalog");
 
 const seedData = async () => {
     try {
@@ -13,52 +14,59 @@ const seedData = async () => {
 
         await LocationGroup.deleteMany();
         await StudyLocation.deleteMany();
+        await User.deleteMany({ userId: "local-user" });
 
         console.log("Old data cleared.");
 
-        const groups = await LocationGroup.insertMany([
-            {
-                name: "Library",
-                description: "Main campus library",
-                coordinates: [28.6031, -81.2008],
-                currNoiseLevel: "Silent",
-                currOccupancyLevel: "Moderate",
-            },
-            {
-                name: "Student Union",
-                description: "Food and social area",
-                coordinates: [28.6018, -81.1995],
-                currNoiseLevel: "Loud",
-                currOccupancyLevel: "Crowded",
-            },
-        ]);
+        await LocationGroup.insertMany(
+            locationGroups.map((group) => ({
+                locationGroupId: group.locationGroupId,
+                name: group.name,
+                currentNoiseLevel: null,
+                currentOccupancyLevel: null,
+                updatedAt: null,
+            })),
+        );
 
         console.log("LocationGroups added.");
 
-        await StudyLocation.insertMany([
-            {
-                name: "Library 4th Floor Quiet Zone",
-                locationGroupId: groups[0]._id,
-                coordinates: [28.6032, -81.2009],
-                preciseLocation: "4th floor, near the windows",
-                currNoiseLevel: "Silent",
-                currOccupancyLevel: "Sparse",
-            },
-            {
-                name: "Student Union Food Court",
-                locationGroupId: groups[1]._id,
-                coordinates: [28.6019, -81.1996],
-                preciseLocation: "Food court area",
-                currNoiseLevel: "Loud",
-                currOccupancyLevel: "Full",
-            },
-        ]);
+        await StudyLocation.insertMany(
+            studyLocations.map((location) => ({
+                studyLocationId: location.studyLocationId,
+                name: location.name,
+                locationGroupId: location.locationGroupId,
+                latitude: location.latitude,
+                longitude: location.longitude,
+                currentNoiseLevel: null,
+                currentOccupancyLevel: null,
+                updatedAt: null,
+            })),
+        );
 
         console.log("StudyLocations added.");
 
+        await new User({
+            userId: "local-user",
+            login: "collector-local-user",
+            email: "local-user@local.invalid",
+            passwordHash: await bcrypt.hash("collector-local-user", 10),
+            firstName: "Local",
+            lastName: "Collector",
+            displayName: "Local Collector",
+            favorites: [],
+            userNoiseWF: 1,
+            userOccupancyWF: 1,
+            emailVerifiedAt: new Date(),
+            emailVerificationToken: null,
+            passwordResetToken: null,
+            passwordResetExpiresAt: null,
+        }).save();
+
+        console.log("Collector user added.");
+
         process.exit();
-    }catch (err) {
-        console.error(error);
+    } catch (err) {
+        console.error(err);
         process.exit(1);
     }
 };
