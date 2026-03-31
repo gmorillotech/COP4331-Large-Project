@@ -1,55 +1,82 @@
-const express = require('express');
-const Report = require('../models/Report');
-const { protect } = require('../middleware/authMiddleware');
-const router = express.Router();
+const express = require("express");
 
-// ALL report routes are protected
-router.use(protect);
+const Report = require("../models/Report");
+const { optionalProtect, protect } = require("../middleware/authMiddleware");
+const { ReportProcessingService } = require("../services/reportProcessingService");
 
-// 1. POST /api/reports
-router.post('/', async (req, res) => {
+function createReportRouter({
+  ReportModel = Report,
+  optionalProtectMiddleware = optionalProtect,
+  protectMiddleware = protect,
+  reportProcessingService = new ReportProcessingService(),
+} = {}) {
+  const router = express.Router();
+
+  router.post("/", optionalProtectMiddleware, async (req, res) => {
     try {
-        const { studyLocationId, noiseLevel, occupancyLevel, decibelAverage, decibelMax } = req.body;
-        const newReport = new Report({
-            studyLocationId,
-            noiseLevel,
-            occupancyLevel,
-            decibelAverage,
-            decibelMax,
-            userId: req.user._id
-        });
-        const savedReport = await newReport.save();
-        // TODO: Trigger logic to update the associated StudyLocation's status
-        res.status(201).json(savedReport);
-    } catch (error) {
-        res.status(500).json({ error: 'Server error while creating report.' });
-    }
-});
+      const {
+        studyLocationId,
+        avgNoise,
+        maxNoise,
+        variance,
+        occupancy,
+        createdAt,
+        userId: bodyUserId,
+      } = req.body ?? {};
 
-// 2. GET /api/reports/location/:locationId
-router.get('/location/:locationId', async (req, res) => {
+      if (
+        !studyLocationId ||
+        avgNoise === undefined ||
+        maxNoise === undefined ||
+        variance === undefined ||
+        occupancy === undefined
+      ) {
+        return res.status(400).json({ error: "Missing canonical report fields." });
+      }
+
+      const processed = await reportProcessingService.submitCanonicalReport({
+        userId: req.user?.userId ?? bodyUserId ?? "local-user",
+        studyLocationId,
+        createdAt: createdAt ? new Date(createdAt) : new Date(),
+        avgNoise: Number(avgNoise),
+        maxNoise: Number(maxNoise),
+        variance: Number(variance),
+        occupancy: Number(occupancy),
+      });
+
+      return res.status(201).json(processed);
+    } catch (error) {
+      return res.status(500).json({
+        error: "Server error while creating report.",
+        details: error.message,
+      });
+    }
+  });
+
+  router.use(protectMiddleware);
+
+  router.get("/location/:locationId", async (req, res) => {
     try {
-        const reports = await Report.find({ studyLocationId: req.params.locationId })
-            .sort({ createdAt: -1 })
-            .limit(20);
-        res.status(200).json(reports);
-    } catch (error) {
-        res.status(500).json({ error: 'Server error fetching reports.' });
+      const reports = await ReportModel.find({ studyLocationId: req.params.locationId })
+        .sort({ createdAt: -1 })
+        .limit(20);
+      return res.status(200).json(reports);
+    } catch (_error) {
+      return res.status(500).json({ error: "Server error fetching reports." });
     }
-});
+  });
 
-// 3. GET /api/reports/recent
-router.get('/recent', async (req, res) => {
+  router.get("/recent", async (_req, res) => {
     try {
-        const reports = await Report.find()
-            .populate('studyLocationId', 'name')
-            .populate('userId', 'firstName lastName')
-            .sort({ createdAt: -1 })
-            .limit(15);
-        res.status(200).json(reports);
-    } catch (error) {
-        res.status(500).json({ error: 'Server error fetching recent reports.' });
+      const reports = await ReportModel.find().sort({ createdAt: -1 }).limit(15);
+      return res.status(200).json(reports);
+    } catch (_error) {
+      return res.status(500).json({ error: "Server error fetching recent reports." });
     }
-});
+  });
 
-module.exports = router;
+  return router;
+}
+
+module.exports = createReportRouter();
+module.exports.createReportRouter = createReportRouter;
