@@ -1,2 +1,24 @@
 node_modules/
 .env
+.DS_Store
+
+# Web Frontend build output
+Web_Frontend/dist/
+
+# Flutter
+flutter_application_1/.dart_tool/
+flutter_application_1/.flutter-plugins
+flutter_application_1/.flutter-plugins-dependencies
+flutter_application_1/build/
+flutter_application_1/pubspec.lock
+flutter_application_1/android/.gradle/
+flutter_application_1/android/local.properties
+flutter_application_1/android/gradle/wrapper/gradle-wrapper.jar
+flutter_application_1/ios/Flutter/Generated.xcconfig
+flutter_application_1/ios/Flutter/ephemeral/
+flutter_application_1/ios/Flutter/flutter_export_environment.sh
+flutter_application_1/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+flutter_application_1/ios/Runner/GeneratedPluginRegistrant.*
+flutter_application_1/macos/Flutter/ephemeral/
+flutter_application_1/windows/flutter/generated_plugin_registrant.cc
+flutter_application_1/windows/flutter/generated_plugins.cmake
