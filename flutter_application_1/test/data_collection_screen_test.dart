@@ -1,20 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_application_1/data_collection/data_collection_backend.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:flutter_application_1/data_collection/data_collection_workflow.dart';
 
+class FakeBackendClient implements DataCollectionBackendClient {
+  FakeBackendClient({
+    this.failSubmission = false,
+    this.locations = seededStudyLocations,
+  });
+
+  final bool failSubmission;
+  final List<DataCollectionStudyLocation> locations;
+  final List<CapturedReportDraft> submittedReports = <CapturedReportDraft>[];
+
+  @override
+  Future<List<DataCollectionStudyLocation>> fetchStudyLocations() async {
+    return locations;
+  }
+
+  @override
+  Future<void> submitReport(CapturedReportDraft draft) async {
+    if (failSubmission) {
+      throw Exception('backend unavailable');
+    }
+
+    submittedReports.add(draft);
+  }
+}
+
 void main() {
   late InMemoryReportDraftRepository repository;
+  late FakeBackendClient backendClient;
 
   setUp(() {
     repository = InMemoryReportDraftRepository.instance;
     repository.clear();
+    backendClient = FakeBackendClient();
   });
 
   testWidgets('data collection screen renders core controls', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: DataCollectionScreen(draftRepository: repository),
+        home: DataCollectionScreen(
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
       ),
     );
 
@@ -33,7 +64,10 @@ void main() {
   testWidgets('occupancy slider exposes exactly five levels', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: DataCollectionScreen(draftRepository: repository),
+        home: DataCollectionScreen(
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
       ),
     );
 
@@ -59,6 +93,7 @@ void main() {
         home: DataCollectionScreen(
           signalSampler: scriptedSignal,
           draftRepository: repository,
+          backendClient: backendClient,
         ),
       ),
     );
@@ -89,7 +124,10 @@ void main() {
   testWidgets('animation widget mounts and disposes cleanly', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: DataCollectionScreen(draftRepository: repository),
+        home: DataCollectionScreen(
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
       ),
     );
 
@@ -104,7 +142,10 @@ void main() {
   testWidgets('capture controls toggle start and pause states', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: DataCollectionScreen(draftRepository: repository),
+        home: DataCollectionScreen(
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
       ),
     );
 
@@ -127,7 +168,7 @@ void main() {
     expect(find.text('Paused'), findsOneWidget);
   });
 
-  testWidgets('capture history and draft review populate after saving a draft', (
+  testWidgets('capture history submits to backend when available', (
     tester,
   ) async {
     double scriptedSignal(Duration elapsed) {
@@ -140,6 +181,7 @@ void main() {
         home: DataCollectionScreen(
           signalSampler: scriptedSignal,
           draftRepository: repository,
+          backendClient: backendClient,
         ),
       ),
     );
@@ -162,7 +204,47 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
-    expect(repository.drafts, isNotEmpty);
+    expect(repository.drafts, isEmpty);
+    expect(backendClient.submittedReports, isNotEmpty);
     expect(find.textContaining('Enough samples collected'), findsOneWidget);
+    expect(find.textContaining('Submitted to backend'), findsOneWidget);
+  });
+
+  testWidgets('failed submission queues the report in memory', (tester) async {
+    backendClient = FakeBackendClient(failSubmission: true);
+
+    double scriptedSignal(Duration elapsed) {
+      final bucket = elapsed.inMilliseconds ~/ 250;
+      return 0.25 + ((bucket % 4) * 0.14);
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DataCollectionScreen(
+          signalSampler: scriptedSignal,
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('start-capture-button')));
+    await tester.pump();
+
+    for (int i = 0; i < 12; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
+    await tester.ensureVisible(find.byKey(const Key('save-draft-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-draft-button')));
+    await tester.pump();
+
+    expect(repository.drafts, isNotEmpty);
+    expect(backendClient.submittedReports, isEmpty);
+    expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
+    expect(find.textContaining('Queued offline for this session'), findsOneWidget);
   });
 }
