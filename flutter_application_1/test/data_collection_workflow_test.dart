@@ -37,5 +37,24 @@ void main() {
       expect(location, isNotNull);
       expect(location!.studyLocationId, 'library-floor-1-quiet');
     });
+
+    test('in-memory draft repository removes queued drafts by id', () async {
+      final repository = InMemoryReportDraftRepository.instance;
+      repository.clear();
+      const builder = CapturedReportDraftBuilder();
+
+      final draft = builder.build(
+        location: seededStudyLocations.first,
+        occupancy: OccupancyLevel.busy,
+        rawSamples: const [45, 46, 47, 48, 49, 50, 51, 52, 53, 54],
+        createdAt: DateTime.utc(2026, 3, 28, 16, 15),
+      );
+
+      await repository.saveDraft(draft);
+      expect(repository.drafts, hasLength(1));
+
+      await repository.removeDraft(draft.reportId);
+      expect(repository.drafts, isEmpty);
+    });
   });
 }

@@ -7,7 +7,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'data_collection/data_collection_screen.dart';
+
 const String _configuredMapApiBaseUrl = String.fromEnvironment('MAP_API_BASE_URL');
+const String _mapRoute = '/map';
+const String _dataCollectionRoute = '/data-collection';
 
 void main() => runApp(const MainApp());
 
@@ -20,7 +24,11 @@ class MainApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Study Space Map',
       theme: ThemeData(useMaterial3: true),
-      home: const MapSearchPage(),
+      initialRoute: _mapRoute,
+      routes: {
+        _mapRoute: (_) => const MapSearchPage(),
+        _dataCollectionRoute: (_) => const DataCollectionScreen(),
+      },
     );
   }
 }
@@ -704,7 +712,22 @@ class _MapSearchPageState extends State<MapSearchPage> {
     final selected = _selected;
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7FB),
-      appBar: AppBar(title: const Text('Study Space Search'), backgroundColor: Colors.transparent),
+      appBar: AppBar(
+        title: const Text('Study Space Search'),
+        backgroundColor: Colors.transparent,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.of(context).pushNamed(_dataCollectionRoute);
+              },
+              icon: const Icon(Icons.mic_rounded),
+              label: const Text('Data Collection'),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
