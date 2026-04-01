@@ -27,6 +27,7 @@ class MainApp extends StatelessWidget {
 
 enum Severity { low, medium, high }
 enum NodeKind { group, location }
+enum SearchSort { relevance, distance, noise, occupancy }
 
 const List<LocationRecord> _seededRecords = [
   LocationRecord(
@@ -199,10 +200,14 @@ class MapNode {
     required this.severity,
     required this.searchTerms,
     required this.badge,
+    this.floorLabel,
     this.groupId,
     this.sublocationLabel,
     this.locationCount = 0,
     this.isFavorite = false,
+    this.noiseValue,
+    this.occupancyValue,
+    this.distanceMeters,
   });
 
   final String id;
@@ -219,12 +224,59 @@ class MapNode {
   final Severity severity;
   final String searchTerms;
   final String badge;
+  final String? floorLabel;
   final String? groupId;
   final String? sublocationLabel;
   final int locationCount;
   final bool isFavorite;
+  final double? noiseValue;
+  final double? occupancyValue;
+  final double? distanceMeters;
 
   bool get isGroup => kind == NodeKind.group;
+
+  factory MapNode.fromJson(Map<String, dynamic> json) {
+    final rawKind = (json['kind'] as String? ?? 'location').trim().toLowerCase();
+    return MapNode(
+      id: (json['id'] as String? ?? '').trim(),
+      kind: rawKind == 'group' ? NodeKind.group : NodeKind.location,
+      title: (json['title'] as String? ?? 'Study Location').trim(),
+      buildingName: (json['buildingName'] as String? ?? 'Unknown Building').trim(),
+      summary: (json['summary'] as String? ?? 'No summary available.').trim(),
+      statusText: (json['statusText'] as String? ?? 'Status unavailable').trim(),
+      noiseText: _trimMetric(json['noiseText'] as String?, 'Noise unavailable'),
+      occupancyText: _trimMetric(json['occupancyText'] as String?, 'Occupancy unavailable'),
+      updatedAtLabel: (json['updatedAtLabel'] as String? ?? 'Update time unavailable').trim(),
+      position: LatLng(
+        (json['lat'] as num?)?.toDouble() ?? 0,
+        (json['lng'] as num?)?.toDouble() ?? 0,
+      ),
+      color: _colorFromHex((json['color'] as String?) ?? '#3A86FF'),
+      severity: _severityFromString(json['severity'] as String?),
+      searchTerms: [
+        json['buildingName'],
+        json['title'],
+        json['floorLabel'],
+        json['sublocationLabel'],
+      ].whereType<String>().join(' ').toLowerCase(),
+      badge: ((json['badge'] as String?) ?? '').trim().isNotEmpty
+          ? (json['badge'] as String).trim()
+          : (rawKind == 'group'
+              ? ((json['buildingName'] as String? ?? 'B').substring(0, 1).toUpperCase())
+              : _badgeForFloor(
+                  (json['floorLabel'] as String? ?? '').trim(),
+                  (json['title'] as String? ?? 'S').trim(),
+                )),
+      floorLabel: (json['floorLabel'] as String?)?.trim(),
+      groupId: (json['groupId'] as String?)?.trim(),
+      sublocationLabel: (json['sublocationLabel'] as String?)?.trim(),
+      locationCount: (json['locationCount'] as num?)?.toInt() ?? 0,
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      noiseValue: (json['noiseValue'] as num?)?.toDouble(),
+      occupancyValue: (json['occupancyValue'] as num?)?.toDouble(),
+      distanceMeters: (json['distanceMeters'] as num?)?.toDouble(),
+    );
+  }
 }
 
 class MapSearchPage extends StatefulWidget {
@@ -239,51 +291,57 @@ class _MapSearchPageState extends State<MapSearchPage> {
     target: LatLng(28.6003, -81.2012),
     zoom: 15.4,
   );
-  static const double _groupZoomThreshold = 16.35;
 
   final _searchController = TextEditingController();
+  final _noiseMinController = TextEditingController();
+  final _noiseMaxController = TextEditingController();
+  final _occupancyMaxController = TextEditingController();
   final _mapViewportKey = GlobalKey();
   GoogleMapController? _mapController;
   Timer? _debounce;
+  Timer? _filterDebounce;
+  int _searchRequestId = 0;
 
-  List<LocationRecord> _records = const [];
-  List<MapNode> _groups = const [];
+  List<MapNode> _results = const [];
   Map<String, Offset> _screenPoints = const {};
   String _status = 'Loading map data...';
   String _query = '';
   String? _selectedId;
-  Severity? _filter;
   bool _loading = true;
   bool _detailsExpanded = false;
   bool _projectionPending = false;
   double _zoom = _defaultCamera.zoom;
+  LatLng _cameraCenter = _defaultCamera.target;
+  List<SearchSort?> _sortOrder = const [SearchSort.relevance, SearchSort.distance, null];
+  double _maxRadiusMeters = 300;
+  double? _minNoise;
+  double? _maxNoise;
+  double? _maxOccupancy;
+  bool _showAllResults = true;
+  bool _showBuildings = true;
+  bool _showSpots = true;
+  bool _showUsers = false;
 
-  bool get _showGroups => _zoom < _groupZoomThreshold;
   String get _baseUrl {
     if (_configuredMapApiBaseUrl.isNotEmpty) {
       return _configuredMapApiBaseUrl;
     }
 
     if (kIsWeb) {
-      return 'http://localhost:5000';
+      return 'http://localhost:5050';
     }
 
     if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5000';
+      return 'http://10.0.2.2:5050';
     }
 
-    return 'http://localhost:5000';
+    return 'http://localhost:5050';
   }
 
-  List<MapNode> get _locations => _records.map(_locationNode).toList(growable: false);
-  List<MapNode> get _visibleNodes => _filtered(_showGroups ? _groups : _locations);
-  List<MapNode> get _results {
-    if (_query.isEmpty) return _visibleNodes;
-    return _filtered([..._groups, ..._locations].where((n) => n.searchTerms.contains(_query)).toList());
-  }
+  List<MapNode> get _visibleNodes => _results;
 
   MapNode? get _selected {
-    for (final node in [..._results, ..._groups, ..._locations]) {
+    for (final node in _results) {
       if (node.id == _selectedId) return node;
     }
     return _results.isNotEmpty ? _results.first : null;
@@ -292,23 +350,57 @@ class _MapSearchPageState extends State<MapSearchPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    unawaited(_runSearch(showLoading: true));
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _filterDebounce?.cancel();
     _searchController.dispose();
+    _noiseMinController.dispose();
+    _noiseMaxController.dispose();
+    _occupancyMaxController.dispose();
     _mapController?.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _runSearch({bool showLoading = false}) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    final requestId = ++_searchRequestId;
+    final includeGroups = _showAllResults || _showBuildings;
+    final includeLocations = _showAllResults || _showSpots;
+    final sortTerms = _sortOrder.whereType<SearchSort>().map((value) => value.name).toList(growable: false);
+    final queryParameters = <String, String>{
+      'sortBy': sortTerms.isEmpty ? SearchSort.relevance.name : sortTerms.join(','),
+      'includeGroups': '$includeGroups',
+      'includeLocations': '$includeLocations',
+      'lat': _cameraCenter.latitude.toStringAsFixed(6),
+      'lng': _cameraCenter.longitude.toStringAsFixed(6),
+      'maxRadiusMeters': _maxRadiusMeters.round().toString(),
+    };
+
+    if (_query.isNotEmpty) {
+      queryParameters['q'] = _query;
+    }
+    if (_minNoise != null) {
+      queryParameters['minNoise'] = _minNoise!.toStringAsFixed(0);
+    }
+    if (_maxNoise != null) {
+      queryParameters['maxNoise'] = _maxNoise!.toStringAsFixed(0);
+    }
+    if (_maxOccupancy != null) {
+      queryParameters['maxOccupancy'] = _maxOccupancy!.toStringAsFixed(1);
+    }
+
+    if (showLoading || _results.isEmpty) {
+      setState(() => _loading = true);
+    }
 
     try {
+      final uri = Uri.parse('$_baseUrl/api/locations/search').replace(queryParameters: queryParameters);
       final request = await client
-          .getUrl(Uri.parse('$_baseUrl/api/map-annotations'))
+          .getUrl(uri)
           .timeout(const Duration(seconds: 6));
       final response = await request.close().timeout(const Duration(seconds: 6));
       final text = await response.transform(utf8.decoder).join().timeout(
@@ -326,51 +418,70 @@ class _MapSearchPageState extends State<MapSearchPage> {
       }
 
       final results = (payload['results'] as List<dynamic>? ?? const [])
-          .map((entry) => LocationRecord.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .map((entry) => MapNode.fromJson(Map<String, dynamic>.from(entry as Map)))
           .toList(growable: false);
 
-      if (results.isEmpty) {
-        _applyRecords(
-          _seededRecords,
-          status:
-              'Using seeded map data because $_baseUrl returned no study areas.',
-        );
+      if (!mounted || requestId != _searchRequestId) {
         return;
       }
 
-      _applyRecords(
-        results,
-        status: '${_buildGroups(results).length} buildings and ${results.length} study areas loaded',
-      );
+      setState(() {
+        _results = results;
+        _loading = false;
+        _status = _buildStatus(results.length);
+      });
+      _reconcileSelection();
+      _scheduleProjectionRefresh();
     } catch (error) {
-      _applyRecords(
-        _seededRecords,
-        status:
-            'API unavailable at $_baseUrl. Using seeded map data for local testing.',
-      );
+      if (!mounted || requestId != _searchRequestId) {
+        return;
+      }
+
+      final fallbackNodes = _fallbackNodes();
+      setState(() {
+        _results = fallbackNodes;
+        _loading = false;
+        _status = 'Search API unavailable at $_baseUrl. Showing local fallback map data.';
+      });
+      _reconcileSelection();
+      _scheduleProjectionRefresh();
     } finally {
       client.close(force: true);
     }
   }
 
-  void _applyRecords(List<LocationRecord> records, {required String status}) {
-    final groups = _buildGroups(records);
-    setState(() {
-      _records = records;
-      _groups = groups;
-      _selectedId = groups.isNotEmpty ? groups.first.id : null;
-      _status = status;
-      _loading = false;
-    });
-    _scheduleProjectionRefresh();
-  }
+  List<MapNode> _fallbackNodes() {
+    final locationNodes = _seededRecords
+        .map(
+          (record) => MapNode(
+            id: record.id,
+            kind: NodeKind.location,
+            title: record.title,
+            buildingName: record.buildingName,
+            summary: record.summary,
+            statusText: record.statusText,
+            noiseText: record.noiseText,
+            occupancyText: record.occupancyText,
+            updatedAtLabel: record.updatedAtLabel,
+            position: record.position,
+            color: record.color,
+            severity: record.severity,
+            searchTerms: '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'.toLowerCase(),
+            badge: _badgeForFloor(record.floorLabel, record.title),
+            floorLabel: record.floorLabel,
+            groupId: _groupId(record.buildingName),
+            sublocationLabel: record.sublocationLabel,
+            isFavorite: record.isFavorite,
+          ),
+        )
+        .toList(growable: false);
 
-  List<MapNode> _buildGroups(List<LocationRecord> records) {
-    final grouped = <String, List<LocationRecord>>{};
-    for (final record in records) {
-      grouped.putIfAbsent(record.buildingName, () => []).add(record);
+    final grouped = <String, List<MapNode>>{};
+    for (final node in locationNodes) {
+      grouped.putIfAbsent(node.buildingName, () => []).add(node);
     }
-    return grouped.entries.map((entry) {
+
+    final groupNodes = grouped.entries.map((entry) {
       final items = entry.value;
       final lat = items.map((e) => e.position.latitude).reduce((a, b) => a + b) / items.length;
       final lng = items.map((e) => e.position.longitude).reduce((a, b) => a + b) / items.length;
@@ -389,50 +500,98 @@ class _MapSearchPageState extends State<MapSearchPage> {
         position: LatLng(lat, lng),
         color: items.first.color,
         severity: Severity.values[severityIndex],
-        searchTerms: ([entry.key, ...items.map((e) => e.floorLabel), ...items.map((e) => e.sublocationLabel), ...items.map((e) => e.title)]).join(' ').toLowerCase(),
+        searchTerms: items.expand((e) => [entry.key, e.floorLabel ?? '', e.sublocationLabel ?? '', e.title]).join(' ').toLowerCase(),
         badge: entry.key.substring(0, 1).toUpperCase(),
         locationCount: items.length,
         isFavorite: items.any((e) => e.isFavorite),
       );
     }).toList(growable: false);
+
+    final nodes = <MapNode>[
+      if (_showAllResults || _showBuildings) ...groupNodes,
+      if (_showAllResults || _showSpots) ...locationNodes,
+    ];
+
+    return nodes.where((node) => _query.isEmpty || node.searchTerms.contains(_query)).toList(growable: false);
   }
-
-  MapNode _locationNode(LocationRecord record) => MapNode(
-        id: record.id,
-        kind: NodeKind.location,
-        title: record.title,
-        buildingName: record.buildingName,
-        summary: record.summary,
-        statusText: record.statusText,
-        noiseText: record.noiseText,
-        occupancyText: record.occupancyText,
-        updatedAtLabel: record.updatedAtLabel,
-        position: record.position,
-        color: record.color,
-        severity: record.severity,
-        searchTerms: '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'.toLowerCase(),
-        badge: _badgeForFloor(record.floorLabel, record.title),
-        groupId: _groupId(record.buildingName),
-        sublocationLabel: record.sublocationLabel,
-        isFavorite: record.isFavorite,
-      );
-
-  List<MapNode> _filtered(List<MapNode> nodes) => _filter == null ? nodes : nodes.where((n) => n.severity == _filter).toList();
 
   void _onSearch(String value) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 180), () {
       if (!mounted) return;
       setState(() => _query = value.trim().toLowerCase());
-      _reconcileSelection();
-      _scheduleProjectionRefresh();
+      unawaited(_runSearch());
     });
   }
 
-  void _setFilter(Severity? filter) {
-    setState(() => _filter = filter);
-    _reconcileSelection();
-    _scheduleProjectionRefresh();
+  String _buildStatus(int resultCount) {
+    final noun = resultCount == 1 ? 'result' : 'results';
+    final sortLabels = _sortOrder.whereType<SearchSort>().map((value) => _sortLabel(value).toLowerCase()).toList(growable: false);
+    final sortText = sortLabels.isEmpty ? 'relevance' : sortLabels.join(' then ');
+    final usersNote = _showUsers ? ' User overlays are reserved for a later backend pass.' : '';
+    return '$resultCount $noun within ${_maxRadiusMeters.round()} m, sorted by $sortText.$usersNote';
+  }
+
+  void _setSortAt(int index, SearchSort? sort) {
+    final nextOrder = [..._sortOrder];
+    nextOrder[index] = sort;
+    final normalized = <SearchSort?>[];
+    final seen = <SearchSort>{};
+    for (final value in nextOrder) {
+      if (value == null) {
+        normalized.add(null);
+      } else if (seen.add(value)) {
+        normalized.add(value);
+      } else {
+        normalized.add(null);
+      }
+    }
+    setState(() => _sortOrder = normalized);
+    unawaited(_runSearch());
+  }
+
+  void _scheduleFilterSearch() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      unawaited(_runSearch());
+    });
+  }
+
+  void _toggleShowAll(bool value) {
+    setState(() {
+      _showAllResults = value;
+      _showBuildings = value;
+      _showSpots = value;
+      _showUsers = value;
+    });
+    unawaited(_runSearch());
+  }
+
+  void _toggleShowItem({required bool value, required void Function(bool) assign}) {
+    setState(() {
+      assign(value);
+      _showAllResults = _showBuildings && _showSpots && _showUsers;
+    });
+    unawaited(_runSearch());
+  }
+
+  void _setRadius(double value) {
+    setState(() => _maxRadiusMeters = value);
+    unawaited(_runSearch());
+  }
+
+  void _onNoiseChanged() {
+    setState(() {
+      _minNoise = double.tryParse(_noiseMinController.text.trim());
+      _maxNoise = double.tryParse(_noiseMaxController.text.trim());
+    });
+    _scheduleFilterSearch();
+  }
+
+  void _onOccupancyChanged(String value) {
+    setState(() => _maxOccupancy = double.tryParse(value.trim()));
+    _scheduleFilterSearch();
   }
 
   void _reconcileSelection() {
@@ -448,15 +607,8 @@ class _MapSearchPageState extends State<MapSearchPage> {
   }
 
   Future<void> _focusNode(MapNode node) async {
-    final targetNode = node.isGroup
-        ? _locations.firstWhere(
-            (candidate) => candidate.groupId == node.id,
-            orElse: () => node,
-          )
-        : node;
-
     setState(() {
-      _selectedId = targetNode.id;
+      _selectedId = node.id;
       _detailsExpanded = false;
       _screenPoints = const {};
     });
@@ -472,15 +624,11 @@ class _MapSearchPageState extends State<MapSearchPage> {
   }
 
   void _onCameraMove(CameraPosition position) {
-    final previousGroupView = _showGroups;
-    final nextZoom = position.zoom;
-    final nextGroupView = nextZoom < _groupZoomThreshold;
-    if (nextZoom == _zoom) return;
     setState(() {
-      _zoom = nextZoom;
+      _zoom = position.zoom;
+      _cameraCenter = position.target;
       _screenPoints = const {};
     });
-    if (previousGroupView != nextGroupView) _syncSelectionToZoom(nextGroupView);
     _scheduleProjectionRefresh();
   }
 
@@ -531,25 +679,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
     });
   }
 
-  void _syncSelectionToZoom(bool groupView) {
-    final selected = _selected;
-    if (selected == null) return;
-    if (groupView && !selected.isGroup && selected.groupId != null) {
-      setState(() {
-        _selectedId = selected.groupId;
-        _detailsExpanded = false;
-      });
-    } else if (!groupView && selected.isGroup) {
-      final child = _locations.where((n) => n.groupId == selected.id).cast<MapNode?>().firstWhere((n) => n != null, orElse: () => null);
-      if (child != null) {
-        setState(() {
-          _selectedId = child.id;
-          _detailsExpanded = false;
-        });
-      }
-    }
-  }
-
   String _usersPresentText(MapNode node) {
     if (node.isGroup) {
       return '${node.locationCount} active study areas';
@@ -577,62 +706,163 @@ class _MapSearchPageState extends State<MapSearchPage> {
       backgroundColor: const Color(0xFFF3F7FB),
       appBar: AppBar(title: const Text('Study Space Search'), backgroundColor: Colors.transparent),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(_showGroups ? 'Default view: buildings' : 'Zoomed view: sublocations', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
-                Text('Search includes whole buildings and individual spots. Pinch out to return to the default building view.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF486581))),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _searchController,
-                  onChanged: (value) {
-                    setState(() {});
-                    _onSearch(value);
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Search Library or Quiet Study',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {});
-                              _onSearch('');
-                            },
-                            icon: const Icon(Icons.close),
-                          ),
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final topPanelHeight = math.min(360.0, math.max(260.0, constraints.maxHeight * 0.36));
+            final resultsHeight = math.min(210.0, math.max(150.0, constraints.maxHeight * 0.24));
+            return Column(
+              children: [
+                SizedBox(
+                  height: topPanelHeight,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Search from the current map center', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 8),
+                      Text('Backend search supports ordered sorting, numeric noise bounds, occupancy caps, distance limits, and result visibility toggles.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: const Color(0xFF486581))),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _searchController,
+                        onChanged: (value) {
+                          setState(() {});
+                          _onSearch(value);
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Search Library or Quiet Study',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searchController.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() {});
+                                    _onSearch('');
+                                  },
+                                  icon: const Icon(Icons.close),
+                                ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: const Color(0xFFD8E1EB)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _sectionLabel('Sort Order'),
+                            const SizedBox(height: 8),
+                            _sortDropdown('1st by', 0),
+                            const SizedBox(height: 8),
+                            _sortDropdown('2nd by', 1),
+                            const SizedBox(height: 8),
+                            _sortDropdown('3rd by', 2),
+                            const SizedBox(height: 14),
+                            _sectionLabel('Distance'),
+                            Slider(
+                              value: _maxRadiusMeters,
+                              min: 100,
+                              max: 500,
+                              divisions: 8,
+                              label: '${_maxRadiusMeters.round()} m',
+                              onChanged: (value) => setState(() => _maxRadiusMeters = value),
+                              onChangeEnd: _setRadius,
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                'Up to ${_maxRadiusMeters.round()} m',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF486581)),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            _sectionLabel('Noise (dB)'),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _numberField(
+                                    controller: _noiseMinController,
+                                    label: 'Min',
+                                    onChanged: (_) => _onNoiseChanged(),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _numberField(
+                                    controller: _noiseMaxController,
+                                    label: 'Max',
+                                    onChanged: (_) => _onNoiseChanged(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            _sectionLabel('Max Occupancy'),
+                            const SizedBox(height: 8),
+                            _numberField(
+                              controller: _occupancyMaxController,
+                              label: '0.0 to 5.0',
+                              onChanged: _onOccupancyChanged,
+                            ),
+                            const SizedBox(height: 14),
+                            _sectionLabel('Show'),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 6,
+                              children: [
+                                _showCheckbox(
+                                  label: 'All results',
+                                  value: _showAllResults,
+                                  onChanged: (value) => _toggleShowAll(value ?? false),
+                                ),
+                                _showCheckbox(
+                                  label: 'Buildings',
+                                  value: _showBuildings,
+                                  onChanged: (value) => _toggleShowItem(
+                                    value: value ?? false,
+                                    assign: (next) => _showBuildings = next,
+                                  ),
+                                ),
+                                _showCheckbox(
+                                  label: 'Spots',
+                                  value: _showSpots,
+                                  onChanged: (value) => _toggleShowItem(
+                                    value: value ?? false,
+                                    assign: (next) => _showSpots = next,
+                                  ),
+                                ),
+                                _showCheckbox(
+                                  label: 'Users',
+                                  value: _showUsers,
+                                  onChanged: (value) => _toggleShowItem(
+                                    value: value ?? false,
+                                    assign: (next) => _showUsers = next,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(_status, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF64748B))),
+                    ]),
                   ),
                 ),
-                const SizedBox(height: 12),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    _chip('All levels', _filter == null, null),
-                    const SizedBox(width: 8),
-                    _chip('High', _filter == Severity.high, Severity.high, const Color(0xFFD9485F)),
-                    const SizedBox(width: 8),
-                    _chip('Medium', _filter == Severity.medium, Severity.medium, const Color(0xFFFF9F1C)),
-                    const SizedBox(width: 8),
-                    _chip('Low', _filter == Severity.low, Severity.low, const Color(0xFF2A9D8F)),
-                  ]),
-                ),
-                const SizedBox(height: 10),
-                Text(_status, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF64748B))),
-              ]),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
-                  child: Stack(children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Stack(children: [
                     RepaintBoundary(
                       key: _mapViewportKey,
                       child: GoogleMap(
@@ -646,7 +876,10 @@ class _MapSearchPageState extends State<MapSearchPage> {
                           _scheduleProjectionRefresh();
                         },
                         onCameraMove: _onCameraMove,
-                        onCameraIdle: _scheduleProjectionRefresh,
+                        onCameraIdle: () {
+                          _scheduleProjectionRefresh();
+                          unawaited(_runSearch());
+                        },
                         onTap: (_) => setState(() {
                           _selectedId = null;
                           _detailsExpanded = false;
@@ -709,72 +942,159 @@ class _MapSearchPageState extends State<MapSearchPage> {
                           child: _detailCard(context, selected),
                         ),
                       ),
-                  ]),
-                ),
-              ),
-            ),
-            SizedBox(
-              height: 210,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _results.isEmpty
-                  ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_query.isEmpty ? 'No map results match this filter.' : 'No building or location matches your search and filters.', textAlign: TextAlign.center)))
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _results.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 12),
-                      itemBuilder: (context, index) {
-                        final node = _results[index];
-                        final selectedNode = node.id == _selectedId;
-                        return SizedBox(
-                          width: 300,
-                          child: FilledButton.tonal(
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.all(16),
-                              backgroundColor: selectedNode ? node.color.withValues(alpha: 0.14) : Colors.white,
-                              side: BorderSide(color: selectedNode ? node.color : const Color(0xFFD5DEEA)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                            ),
-                            onPressed: () => _focusNode(node),
-                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                                CircleAvatar(backgroundColor: node.color, foregroundColor: Colors.white, child: Text(node.badge)),
-                                if (node.isFavorite) ...[const SizedBox(height: 8), const Icon(Icons.favorite_border, size: 18, color: Color(0xFFB45309))],
-                              ]),
-                              const SizedBox(width: 12),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Row(children: [
-                                  Expanded(child: Text(_title(node), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF102A43)))),
-                                  const SizedBox(width: 8),
-                                  _pill(node.isGroup ? 'Building' : 'Spot'),
-                                ]),
-                                const SizedBox(height: 6),
-                                Text(node.isGroup ? '${node.locationCount} study areas' : (node.sublocationLabel ?? ''), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F766E))),
-                                const SizedBox(height: 6),
-                                Text(node.summary, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF486581))),
-                              ])),
-                            ]),
-                          ),
-                        );
-                      },
+                      ]),
                     ),
-            ),
-          ],
+                  ),
+                ),
+                SizedBox(
+                  height: resultsHeight,
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _results.isEmpty
+                      ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_query.isEmpty ? 'No map results match this filter.' : 'No building or location matches your search and filters.', textAlign: TextAlign.center)))
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _results.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final node = _results[index];
+                            final selectedNode = node.id == _selectedId;
+                            return SizedBox(
+                              width: 300,
+                              child: FilledButton.tonal(
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.all(16),
+                                  backgroundColor: selectedNode ? node.color.withValues(alpha: 0.14) : Colors.white,
+                                  side: BorderSide(color: selectedNode ? node.color : const Color(0xFFD5DEEA)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                                ),
+                                onPressed: () => _focusNode(node),
+                                child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                                  Column(mainAxisSize: MainAxisSize.min, children: [
+                                    CircleAvatar(backgroundColor: node.color, foregroundColor: Colors.white, child: Text(node.badge)),
+                                    if (node.isFavorite) ...[const SizedBox(height: 8), const Icon(Icons.favorite_border, size: 18, color: Color(0xFFB45309))],
+                                  ]),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    Row(children: [
+                                      Expanded(child: Text(_title(node), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF102A43)))),
+                                      const SizedBox(width: 8),
+                                      _pill(node.isGroup ? 'Building' : 'Spot'),
+                                    ]),
+                                    const SizedBox(height: 6),
+                                    Text(node.isGroup ? '${node.locationCount} study areas' : (node.sublocationLabel ?? ''), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F766E))),
+                                    const SizedBox(height: 6),
+                                    Text(node.summary, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF486581))),
+                                  ])),
+                                ]),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _chip(String label, bool selected, Severity? value, [Color color = const Color(0xFF1F6FEB)]) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => _setFilter(value),
-      backgroundColor: Colors.white,
-      selectedColor: color.withValues(alpha: 0.18),
-      side: BorderSide(color: selected ? color : const Color(0xFFD5DEEA)),
-      labelStyle: TextStyle(color: selected ? color : const Color(0xFF334E68), fontWeight: FontWeight.w700),
+  Widget _sectionLabel(String label) => Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF102A43),
+          fontWeight: FontWeight.w800,
+          fontSize: 13,
+        ),
+      );
+
+  Widget _sortDropdown(String label, int index) {
+    return DropdownButtonFormField<SearchSort?>(
+      value: _sortOrder[index],
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFD8E1EB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFD8E1EB)),
+        ),
+      ),
+      items: [
+        const DropdownMenuItem<SearchSort?>(value: null, child: Text('None')),
+        ...SearchSort.values.map(
+          (option) => DropdownMenuItem<SearchSort?>(
+            value: option,
+            child: Text(_sortLabel(option)),
+          ),
+        ),
+      ],
+      onChanged: (value) => _setSortAt(index, value),
+    );
+  }
+
+  Widget _numberField({
+    required TextEditingController controller,
+    required String label,
+    required ValueChanged<String> onChanged,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFD8E1EB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFD8E1EB)),
+        ),
+      ),
+    );
+  }
+
+  Widget _showCheckbox({
+    required String label,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    return IntrinsicWidth(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: const Color(0xFFD8E1EB)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: value,
+              onChanged: onChanged,
+              visualDensity: VisualDensity.compact,
+            ),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF334E68),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1006,6 +1326,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
                   runSpacing: 10,
                   children: [
                     _info('Name', node.isGroup ? node.buildingName : (node.sublocationLabel ?? node.title)),
+                    if (node.distanceMeters != null) _info('Distance', _distanceLabel(node.distanceMeters!)),
                     _info('Noise', node.noiseText),
                     _info('Occupancy', node.occupancyText),
                     _info('Users present', _usersPresentText(node)),
@@ -1052,6 +1373,8 @@ String _badgeForFloor(String floorLabel, String title) => RegExp(r'(\d+)').first
 String _trimMetric(String? value, String fallback) => ((value ?? '').trim().contains(':')) ? (value!.split(':').last.trim()) : (((value ?? '').trim().isEmpty) ? fallback : value!.trim());
 Severity _severityFromString(String? value) => switch ((value ?? '').toLowerCase().trim()) { 'high' => Severity.high, 'medium' => Severity.medium, _ => Severity.low };
 String _severityLabel(Severity severity) => switch (severity) { Severity.high => 'High activity', Severity.medium => 'Moderate activity', Severity.low => 'Mostly quiet' };
+String _sortLabel(SearchSort value) => switch (value) { SearchSort.relevance => 'Relevance', SearchSort.distance => 'Distance', SearchSort.noise => 'Noise', SearchSort.occupancy => 'Occupancy' };
+String _distanceLabel(double value) => value >= 1000 ? '${(value / 1000).toStringAsFixed(2)} km' : '${value.round()} m';
 double _overlayZoomScale(double zoom, bool isGroup) {
   if (isGroup) {
     return ((17.1 - zoom) * 0.22 + 1).clamp(0.8, 1.26);
