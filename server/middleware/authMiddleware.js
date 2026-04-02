@@ -9,7 +9,23 @@ const attachUserFromBearerToken = async (req) => {
 
   const token = req.headers.authorization.split(" ")[1];
   const decodedPayload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-  return User.findOne({ userId: decodedPayload.userId }).select("-passwordHash");
+  const user = await User.findOne({ userId: decodedPayload.userId }).select("-passwordHash");
+  if (!user) {
+    return null;
+  }
+
+  const tokenIssuedAtMs = typeof decodedPayload.iat === "number" ? decodedPayload.iat * 1000 : null;
+  const passwordChangedAtMs =
+    user.passwordChangedAt instanceof Date ? user.passwordChangedAt.getTime() : null;
+
+  if (
+    tokenIssuedAtMs == null ||
+    (passwordChangedAtMs != null && tokenIssuedAtMs < passwordChangedAtMs)
+  ) {
+    throw new Error("Token predates latest password change");
+  }
+
+  return user;
 };
 
 const protect = async (req, res, next) => {

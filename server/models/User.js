@@ -44,6 +44,16 @@ const userSchema = new Schema(
       trim: true,
       default: null,
     },
+    hideLocation: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+    pinColor: {
+      type: String,
+      trim: true,
+      default: "#0F766E",
+    },
     favorites: {
       type: [String],
       default: [],
@@ -77,6 +87,10 @@ const userSchema = new Schema(
     passwordResetExpiresAt: {
       type: Date,
       default: null,
+    },
+    passwordChangedAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   {

@@ -67,37 +67,62 @@ PM2 process:
 Backend port:
 - `5050`
 
-Backend environment file:
+## Mongo Setup
+There are two different Mongo connection cases. Use the one that matches where your Node server is running.
+
+### 1. Running the Node server on the droplet
+If you SSH into the droplet and start the backend there, use this in the droplet's backend `.env`:
+
 ```env
 PORT=5050
-MONGO_URI=mongodb://appUser:Appuser!@167.71.81.89:27017/cop4331_large_project?authSource=cop4331_large_project
+MONGO_URI=mongodb://appUser:Appuser!@127.0.0.1:27017/cop4331_large_project?authSource=cop4331_large_project
 FRONTEND_URL=http://localhost:5173
 ```
 
-## Mongo Access
-Use this when connecting from the droplet itself:
+Why:
+- `127.0.0.1:27017` means "MongoDB running on the same droplet"
+- this URI is only correct when the Node server is also running on that droplet
 
-```env
-MONGO_URI=mongodb://appUser:Appuser!@127.0.0.1:27017/cop4331_large_project?authSource=cop4331_large_project
-```
+### 2. Running the Node server on your own machine
+If you run `cd server` and `npm run dev` on your laptop or desktop, do not use the droplet-local `27017` URI directly.
 
-If the SSH tunnel dies, recreate it with:
+First create an SSH tunnel from your machine to the droplet:
 
 ```bash
 ssh -L 27018:127.0.0.1:27017 root@167.71.81.89
 ```
 
-Connection notes:
-- Host on local machine through tunnel: `127.0.0.1`
-- Local forwarded port: `27018`
-- Mongo port on droplet: `27017`
-- `authSource`: `cop4331_large_project`
+Then use this in your local `server/.env`:
 
-Local `mongosh` through the tunnel:
+```env
+MONGO_URI=mongodb://appUser:Appuser!@127.0.0.1:27018/cop4331_large_project?authSource=cop4331_large_project
+ACCESS_TOKEN_SECRET=local-dev-secret
+```
+
+Why:
+- `27017` is the MongoDB port on the droplet
+- `27018` is the forwarded port on your local machine
+- your local Node server connects to `127.0.0.1:27018`, and SSH forwards that traffic to MongoDB on the droplet
+
+### Quick rule
+- Node server running on droplet: use `127.0.0.1:27017`
+- Node server running on your machine: use `127.0.0.1:27018` and keep the SSH tunnel open
+
+### Testing the tunnel locally
+To confirm the tunnel works from your own machine:
 
 ```bash
 mongosh "mongodb://appUser:Appuser!@127.0.0.1:27018/cop4331_large_project?authSource=cop4331_large_project"
 ```
+
+### If you see "degraded local mode"
+That means the Express server started, but MongoDB connection failed.
+
+Common reasons:
+- the SSH tunnel is not running
+- the local `.env` is using the wrong Mongo URI
+- MongoDB on the droplet is down
+- the username, password, or `authSource` is wrong
 
 ## Map Overlay Notes
 - `GET /api/map-annotations` returns the shared annotation payload used by the web map overlay.

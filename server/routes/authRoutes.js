@@ -9,6 +9,51 @@ const tokenService = require("../createJWT");
 
 const router = express.Router();
 
+const DEFAULT_PIN_COLOR = "#0F766E";
+
+function normalizeDisplayName(displayName) {
+  if (displayName === null) {
+    return null;
+  }
+
+  if (displayName === undefined) {
+    return undefined;
+  }
+
+  const trimmed = String(displayName).trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed;
+}
+
+function normalizePinColor(pinColor) {
+  if (pinColor === undefined) {
+    return undefined;
+  }
+
+  const trimmed = String(pinColor).trim();
+  return /^#([A-Fa-f0-9]{6})$/.test(trimmed) ? trimmed.toUpperCase() : "";
+}
+
+function serializeUser(user) {
+  return {
+    userId: user.userId,
+    login: user.login,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    displayName: user.displayName,
+    hideLocation: Boolean(user.hideLocation),
+    pinColor: user.pinColor || DEFAULT_PIN_COLOR,
+    favorites: user.favorites,
+    userNoiseWF: user.userNoiseWF,
+    userOccupancyWF: user.userOccupancyWF,
+    passwordChangedAt: user.passwordChangedAt,
+  };
+}
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -45,11 +90,14 @@ router.post("/register", async (req, res) => {
       firstName: firstName ?? null,
       lastName: lastName ?? null,
       displayName: displayName ?? null,
+      hideLocation: false,
+      pinColor: DEFAULT_PIN_COLOR,
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
       emailVerificationToken,
       emailVerifiedAt: null,
+      passwordChangedAt: new Date(),
     });
 
     await newUser.save();
@@ -82,36 +130,34 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { login, password } = req.body ?? {};
+    console.log("[auth/login] request received");
     if (!login || !password) {
+      console.log("[auth/login] missing login or password");
       return res.status(400).json({ error: "Missing login or password" });
     }
 
     const normalizedLogin = login.trim().toLowerCase();
+    console.log(`[auth/login] looking up user ${normalizedLogin}`);
     const user = await User.findOne({ login: normalizedLogin });
+    console.log(`[auth/login] user found: ${Boolean(user)}`);
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      console.log("[auth/login] invalid credentials");
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
     if (!user.emailVerifiedAt) {
+      console.log("[auth/login] user email not verified");
       return res.status(403).json({ error: "Please verify your email before logging in." });
     }
 
     const token = tokenService.createToken(user.firstName, user.lastName, user.userId);
+    console.log("[auth/login] issuing token and responding 200");
     return res.status(200).json({
       accessToken: token.accessToken,
-      user: {
-        userId: user.userId,
-        login: user.login,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        displayName: user.displayName,
-        favorites: user.favorites,
-        userNoiseWF: user.userNoiseWF,
-        userOccupancyWF: user.userOccupancyWF,
-      },
+      user: serializeUser(user),
     });
   } catch (error) {
+    console.error("[auth/login] unexpected error:", error);
     return res.status(500).json({ error: "Server error during login." });
   }
 });
@@ -183,6 +229,7 @@ router.post("/reset-password", async (req, res) => {
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.passwordResetToken = null;
     user.passwordResetExpiresAt = null;
+    user.passwordChangedAt = new Date();
     await user.save();
 
     return res.status(200).json({ message: "Password has been successfully reset." });
@@ -192,37 +239,71 @@ router.post("/reset-password", async (req, res) => {
 });
 
 router.get("/profile", protect, (req, res) => {
-  return res.status(200).json(req.user);
+  return res.status(200).json(serializeUser(req.user));
 });
 
 router.put("/profile", protect, async (req, res) => {
   try {
-    const { firstName, lastName, displayName, favorites } = req.body ?? {};
+    const { firstName, lastName, displayName, hideLocation, pinColor, favorites } = req.body ?? {};
     const user = await User.findOne({ userId: req.user.userId });
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
+    const normalizedDisplayName = normalizeDisplayName(displayName);
+    if (normalizedDisplayName === "") {
+      return res.status(400).json({ error: "Display name can't be empty." });
+    }
+
+    const normalizedPinColor = normalizePinColor(pinColor);
+    if (normalizedPinColor === "") {
+      return res.status(400).json({ error: "Pin color must be a valid 6-digit hex value." });
+    }
+
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
-    if (displayName !== undefined) user.displayName = displayName;
+    if (normalizedDisplayName !== undefined) user.displayName = normalizedDisplayName;
+    if (hideLocation !== undefined) user.hideLocation = Boolean(hideLocation);
+    if (normalizedPinColor !== undefined) user.pinColor = normalizedPinColor;
     if (favorites !== undefined && Array.isArray(favorites)) user.favorites = favorites;
 
     const updatedUser = await user.save();
-    return res.status(200).json({
-      userId: updatedUser.userId,
-      login: updatedUser.login,
-      email: updatedUser.email,
-      firstName: updatedUser.firstName,
-      lastName: updatedUser.lastName,
-      displayName: updatedUser.displayName,
-      favorites: updatedUser.favorites,
-      userNoiseWF: updatedUser.userNoiseWF,
-      userOccupancyWF: updatedUser.userOccupancyWF,
-    });
+    return res.status(200).json(serializeUser(updatedUser));
   } catch (error) {
     return res.status(500).json({ error: "Server error while updating profile." });
+  }
+});
+
+router.post("/change-password", protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current password and new password are required." });
+    }
+
+    const trimmedNewPassword = String(newPassword).trim();
+    if (trimmedNewPassword.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters long." });
+    }
+
+    const user = await User.findOne({ userId: req.user.userId });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const passwordMatches = await bcrypt.compare(String(currentPassword), user.passwordHash);
+    if (!passwordMatches) {
+      return res.status(401).json({ error: "Current password is incorrect." });
+    }
+
+    user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
+    user.passwordChangedAt = new Date();
+    await user.save();
+
+    return res.status(200).json({ message: "Password updated successfully." });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error while updating password." });
   }
 });
 
