@@ -67,6 +67,8 @@ function toUser(document) {
     firstName: document.firstName,
     favorites: [...(document.favorites ?? [])],
     displayName: document.displayName,
+    hideLocation: Boolean(document.hideLocation),
+    pinColor: document.pinColor ?? "#0F766E",
     userNoiseWF: document.userNoiseWF,
     userOccupancyWF: document.userOccupancyWF,
   };
@@ -168,6 +170,8 @@ class MongooseUserRepository {
         $set: {
           firstName: user.firstName ?? null,
           displayName: user.displayName ?? null,
+          hideLocation: Boolean(user.hideLocation),
+          pinColor: user.pinColor ?? "#0F766E",
           favorites: user.favorites ?? [],
           userNoiseWF: user.userNoiseWF,
           userOccupancyWF: user.userOccupancyWF,
@@ -364,6 +368,8 @@ class ReportProcessingService {
       firstName: "Local",
       lastName: "Collector",
       displayName: "Local Collector",
+      hideLocation: false,
+      pinColor: "#0F766E",
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
@@ -371,6 +377,7 @@ class ReportProcessingService {
       emailVerificationToken: null,
       passwordResetToken: null,
       passwordResetExpiresAt: null,
+      passwordChangedAt: new Date(),
     }).save();
 
     return normalizedUserId;

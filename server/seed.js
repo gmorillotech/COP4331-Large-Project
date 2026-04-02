@@ -53,6 +53,8 @@ const seedData = async () => {
             firstName: "Local",
             lastName: "Collector",
             displayName: "Local Collector",
+            hideLocation: false,
+            pinColor: "#0F766E",
             favorites: [],
             userNoiseWF: 1,
             userOccupancyWF: 1,
@@ -60,6 +62,7 @@ const seedData = async () => {
             emailVerificationToken: null,
             passwordResetToken: null,
             passwordResetExpiresAt: null,
+            passwordChangedAt: new Date(),
         }).save();
 
         console.log("Collector user added.");
