@@ -279,25 +279,35 @@ app.get("/api/map-annotations", async (req, res) => {
       const liveNoise = liveLocation.currentNoiseLevel;
       const liveOccupancy = liveLocation.currentOccupancyLevel;
 
+      // Only overwrite noise/occupancy fields when the DB has a real number.
+      // If currentNoiseLevel is null (not yet reported), fall back to the
+      // static annotation value so we never display "unavailable" to the user.
+      const hasLiveNoise = Number.isFinite(liveNoise);
+      const hasLiveOccupancy = Number.isFinite(liveOccupancy);
+
       return {
         ...annotation,
+        // Use the live group name if available, otherwise keep the static one
         buildingName: liveGroup?.name ?? annotation.buildingName,
-        severity: toSeverity(liveNoise),
-        noiseText: toNoiseText(liveNoise),
-        occupancyText: toOccupancyText(liveOccupancy),
+        // Only replace severity/noiseText/occupancyText when live data exists
+        severity:      hasLiveNoise      ? toSeverity(liveNoise)        : annotation.severity,
+        noiseText:     hasLiveNoise      ? toNoiseText(liveNoise)        : annotation.noiseText,
+        occupancyText: hasLiveOccupancy  ? toOccupancyText(liveOccupancy): annotation.occupancyText,
+        // Only replace statusText when BOTH values are live
         statusText:
-          Number.isFinite(liveNoise) && Number.isFinite(liveOccupancy)
-            ? `Live estimate: ${liveNoise.toFixed(1)} dB, occupancy ${liveOccupancy.toFixed(1)} / 5`
+          hasLiveNoise && hasLiveOccupancy
+            ? `Live: ${liveNoise.toFixed(1)} dB, occupancy ${liveOccupancy.toFixed(1)} / 5`
             : annotation.statusText,
         updatedAtLabel: formatUpdatedAtLabel(liveLocation.updatedAt),
       };
     });
-
+    console.log("Locations successfully found")
     res.status(200).json({
       results,
       error: "",
     });
   } catch (_error) {
+    console.log("database error")
     res.status(200).json({
       results: mapAnnotations,
       error: "",
