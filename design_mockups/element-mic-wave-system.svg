@@ -1,0 +1,41 @@
+<svg width="900" height="720" viewBox="0 0 900 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="122" y1="76" x2="766" y2="676" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A2340"/>
+      <stop offset="1" stop-color="#103A4A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(450 360) rotate(90) scale(260 260)">
+      <stop stop-color="#7FE2FF" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#7FE2FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="900" height="720" rx="44" fill="url(#bg)"/>
+  <rect width="900" height="720" rx="44" fill="url(#glow)"/>
+  <g opacity="0.2">
+    <path d="M70 470C150 435 226 412 302 413C380 414 453 440 524 452C590 463 653 462 712 444C770 427 822 396 872 362" stroke="#6DE0FF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M70 510C146 473 220 450 298 450C377 450 457 477 533 491C603 504 668 505 726 490C785 475 833 449 872 424" stroke="#8FCEFF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M70 548C139 521 214 500 294 499C377 498 460 525 540 540C616 554 687 557 744 544C798 531 841 510 872 492" stroke="#D2A5FF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M70 586C142 562 218 545 299 544C383 544 469 569 551 585C626 600 699 604 760 595C811 588 849 574 872 562" stroke="#FF94CB" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M70 624C140 605 216 592 296 591C383 589 475 613 559 629C633 644 705 648 769 642C815 638 850 630 872 624" stroke="#77DAFF" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <g opacity="0.28">
+    <ellipse cx="450" cy="435" rx="90" ry="22" stroke="#82E2FF" stroke-width="3"/>
+    <ellipse cx="450" cy="435" rx="162" ry="36" stroke="#82E2FF" stroke-width="2.8"/>
+    <ellipse cx="450" cy="435" rx="248" ry="54" stroke="#82E2FF" stroke-width="2.4"/>
+    <ellipse cx="450" cy="435" rx="338" ry="74" stroke="#82E2FF" stroke-width="2"/>
+    <ellipse cx="450" cy="435" rx="420" ry="92" stroke="#82E2FF" stroke-width="1.5"/>
+  </g>
+  <g>
+    <circle cx="450" cy="360" r="142" fill="#7DB6E2"/>
+    <circle cx="450" cy="360" r="142" stroke="#D4F0FF" stroke-opacity="0.34" stroke-width="2"/>
+  </g>
+  <g>
+    <rect x="405" y="260" width="90" height="138" rx="45" fill="#051523"/>
+    <path d="M371 352C371 395.63 406.37 431 450 431C493.63 431 529 395.63 529 352" stroke="#051523" stroke-width="20" stroke-linecap="round"/>
+    <path d="M450 431V492" stroke="#051523" stroke-width="20" stroke-linecap="round"/>
+    <path d="M401 492H499" stroke="#051523" stroke-width="20" stroke-linecap="round"/>
+  </g>
+  <text x="64" y="86" fill="#DDF0FF" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">MIC + BACKGROUND WAVE SYSTEM</text>
+  <text x="64" y="132" fill="#F6FBFF" font-family="Segoe UI, Arial, sans-serif" font-size="38" font-weight="700">Stable mic, ripple field across a surface</text>
+  <text x="64" y="668" fill="#B9D1E8" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">The ripples compress into ellipses to imply a 2D plane instead of detached circles floating behind the mic.</text>
+</svg>

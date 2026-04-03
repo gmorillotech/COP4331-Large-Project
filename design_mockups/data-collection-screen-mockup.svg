@@ -1,0 +1,169 @@
+<svg width="1440" height="1920" viewBox="0 0 1440 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="screenBg" x1="188" y1="118" x2="1228" y2="1831" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071A30"/>
+      <stop offset="0.45" stop-color="#0D2D45"/>
+      <stop offset="1" stop-color="#123A4F"/>
+    </linearGradient>
+    <radialGradient id="ambientLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(322 510) rotate(41.3473) scale(588.119 485.69)">
+      <stop stop-color="#47C8FF" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#47C8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ambientRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1118 1374) rotate(128.405) scale(649.774 533.304)">
+      <stop stop-color="#FF8C4D" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FF8C4D" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="heatScale" x1="0" y1="0" x2="484" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.33" stop-color="#06B6D4"/>
+      <stop offset="0.68" stop-color="#FACC15"/>
+      <stop offset="1" stop-color="#DC2626"/>
+    </linearGradient>
+    <linearGradient id="occupancyScale" x1="0" y1="0" x2="0" y2="332" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DC2626"/>
+      <stop offset="0.48" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#34D399"/>
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%" filterUnits="objectBoundingBox">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <filter id="cardShadow" x="0" y="0" width="1440" height="1920" filterUnits="userSpaceOnUse">
+      <feOffset dy="22"/>
+      <feGaussianBlur stdDeviation="26"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0196078 0 0 0 0 0.0509804 0 0 0 0 0.105882 0 0 0 0.42 0"/>
+      <feBlend in2="SourceGraphic" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="1440" height="1920" fill="#03111F"/>
+  <rect x="60" y="60" width="1320" height="1800" rx="56" fill="url(#screenBg)"/>
+  <rect x="60" y="60" width="1320" height="1800" rx="56" fill="url(#ambientLeft)"/>
+  <rect x="60" y="60" width="1320" height="1800" rx="56" fill="url(#ambientRight)"/>
+
+  <g opacity="0.28">
+    <circle cx="720" cy="980" r="212" stroke="#70E1FF" stroke-width="3"/>
+    <circle cx="720" cy="980" r="308" stroke="#70E1FF" stroke-width="2.5"/>
+    <circle cx="720" cy="980" r="424" stroke="#70E1FF" stroke-width="2"/>
+    <circle cx="720" cy="980" r="560" stroke="#70E1FF" stroke-width="1.5"/>
+  </g>
+
+  <g opacity="0.55">
+    <path d="M72 1245C232 1178 359 1105 526 1120C705 1136 842 1290 1020 1266C1154 1248 1240 1168 1367 1118" stroke="#64D9FF" stroke-width="4" stroke-linecap="round"/>
+    <path d="M72 1298C248 1233 413 1187 568 1202C748 1219 889 1376 1060 1350C1187 1330 1279 1268 1368 1232" stroke="#86C6FF" stroke-opacity="0.92" stroke-width="4" stroke-linecap="round"/>
+    <path d="M72 1354C203 1306 343 1260 522 1269C704 1279 864 1434 1046 1416C1181 1402 1262 1344 1368 1302" stroke="#FF8DDD" stroke-width="4" stroke-linecap="round"/>
+    <path d="M72 1410C236 1368 382 1320 563 1338C734 1355 862 1498 1043 1484C1175 1473 1264 1428 1368 1395" stroke="#D49DFF" stroke-width="4" stroke-linecap="round"/>
+    <path d="M72 1466C224 1424 388 1388 550 1406C726 1424 857 1565 1030 1558C1172 1552 1267 1496 1368 1470" stroke="#FF78A6" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.86">
+    <circle cx="311" cy="1239" r="7" fill="#7CE8FF"/>
+    <circle cx="486" cy="1142" r="6" fill="#FF93E2"/>
+    <circle cx="638" cy="1317" r="8" fill="#9FE8FF"/>
+    <circle cx="822" cy="1271" r="7" fill="#FFD564"/>
+    <circle cx="1026" cy="1452" r="8" fill="#FF726E"/>
+    <circle cx="1162" cy="1346" r="6" fill="#7CE8FF"/>
+    <circle cx="931" cy="1178" r="7" fill="#99D0FF"/>
+  </g>
+
+  <g filter="url(#cardShadow)">
+    <rect x="128" y="132" width="1184" height="150" rx="32" fill="#EAF5FF" fill-opacity="0.92"/>
+    <rect x="128" y="132" width="1184" height="150" rx="32" stroke="white" stroke-opacity="0.26" stroke-width="2"/>
+  </g>
+
+  <text x="176" y="197" fill="#12324C" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" letter-spacing="0.18em">LIVE COLLECTION</text>
+  <text x="176" y="238" fill="#0B2238" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Data Capture Screen</text>
+  <text x="176" y="330" fill="#BFD1E6" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">Realtime sound drives the background. Occupancy is adjusted manually.</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="128" y="362" width="500" height="262" rx="36" fill="#F5FBFF" fill-opacity="0.9"/>
+    <rect x="128" y="362" width="500" height="262" rx="36" stroke="white" stroke-opacity="0.24" stroke-width="2"/>
+  </g>
+  <text x="176" y="432" fill="#35536F" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">DECIBEL READOUT</text>
+  <text x="176" y="540" fill="#071A30" font-family="Segoe UI, Arial, sans-serif" font-size="108" font-weight="700">62.4</text>
+  <text x="435" y="540" fill="#35536F" font-family="Segoe UI, Arial, sans-serif" font-size="36" font-weight="700">dB</text>
+  <rect x="176" y="568" width="404" height="16" rx="8" fill="#D9E8F7"/>
+  <rect x="176" y="568" width="248" height="16" rx="8" fill="url(#heatScale)"/>
+  <circle cx="424" cy="576" r="18" fill="#FFF7D9"/>
+  <circle cx="424" cy="576" r="10" fill="#FACC15"/>
+  <text x="176" y="660" fill="#35536F" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">Current state: Focus-friendly conversation level</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="652" y="362" width="660" height="262" rx="36" fill="#F5FBFF" fill-opacity="0.12"/>
+    <rect x="652" y="362" width="660" height="262" rx="36" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
+  </g>
+  <text x="704" y="432" fill="#DFF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">QUALITATIVE NOISE</text>
+  <rect x="704" y="500" width="556" height="36" rx="18" fill="#17324A"/>
+  <rect x="704" y="500" width="472" height="36" rx="18" fill="url(#heatScale)"/>
+  <rect x="1170" y="474" width="8" height="88" rx="4" fill="#F7FBFF" fill-opacity="0.92"/>
+  <text x="704" y="580" fill="#F5FBFF" font-family="Segoe UI, Arial, sans-serif" font-size="42" font-weight="700">Moderate</text>
+  <text x="933" y="580" fill="#C7DCF0" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">edging lively</text>
+  <text x="704" y="620" fill="#9AB7D2" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">Quiet</text>
+  <text x="1195" y="620" text-anchor="end" fill="#9AB7D2" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="600">Loud</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="112" y="742" width="1216" height="1044" rx="44" fill="#081D31" fill-opacity="0.38"/>
+    <rect x="112" y="742" width="1216" height="1044" rx="44" stroke="white" stroke-opacity="0.12" stroke-width="2"/>
+  </g>
+
+  <g opacity="0.28">
+    <path d="M112 1120C252 1010 419 980 594 1028C769 1077 900 1208 1061 1212C1180 1215 1273 1164 1328 1130" stroke="#4FCBFF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M112 1172C279 1079 443 1050 613 1092C802 1138 923 1260 1087 1266C1181 1270 1260 1240 1328 1202" stroke="#FFD35E" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M112 1238C268 1167 425 1132 607 1176C778 1217 912 1344 1078 1352C1180 1358 1271 1324 1328 1291" stroke="#FF8AB2" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M112 1298C245 1240 396 1208 578 1247C781 1292 921 1430 1096 1438C1193 1442 1276 1413 1328 1387" stroke="#BAA9FF" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M112 1364C240 1318 396 1288 568 1322C759 1360 912 1498 1100 1513C1200 1521 1271 1499 1328 1471" stroke="#7AD8FF" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.16">
+    <ellipse cx="720" cy="1338" rx="126" ry="30" stroke="#7DE1FF" stroke-width="5"/>
+    <ellipse cx="720" cy="1338" rx="214" ry="50" stroke="#7DE1FF" stroke-width="4"/>
+    <ellipse cx="720" cy="1338" rx="326" ry="76" stroke="#7DE1FF" stroke-width="3"/>
+    <ellipse cx="720" cy="1338" rx="456" ry="102" stroke="#7DE1FF" stroke-width="2"/>
+  </g>
+
+  <g filter="url(#cardShadow)">
+    <rect x="144" y="776" width="328" height="580" rx="34" fill="#F5FBFF" fill-opacity="0.92"/>
+    <rect x="144" y="776" width="328" height="580" rx="34" stroke="white" stroke-opacity="0.26" stroke-width="2"/>
+  </g>
+  <text x="186" y="846" fill="#35536F" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">OCCUPANCY</text>
+  <text x="186" y="904" fill="#071A30" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700">Busy</text>
+  <text x="186" y="952" fill="#35536F" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="600">5-level direct slider</text>
+  <rect x="332" y="972" width="64" height="332" rx="32" fill="#D7E5F3"/>
+  <rect x="332" y="1048" width="64" height="256" rx="32" fill="url(#occupancyScale)"/>
+  <circle cx="364" cy="1048" r="32" fill="#FFF7D9"/>
+  <circle cx="364" cy="1048" r="19" fill="#F59E0B"/>
+  <circle cx="364" cy="1010" r="6" fill="#F5FBFF"/>
+  <circle cx="364" cy="1088" r="6" fill="#F5FBFF" fill-opacity="0.94"/>
+  <circle cx="364" cy="1166" r="6" fill="#F5FBFF" fill-opacity="0.9"/>
+  <circle cx="364" cy="1244" r="6" fill="#F5FBFF" fill-opacity="0.86"/>
+  <circle cx="364" cy="1322" r="6" fill="#F5FBFF" fill-opacity="0.82"/>
+  <text x="186" y="1018" fill="#5A7690" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Full</text>
+  <text x="186" y="1096" fill="#5A7690" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Busy</text>
+  <text x="186" y="1174" fill="#5A7690" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Moderate</text>
+  <text x="186" y="1252" fill="#5A7690" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Sparse</text>
+  <text x="186" y="1330" fill="#5A7690" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600">Empty</text>
+
+  <g filter="url(#cardShadow)">
+    <circle cx="934" cy="1228" r="192" fill="#7FB8E4"/>
+    <circle cx="934" cy="1228" r="192" stroke="#D5F0FF" stroke-opacity="0.35" stroke-width="2"/>
+  </g>
+  <g opacity="0.22">
+    <circle cx="934" cy="1228" r="232" stroke="#7FDFFF" stroke-width="3"/>
+    <circle cx="934" cy="1228" r="290" stroke="#7FDFFF" stroke-width="2.5"/>
+    <circle cx="934" cy="1228" r="356" stroke="#7FDFFF" stroke-width="2"/>
+  </g>
+  <g>
+    <rect x="873" y="1088" width="122" height="192" rx="61" fill="#051523"/>
+    <path d="M835 1208C835 1263.23 879.771 1308 935 1308C990.228 1308 1035 1263.23 1035 1208" stroke="#051523" stroke-width="24" stroke-linecap="round"/>
+    <path d="M935 1308V1388" stroke="#051523" stroke-width="24" stroke-linecap="round"/>
+    <path d="M875 1388H995" stroke="#051523" stroke-width="24" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#cardShadow)">
+    <rect x="144" y="1424" width="1184" height="308" rx="34" fill="#F5FBFF" fill-opacity="0.12"/>
+    <rect x="144" y="1424" width="1184" height="308" rx="34" stroke="white" stroke-opacity="0.16" stroke-width="2"/>
+  </g>
+  <text x="188" y="1492" fill="#DFF3FF" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">SESSION NOTES</text>
+  <text x="188" y="1558" fill="#F5FBFF" font-family="Segoe UI, Arial, sans-serif" font-size="40" font-weight="700">Sound waves stay in the background layer</text>
+  <text x="188" y="1606" fill="#C1D6EA" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">The center mic stays visually stable while the environment ripples outward.</text>
+  <text x="188" y="1674" fill="#9AB7D2" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">This keeps the capture state readable and avoids turning the primary control into a distracting pulsing button.</text>
+</svg>
