@@ -1,6 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './App.css';
-import CardPage from './pages/CardPage.tsx';
+import CardPage from './pages/HomePage.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import VerifyEmail from './VerifyEmail';
 import ResetPassword from './ResetPassword';
