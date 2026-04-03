@@ -37,13 +37,6 @@ app.use((req, res, next) => {
   next();
 });
 
-const defaultUser = {
-  id: 1,
-  login: "rickl",
-  password: "COP4331",
-  firstName: "Rick",
-  lastName: "Leinecker",
-};
 
 const baseCards = [
   "Roy Campanella",

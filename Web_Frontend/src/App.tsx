@@ -1,7 +1,9 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './App.css';
-import CardPage from './pages/CardPage.tsx';
+import CardPage from './pages/HomePage.tsx';
 import LoginPage from './pages/LoginPage.tsx';
+import VerifyEmail from './VerifyEmail';
+import ResetPassword from './ResetPassword';
 
 function App() {
   return (
@@ -9,6 +11,8 @@ function App() {
       <Routes>
         <Route path="/" element={<LoginPage />} />
         <Route path="/cards" element={<CardPage />} />
+        <Route path="/verify" element={<VerifyEmail />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     </BrowserRouter>
   );
