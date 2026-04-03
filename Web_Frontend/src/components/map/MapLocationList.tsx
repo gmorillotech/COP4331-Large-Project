@@ -7,6 +7,33 @@
 import type { MapLocation } from '../../types/mapAnnotations.ts';
 import { inferNoiseValue, buildHeatColor, formatLocationHeading } from '../../lib/mapUtils.ts';
 
+// NoiseChip — a colored dot + label showing the noise level for a location.
+// Uses the same heat color system as the pins and heat overlay so everything
+// is visually consistent (blue = quiet, yellow = moderate, red = loud).
+function NoiseChip({ location }: { location: MapLocation }) {
+  const intensity = inferNoiseValue(location);  // 0–1 noise value
+  const color = buildHeatColor(intensity);       // rgb() color string
+
+  // Strip the "Noise: " prefix if present so we just show "Quiet", "Moderate", etc.
+  const rawText = location.noiseText ?? '';
+  const label = rawText.replace(/^noise:\s*/i, '');
+
+  // If there's no useful label, don't render anything
+  if (!label || label.toLowerCase().includes('unavailable')) return null;
+
+  return (
+    <span className="location-card__noise-chip">
+      {/* Colored dot matching the heat color for this noise level */}
+      <span
+        className="location-card__noise-dot"
+        style={{ background: color }}
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  );
+}
+
 type MapLocationListProps = {
   locations: MapLocation[];
   selectedId: string | null;
@@ -93,10 +120,8 @@ function LocationCard({
           </span>
         )}
 
-        {/* Noise and status text from the API */}
-        {location.noiseText && (
-          <span className="location-card__noise">{location.noiseText}</span>
-        )}
+        {/* Noise level chip — colored dot + label using the heat color system */}
+        <NoiseChip location={location} />
       </div>
 
       {/* Right: favorite heart icon */}

@@ -23,6 +23,7 @@ import MapProvider from './MapProvider.tsx';
 import MapCanvas from './MapCanvas.tsx';
 import MapMarkers from './MapMarkers.tsx';
 import MapHeatOverlay from './MapHeatOverlay.tsx';
+import MapInfoPopup from './MapInfoPopup.tsx';
 import MapLocationList from './MapLocationList.tsx';
 
 // The API key is read from .env at build time (VITE_ prefix makes it browser-accessible)
@@ -164,12 +165,21 @@ function MapExplorer() {
     return sortByRelevance(severityFiltered, debouncedSearch); // 'relevance' is default
   }, [severityFiltered, sortOrder, debouncedSearch]);
 
-  // Keep selectedId valid: if the selected item got filtered out, select the first result
+  // Keep selectedId valid: if the selected item was removed by a filter change,
+  // auto-select the first visible result.
+  // IMPORTANT: skip when selectedId is null — that means the user deliberately
+  // closed the popup, and we must not immediately re-open it.
   useEffect(() => {
+    if (selectedId === null) return;         // user closed the popup → do nothing
     if (sortedLocations.length === 0) return;
     const stillVisible = sortedLocations.some((l) => l.id === selectedId);
-    if (!stillVisible) setSelectedId(sortedLocations[0].id);
+    if (!stillVisible) setSelectedId(sortedLocations[0].id); // item filtered out → pick first
   }, [sortedLocations, selectedId]);
+
+  // The full location object for the currently selected ID — passed to the popup.
+  // Search across ALL locations (not just filtered) so the popup still shows
+  // even if filters are changed while a pin is open.
+  const selectedLocation = locations.find((l) => l.id === selectedId) ?? null;
 
   // ---- Render ---------------------------------------------------------------
 
@@ -288,6 +298,11 @@ function MapExplorer() {
                 canvas using OverlayView — not floating above the map.
               */}
               <MapHeatOverlay locations={sortedLocations} />
+              {/* Info popup anchored to the selected pin on the map canvas */}
+              <MapInfoPopup
+                location={selectedLocation}
+                onClose={() => setSelectedId(null)}
+              />
             </MapCanvas>
           </MapProvider>
         </div>
