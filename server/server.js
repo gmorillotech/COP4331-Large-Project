@@ -9,23 +9,12 @@ const locationRoutes = require("./routes/locationRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const StudyLocation = require("./models/StudyLocation");
 const LocationGroup = require("./models/LocationGroup");
+const studyLocationRoutes = require("./routes/studyLocationRoutes");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PATCH, DELETE, OPTIONS"
-  );
-  next();
-});
 
 
 const mapAnnotations = [
@@ -212,6 +201,8 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api", studyLocationRoutes);
+
 
 const PORT = process.env.PORT || 5050;
 
