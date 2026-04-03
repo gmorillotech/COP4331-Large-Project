@@ -7,7 +7,6 @@ const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const reportRoutes = require("./routes/reportRoutes");
-const cardRoutes = require("./routes/cardRoutes");
 const StudyLocation = require("./models/StudyLocation");
 const LocationGroup = require("./models/LocationGroup");
 
@@ -197,15 +196,6 @@ function formatUpdatedAtLabel(updatedAt) {
   return `Updated ${elapsedMinutes} minutes ago`;
 }
 
-function getCardsForUser(userId) {
-  const normalizedUserId = Number.isInteger(userId) ? userId : Number(userId) || defaultUser.id;
-
-  if (!cardsByUser.has(normalizedUserId)) {
-    cardsByUser.set(normalizedUserId, [...baseCards]);
-  }
-
-  return cardsByUser.get(normalizedUserId);
-}
 
 // Simple request logger
 app.use((req, res, next) => {
@@ -222,7 +212,6 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/reports", reportRoutes);
-app.use("/api/cards", cardRoutes);
 
 const PORT = process.env.PORT || 5050;
 
@@ -270,31 +259,6 @@ app.post("/api/login", async (req, res) => {
   });
 });
 
-app.post("/api/addcard", async (req, res) => {
-  const { userId, card = "" } = req.body ?? {};
-  const trimmedCard = card.trim();
-
-  if (!trimmedCard) {
-    return res.status(200).json({ error: "Card name is required" });
-  }
-
-  const userCards = getCardsForUser(userId);
-  userCards.push(trimmedCard);
-
-  return res.status(200).json({ error: "" });
-});
-
-app.post("/api/searchcards", async (req, res) => {
-  const { userId, search = "" } = req.body ?? {};
-  const normalizedSearch = search.toLowerCase().trim();
-  const userCards = getCardsForUser(userId);
-
-  const results = userCards.filter((card) =>
-    card.toLowerCase().includes(normalizedSearch)
-  );
-
-  return res.status(200).json({ results, error: "" });
-});
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
