@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'data_collection_backend.dart';
 import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
 import 'data_collection_workflow.dart';
@@ -21,6 +22,7 @@ class DataCollectionScreen extends StatefulWidget {
     this.locationResolver = const LocalStudyLocationResolver(),
     this.draftBuilder = const CapturedReportDraftBuilder(),
     this.draftRepository,
+    this.backendClient,
   });
 
   final SignalSampler signalSampler;
@@ -30,6 +32,7 @@ class DataCollectionScreen extends StatefulWidget {
   final LocalStudyLocationResolver locationResolver;
   final CapturedReportDraftBuilder draftBuilder;
   final ReportDraftRepository? draftRepository;
+  final DataCollectionBackendClient? backendClient;
 
   @override
   State<DataCollectionScreen> createState() => _DataCollectionScreenState();
@@ -42,14 +45,20 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   late final Ticker _ticker;
   late final ProceduralSurfaceEngine _engine;
   late final ReportDraftRepository _draftRepository;
+  late final DataCollectionBackendClient _backendClient;
   late OccupancyLevel _occupancy;
   late SurfaceFrameState _frame;
   late DataCollectionStudyLocation? _selectedLocation;
+  late List<DataCollectionStudyLocation> _studyLocations;
   final List<double> _capturedSamples = <double>[];
 
   bool _isCapturing = false;
+  bool _isSubmitting = false;
+  bool _isSyncingQueue = false;
   int _lastRecordedSampleMs = -1;
-  CapturedReportDraft? _lastSavedDraft;
+  CapturedReportDraft? _lastProcessedDraft;
+  String? _lastSubmissionSummary;
+  bool _lastSubmissionQueued = false;
 
   // Microphone state
   NoiseMeter? _noiseMeter;
@@ -68,10 +77,16 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     super.initState();
     _engine = ProceduralSurfaceEngine(config: widget.config);
     _draftRepository =
-        widget.draftRepository ?? FallbackReportDraftRepository();
+        widget.draftRepository ?? InMemoryReportDraftRepository.instance;
+    _backendClient =
+        widget.backendClient ?? HttpDataCollectionBackendClient();
     _occupancy = widget.initialOccupancy;
-    _selectedLocation = widget.locationResolver.findById(
+    _studyLocations = List<DataCollectionStudyLocation>.from(
+      widget.locationResolver.studyLocations,
+    );
+    _selectedLocation = _findLocationById(
       widget.initialStudyLocationId,
+      _studyLocations,
     );
     _frame = _engine.tick(
       rawLevel: widget.signalSampler(Duration.zero),
@@ -79,6 +94,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     );
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
+    unawaited(_hydrateStudyLocations());
+    unawaited(_flushQueuedDrafts());
   }
 
   @override
@@ -89,24 +106,29 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }
 
   Future<void> _initMicrophone() async {
-    final status = await Permission.microphone.request();
-    if (!mounted) return;
+    try {
+      final status = await Permission.microphone.request();
+      if (!mounted) return;
 
-    if (status.isGranted) {
-      _noiseMeter = NoiseMeter();
-      _noiseSubscription = _noiseMeter!.noise.listen(
-        (NoiseReading reading) {
-          // Convert dB to a 0-1 level using the config's dB range
-          final minDb = widget.config.minDecibels.toDouble();
-          final maxDb = widget.config.maxDecibels.toDouble();
-          _liveAudioLevel =
-              ((reading.meanDecibel - minDb) / (maxDb - minDb)).clamp(0.0, 1.0);
-          _micActive = true;
-        },
-        onError: (Object error) {
-          _micActive = false;
-        },
-      );
+      if (status.isGranted) {
+        _noiseMeter = NoiseMeter();
+        _noiseSubscription = _noiseMeter!.noise.listen(
+          (NoiseReading reading) {
+            // Convert dB to a 0-1 level using the config's dB range
+            final minDb = widget.config.minDecibels.toDouble();
+            final maxDb = widget.config.maxDecibels.toDouble();
+            _liveAudioLevel =
+                ((reading.meanDecibel - minDb) / (maxDb - minDb))
+                    .clamp(0.0, 1.0);
+            _micActive = true;
+          },
+          onError: (Object error) {
+            _micActive = false;
+          },
+        );
+      }
+    } catch (_error) {
+      _micActive = false;
     }
   }
 
@@ -145,7 +167,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     setState(() {
       final shouldStartFresh = _lastRecordedSampleMs < 0;
       _isCapturing = true;
-      _lastSavedDraft = null;
+      _lastProcessedDraft = null;
+      _lastSubmissionSummary = null;
 
       if (shouldStartFresh) {
         _capturedSamples.clear();
@@ -166,14 +189,19 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _isCapturing = false;
       _capturedSamples.clear();
       _lastRecordedSampleMs = -1;
-      _lastSavedDraft = null;
+      _lastProcessedDraft = null;
+      _lastSubmissionSummary = null;
     });
   }
 
   Future<void> _saveDraft() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     final location = _selectedLocation;
     if (location == null) {
-      _showMessage('Select a study location before saving a draft.');
+      _showMessage('Select a study location before submitting a report.');
       return;
     }
 
@@ -183,27 +211,119 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         occupancy: _occupancy,
         rawSamples: _capturedSamples,
       );
-      final savedDraft = await _draftRepository.saveDraft(draft);
-      if (!mounted) {
+      setState(() => _isSubmitting = true);
+
+      try {
+        await _backendClient.submitReport(draft);
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _lastProcessedDraft = draft;
+          _lastSubmissionSummary = 'Submitted to backend';
+          _lastSubmissionQueued = false;
+          _isCapturing = false;
+        });
+        _showMessage('Report submitted to the backend.');
+        unawaited(_flushQueuedDrafts(announceSuccess: true));
+      } catch (_error) {
+        final queuedDraft = await _draftRepository.saveDraft(draft);
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _lastProcessedDraft = queuedDraft;
+          _lastSubmissionSummary = 'Queued offline for this session';
+          _lastSubmissionQueued = true;
+          _isCapturing = false;
+        });
+        _showMessage(
+          'Backend unavailable. Report queued in memory for retry this session.',
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _isSubmitting = false);
+        }
+      }
+    } on StateError catch (error) {
+      _showMessage(error.message ?? 'Unable to prepare this report yet.');
+    }
+  }
+
+  DataCollectionStudyLocation? _findLocationById(
+    String? studyLocationId,
+    List<DataCollectionStudyLocation> locations,
+  ) {
+    if (locations.isEmpty) {
+      return null;
+    }
+
+    if (studyLocationId == null || studyLocationId.isEmpty) {
+      return locations.first;
+    }
+
+    for (final location in locations) {
+      if (location.studyLocationId == studyLocationId) {
+        return location;
+      }
+    }
+
+    return locations.first;
+  }
+
+  Future<void> _hydrateStudyLocations() async {
+    try {
+      final backendLocations = await _backendClient.fetchStudyLocations();
+      if (!mounted || backendLocations.isEmpty) {
         return;
       }
 
       setState(() {
-        _lastSavedDraft = savedDraft;
-        _isCapturing = false;
+        _studyLocations = backendLocations;
+        _selectedLocation = _findLocationById(
+          _selectedLocation?.studyLocationId ?? widget.initialStudyLocationId,
+          _studyLocations,
+        );
       });
-      _showMessage(_buildSaveMessage(savedDraft));
-    } on StateError catch (error) {
-      _showMessage(error.message);
+    } catch (_error) {
+      // Seeded locations remain available as a fallback for local capture flows.
     }
   }
 
-  String _buildSaveMessage(CapturedReportDraft draft) {
-    if (draft.isQueuedOffline) {
-      return 'API unavailable. Report queued locally and ready to retry when the backend is back.';
+  Future<void> _flushQueuedDrafts({bool announceSuccess = false}) async {
+    if (_isSyncingQueue || _draftRepository.drafts.isEmpty) {
+      return;
     }
 
-    return 'Report submitted and handed off to the A1 processing pipeline.';
+    _isSyncingQueue = true;
+    var syncedCount = 0;
+    final queuedDrafts = List<CapturedReportDraft>.from(
+      _draftRepository.drafts.reversed,
+    );
+
+    try {
+      for (final draft in queuedDrafts) {
+        await _backendClient.submitReport(draft);
+        await _draftRepository.removeDraft(draft.reportId);
+        syncedCount += 1;
+      }
+    } catch (_error) {
+      // Leave any remaining drafts in the in-memory queue for a later retry.
+    } finally {
+      _isSyncingQueue = false;
+    }
+
+    if (!mounted || syncedCount == 0) {
+      return;
+    }
+
+    setState(() {});
+    if (announceSuccess) {
+      final noun = syncedCount == 1 ? 'report' : 'reports';
+      _showMessage('Synced $syncedCount queued $noun to the backend.');
+    }
   }
 
   void _showMessage(String message) {
@@ -222,6 +342,18 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         title: const Text('Data Collection'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: FilledButton.tonalIcon(
+              onPressed: () {
+                Navigator.of(context).pushNamed('/map');
+              },
+              icon: const Icon(Icons.map_rounded),
+              label: const Text('Map'),
+            ),
+          ),
+        ],
       ),
       body: Stack(
         key: const Key('data-collection-screen'),
@@ -283,7 +415,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Live capture wired to report submission',
+                              'Backend-linked report capture',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.96),
                                 fontWeight: FontWeight.w700,
@@ -392,7 +524,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           const SizedBox(height: 14),
           _CaptureStatusCard(
             sampleCount: _capturedSamples.length,
-            queueCount: _draftRepository.pendingDraftCount,
+            queueCount: _draftRepository.drafts.length,
             captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
             lastReadingDb: signal.decibels,
             minSamples: _minimumSamplesRequired,
@@ -413,7 +545,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         const SizedBox(height: 14),
         _CaptureStatusCard(
           sampleCount: _capturedSamples.length,
-          queueCount: _draftRepository.pendingDraftCount,
+          queueCount: _draftRepository.drafts.length,
           captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
           lastReadingDb: signal.decibels,
           minSamples: _minimumSamplesRequired,
@@ -434,12 +566,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _LocationCard(
-          locations: widget.locationResolver.studyLocations,
+          locations: _studyLocations,
           selectedLocation: _selectedLocation,
           onChanged: (location) {
             setState(() {
               _selectedLocation = location;
-              _lastSavedDraft = null;
+              _lastProcessedDraft = null;
+              _lastSubmissionSummary = null;
             });
           },
         ),
@@ -455,16 +588,23 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         _CaptureControlsCard(
           canSaveDraft:
               _capturedSamples.length >= _minimumSamplesRequired &&
-              _selectedLocation != null,
+              _selectedLocation != null &&
+              !_isSubmitting,
           isCapturing: _isCapturing,
+          isSubmitting: _isSubmitting,
           onStart: _startCapture,
           onPause: _pauseCapture,
           onReset: _resetCapture,
           onSaveDraft: _saveDraft,
         ),
-        if (_lastSavedDraft != null) ...[
+        if (_lastProcessedDraft != null) ...[
           const SizedBox(height: 12),
-          _DraftReviewCard(draft: _lastSavedDraft!),
+          _DraftReviewCard(
+            draft: _lastProcessedDraft!,
+            submissionSummary:
+                _lastSubmissionSummary ?? 'Prepared on device',
+            wasQueued: _lastSubmissionQueued,
+          ),
         ],
       ],
     );
@@ -658,14 +798,14 @@ class _CaptureStatusCard extends StatelessWidget {
                 label: 'Last dB',
                 value: lastReadingDb.toStringAsFixed(1),
               ),
-              _MetricChip(label: 'Pending queue', value: '$queueCount'),
+              _MetricChip(label: 'Offline queue', value: '$queueCount'),
             ],
           ),
           const SizedBox(height: 14),
           Text(
             sampleCount >= minSamples
-                ? 'Enough samples collected to submit now or queue offline.'
-                : 'Collect ${minSamples - sampleCount} more samples to unlock report save.',
+                ? 'Enough samples collected to submit a report.'
+                : 'Collect ${minSamples - sampleCount} more samples to enable submission.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.76),
               fontWeight: FontWeight.w600,
@@ -756,7 +896,7 @@ class _LocationCard extends StatelessWidget {
           DropdownButtonFormField<DataCollectionStudyLocation>(
             key: const Key('location-dropdown'),
             isExpanded: true,
-            initialValue: selectedLocation,
+            value: selectedLocation,
             dropdownColor: const Color(0xFF102235),
             decoration: InputDecoration(
               filled: true,
@@ -791,7 +931,7 @@ class _LocationCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'This location ID is sent directly with the report submission.',
+              'This studyLocationId is sent directly with each backend report submission.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontWeight: FontWeight.w500,
@@ -1112,6 +1252,7 @@ class _CaptureControlsCard extends StatelessWidget {
   const _CaptureControlsCard({
     required this.canSaveDraft,
     required this.isCapturing,
+    required this.isSubmitting,
     required this.onStart,
     required this.onPause,
     required this.onReset,
@@ -1120,6 +1261,7 @@ class _CaptureControlsCard extends StatelessWidget {
 
   final bool canSaveDraft;
   final bool isCapturing;
+  final bool isSubmitting;
   final VoidCallback onStart;
   final VoidCallback onPause;
   final VoidCallback onReset;
@@ -1142,7 +1284,7 @@ class _CaptureControlsCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'This screen now captures samples, builds the canonical report payload, and submits it into the A1 processing flow.',
+            'Collect samples, bind a location, and submit a canonical report to the backend. If the backend is unavailable, the report stays queued in memory for this app session.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
               fontWeight: FontWeight.w500,
@@ -1175,7 +1317,7 @@ class _CaptureControlsCard extends StatelessWidget {
                 key: const Key('save-draft-button'),
                 onPressed: canSaveDraft ? onSaveDraft : null,
                 icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Submit Report'),
+                label: Text(isSubmitting ? 'Submitting...' : 'Submit Report'),
               ),
             ],
           ),
@@ -1186,9 +1328,15 @@ class _CaptureControlsCard extends StatelessWidget {
 }
 
 class _DraftReviewCard extends StatelessWidget {
-  const _DraftReviewCard({required this.draft});
+  const _DraftReviewCard({
+    required this.draft,
+    required this.submissionSummary,
+    required this.wasQueued,
+  });
 
   final CapturedReportDraft draft;
+  final String submissionSummary;
+  final bool wasQueued;
 
   @override
   Widget build(BuildContext context) {
@@ -1198,9 +1346,7 @@ class _DraftReviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            draft.isQueuedOffline
-                ? 'QUEUED REPORT REVIEW'
-                : 'SUBMITTED REPORT REVIEW',
+            'LAST REPORT SNAPSHOT',
             style: TextStyle(
               color: const Color(0xFFBDEBFF),
               fontSize: 12,
@@ -1246,9 +1392,9 @@ class _DraftReviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            draft.isQueuedOffline
-                ? 'Stored locally because the backend was unavailable. Submit it after connectivity is restored.'
-                : 'Submitted to the backend and available to the A1 processing flow.',
+            wasQueued
+                ? '$submissionSummary. This report will retry while the app stays open.'
+                : '$submissionSummary. Backend accepted this capture.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.78),
               fontWeight: FontWeight.w600,

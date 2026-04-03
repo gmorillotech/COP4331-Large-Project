@@ -1,0 +1,33 @@
+<svg width="840" height="460" viewBox="0 0 840 460" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="panel" x1="50" y1="32" x2="782" y2="434" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FCFF"/>
+      <stop offset="1" stop-color="#DFECF9"/>
+    </linearGradient>
+    <linearGradient id="heatScale" x1="120" y1="0" x2="640" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.33" stop-color="#06B6D4"/>
+      <stop offset="0.68" stop-color="#FACC15"/>
+      <stop offset="1" stop-color="#DC2626"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="840" height="460" filterUnits="userSpaceOnUse">
+      <feOffset dy="22"/>
+      <feGaussianBlur stdDeviation="24"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0196078 0 0 0 0 0.0509804 0 0 0 0 0.105882 0 0 0 0.28 0"/>
+      <feBlend in2="SourceGraphic" result="shape"/>
+    </filter>
+  </defs>
+  <rect width="840" height="460" rx="42" fill="#0B1F34"/>
+  <g filter="url(#shadow)">
+    <rect x="48" y="38" width="744" height="348" rx="34" fill="url(#panel)"/>
+  </g>
+  <text x="96" y="108" fill="#3B5974" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="0.14em">DECIBEL READOUT</text>
+  <text x="96" y="226" fill="#071A30" font-family="Segoe UI, Arial, sans-serif" font-size="124" font-weight="700">62.4</text>
+  <text x="404" y="226" fill="#44627C" font-family="Segoe UI, Arial, sans-serif" font-size="42" font-weight="700">dB</text>
+  <text x="96" y="278" fill="#496884" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600">Numeric first, interpretation second</text>
+  <rect x="96" y="314" width="540" height="18" rx="9" fill="#D3E2F0"/>
+  <rect x="96" y="314" width="328" height="18" rx="9" fill="url(#heatScale)"/>
+  <circle cx="424" cy="323" r="22" fill="#FFF7D9"/>
+  <circle cx="424" cy="323" r="11" fill="#FACC15"/>
+  <text x="96" y="370" fill="#3B5974" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">Pairs cleanly with a separate qualitative bar.</text>
+</svg>

@@ -1,0 +1,183 @@
+/* Login container */
+#loginDiv {
+  width: 320px;
+  margin: 100px auto;
+  padding: 25px;
+  border-radius: 15px;
+  background-color: #f0f4f8;
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+/* Title */
+#inner-title {
+  font-size: 1.6em;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20px;
+  display: block;
+}
+
+/* Inputs — covers login, email, and all register fields */
+input[type="text"],
+input[type="password"],
+input[type="email"] {
+  width: 90%;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 12px;
+  border: 1px solid #aaa;
+  font-size: 1em;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Focus effect for all inputs */
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+}
+
+/* Login button */
+#loginButton {
+  width: 95%;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 12px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  font-weight: bold;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+#loginButton:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px);
+}
+
+/* Register button — matches login button style */
+#registerButton {
+  width: 95%;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 12px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  font-weight: bold;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+#registerButton:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px);
+}
+
+/* Tab bar */
+#authTabs {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #ccc;
+}
+
+/* Tab buttons */
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  padding: 10px 28px;
+  font-size: 0.95em;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #888;
+  cursor: pointer;
+  transition: color 0.2s ease, border-bottom-color 0.2s ease;
+}
+
+.tab-btn:hover {
+  color: #333;
+}
+
+/* Active tab — uses your existing blue to stay consistent */
+.tab-btn.active {
+  color: #007bff;
+  border-bottom-color: #007bff;
+}
+
+/* Panel wrapper */
+.tab-panel {
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+/* Error / message text */
+#loginResult {
+  display: block;
+  margin-top: 12px;
+  color: red;
+  font-size: 0.9em;
+}
+
+/* Verify, Forgot, Reset submit buttons — matches existing button style */
+#verifyButton,
+#forgotButton,
+#resetButton {
+  width: 95%;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 12px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  font-weight: bold;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+#verifyButton:hover,
+#forgotButton:hover,
+#resetButton:hover {
+  background-color: #0056b3;
+  transform: translateY(-2px);
+}
+
+/* Clickable links below buttons */
+.auth-link {
+  display: block;
+  margin-top: 10px;
+  color: #007bff;
+  font-size: 0.85em;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.auth-link:hover {
+  color: #0056b3;
+}
+
+/* Info text above inputs on secondary panels */
+.auth-info {
+  font-size: 0.85em;
+  color: #555;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+/* Success message color override */
+#loginResult.success {
+  color: green;
+}
+

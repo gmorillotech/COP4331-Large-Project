@@ -1,5 +1,13 @@
 node_modules/
 .env
+Frontend/.vite
+flutter_application_1/linux/flutter/generated_plugin_registrant.cc
+flutter_application_1/linux/flutter/generated_plugin_registrant.h
+flutter_application_1/linux/flutter/generated_plugins.cmake
+flutter_application_1/macos/Flutter/GeneratedPluginRegistrant.swift
+flutter_application_1/windows/flutter/generated_plugin_registrant.cc
+flutter_application_1/windows/flutter/generated_plugin_registrant.h
+flutter_application_1/windows/flutter/generated_plugins.cmake
 .DS_Store
 
 # Web Frontend build output
@@ -22,3 +30,7 @@ flutter_application_1/ios/Runner/GeneratedPluginRegistrant.*
 flutter_application_1/macos/Flutter/ephemeral/
 flutter_application_1/windows/flutter/generated_plugin_registrant.cc
 flutter_application_1/windows/flutter/generated_plugins.cmake
+shared/dist
+unit_tests/dist/shared/src
+unit_tests/dist
+support_services.ts
