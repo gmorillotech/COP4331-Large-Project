@@ -104,7 +104,7 @@ router.post("/register", async (req, res) => {
 
     if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       const verificationLink =
-        `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`;
+        `${process.env.FRONTEND_URL}/verify?token=${emailVerificationToken}`;
       await transporter.sendMail({
         to: normalizedEmail,
         from: `Meta Location <${process.env.EMAIL_USER}>`,
@@ -304,6 +304,32 @@ router.post("/change-password", protect, async (req, res) => {
     return res.status(200).json({ message: "Password updated successfully." });
   } catch (error) {
     return res.status(500).json({ error: "Server error while updating password." });
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required." });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) return res.status(400).json({ error: "User not found." });
+
+    if (user.emailVerifiedAt) return res.status(400).json({ error: "Account already verified." });
+
+    const token = crypto.randomBytes(32).toString("hex");
+    user.emailVerificationToken = token;
+    await user.save();
+
+    const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${token}`;
+
+    await transporter.sendMail({
+      to: user.email,
+      from: `Meta Location <${process.env.EMAIL_USER}>`,
+      subject: "Verify Your Account",
+      html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+    });
+
+    return res.json({ message: "Verification email resent." });
+  } catch (err) {
+    return res.status(500).json({ error: "Server error." });
   }
 });
 
