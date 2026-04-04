@@ -113,7 +113,7 @@ function Login() {
       localStorage.setItem('user_data', JSON.stringify(res.user));
       localStorage.setItem('token', res.accessToken);
       setMessage('');
-      navigate('/cards');
+      navigate('/home');
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }
