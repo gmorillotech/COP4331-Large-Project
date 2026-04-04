@@ -12,6 +12,14 @@ import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
 import 'data_collection_workflow.dart';
 
+typedef MicrophonePermissionRequest = Future<PermissionStatus> Function();
+
+Future<PermissionStatus> _requestMicrophonePermission() {
+  return Permission.microphone.request();
+}
+
+enum _MicrophonePermissionState { requesting, granted, denied, unavailable }
+
 class DataCollectionScreen extends StatefulWidget {
   const DataCollectionScreen({
     super.key,
@@ -23,6 +31,8 @@ class DataCollectionScreen extends StatefulWidget {
     this.draftBuilder = const CapturedReportDraftBuilder(),
     this.draftRepository,
     this.backendClient,
+    this.microphonePermissionRequest = _requestMicrophonePermission,
+    this.allowSyntheticAudioInput = false,
   });
 
   final SignalSampler signalSampler;
@@ -33,6 +43,8 @@ class DataCollectionScreen extends StatefulWidget {
   final CapturedReportDraftBuilder draftBuilder;
   final ReportDraftRepository? draftRepository;
   final DataCollectionBackendClient? backendClient;
+  final MicrophonePermissionRequest microphonePermissionRequest;
+  final bool allowSyntheticAudioInput;
 
   @override
   State<DataCollectionScreen> createState() => _DataCollectionScreenState();
@@ -65,12 +77,56 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   StreamSubscription<NoiseReading>? _noiseSubscription;
   double _liveAudioLevel = 0.0;
   bool _micActive = false;
+  _MicrophonePermissionState _microphonePermissionState =
+      _MicrophonePermissionState.requesting;
+  bool _microphonePermanentlyDenied = false;
 
   int get _minimumSamplesRequired =>
       widget.draftBuilder.summaryService.config.minimumSampleCount;
 
-  Duration get _capturedDuration =>
-      Duration(milliseconds: _capturedSamples.length * _sampleInterval.inMilliseconds);
+  Duration get _capturedDuration => Duration(
+    milliseconds: _capturedSamples.length * _sampleInterval.inMilliseconds,
+  );
+
+  bool get _isDataCollectionEnabled =>
+      _microphonePermissionState == _MicrophonePermissionState.granted;
+
+  double _audioInputLevel(Duration elapsed) {
+    if (_micActive) {
+      return _liveAudioLevel;
+    }
+
+    if (widget.allowSyntheticAudioInput && _isDataCollectionEnabled) {
+      return widget.signalSampler(elapsed);
+    }
+
+    return 0.0;
+  }
+
+  String get _captureAvailabilityLabel {
+    switch (_microphonePermissionState) {
+      case _MicrophonePermissionState.requesting:
+        return 'Awaiting microphone access';
+      case _MicrophonePermissionState.granted:
+        return _isCapturing ? 'Collecting live samples' : 'Ready to capture';
+      case _MicrophonePermissionState.denied:
+        return 'Microphone access required';
+      case _MicrophonePermissionState.unavailable:
+        return 'Microphone unavailable';
+    }
+  }
+
+  Color get _captureAvailabilityColor {
+    switch (_microphonePermissionState) {
+      case _MicrophonePermissionState.requesting:
+        return const Color(0xFF38BDF8);
+      case _MicrophonePermissionState.granted:
+        return _isCapturing ? const Color(0xFF34D399) : const Color(0xFFF59E0B);
+      case _MicrophonePermissionState.denied:
+      case _MicrophonePermissionState.unavailable:
+        return const Color(0xFFFB7185);
+    }
+  }
 
   @override
   void initState() {
@@ -78,8 +134,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _engine = ProceduralSurfaceEngine(config: widget.config);
     _draftRepository =
         widget.draftRepository ?? InMemoryReportDraftRepository.instance;
-    _backendClient =
-        widget.backendClient ?? HttpDataCollectionBackendClient();
+    _backendClient = widget.backendClient ?? HttpDataCollectionBackendClient();
     _occupancy = widget.initialOccupancy;
     _studyLocations = List<DataCollectionStudyLocation>.from(
       widget.locationResolver.studyLocations,
@@ -89,7 +144,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _studyLocations,
     );
     _frame = _engine.tick(
-      rawLevel: widget.signalSampler(Duration.zero),
+      rawLevel: _audioInputLevel(Duration.zero),
       elapsed: Duration.zero,
     );
     _ticker = createTicker(_handleTick)..start();
@@ -106,29 +161,72 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }
 
   Future<void> _initMicrophone() async {
+    await _noiseSubscription?.cancel();
+    _noiseSubscription = null;
+    _noiseMeter = null;
+
+    if (mounted) {
+      setState(() {
+        _microphonePermissionState = _MicrophonePermissionState.requesting;
+        _microphonePermanentlyDenied = false;
+        _micActive = false;
+        _liveAudioLevel = 0.0;
+      });
+    }
+
     try {
-      final status = await Permission.microphone.request();
-      if (!mounted) return;
+      final status = await widget.microphonePermissionRequest();
+      if (!mounted) {
+        return;
+      }
 
       if (status.isGranted) {
         _noiseMeter = NoiseMeter();
-        _noiseSubscription = _noiseMeter!.noise.listen(
+        final subscription = _noiseMeter!.noise.listen(
           (NoiseReading reading) {
             // Convert dB to a 0-1 level using the config's dB range
             final minDb = widget.config.minDecibels.toDouble();
             final maxDb = widget.config.maxDecibels.toDouble();
-            _liveAudioLevel =
-                ((reading.meanDecibel - minDb) / (maxDb - minDb))
-                    .clamp(0.0, 1.0);
+            _liveAudioLevel = ((reading.meanDecibel - minDb) / (maxDb - minDb))
+                .clamp(0.0, 1.0);
             _micActive = true;
           },
           onError: (Object error) {
-            _micActive = false;
+            if (!mounted) {
+              return;
+            }
+
+            setState(() {
+              _micActive = false;
+              _isCapturing = false;
+              _microphonePermissionState =
+                  _MicrophonePermissionState.unavailable;
+            });
           },
         );
+        setState(() {
+          _noiseSubscription = subscription;
+          _microphonePermissionState = _MicrophonePermissionState.granted;
+        });
+        return;
       }
-    } catch (_error) {
-      _micActive = false;
+
+      setState(() {
+        _isCapturing = false;
+        _microphonePermissionState = _MicrophonePermissionState.denied;
+        _microphonePermanentlyDenied =
+            status.isPermanentlyDenied || status.isRestricted;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isCapturing = false;
+        _micActive = false;
+        _microphonePermissionState = _MicrophonePermissionState.unavailable;
+      });
     }
   }
 
@@ -137,12 +235,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       return;
     }
 
-    final rawLevel =
-        _micActive ? _liveAudioLevel : widget.signalSampler(elapsed);
-    final nextFrame = _engine.tick(
-      rawLevel: rawLevel,
-      elapsed: elapsed,
-    );
+    final rawLevel = _audioInputLevel(elapsed);
+    final nextFrame = _engine.tick(rawLevel: rawLevel, elapsed: elapsed);
 
     setState(() {
       _frame = nextFrame;
@@ -164,6 +258,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }
 
   void _startCapture() {
+    if (!_isDataCollectionEnabled) {
+      _showMessage(
+        'Microphone access is required before data collection can begin.',
+      );
+      return;
+    }
+
     setState(() {
       final shouldStartFresh = _lastRecordedSampleMs < 0;
       _isCapturing = true;
@@ -199,6 +300,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       return;
     }
 
+    if (!_isDataCollectionEnabled) {
+      _showMessage(
+        'Microphone access is required before reports can be submitted.',
+      );
+      return;
+    }
+
     final location = _selectedLocation;
     if (location == null) {
       _showMessage('Select a study location before submitting a report.');
@@ -227,7 +335,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         });
         _showMessage('Report submitted to the backend.');
         unawaited(_flushQueuedDrafts(announceSuccess: true));
-      } catch (_error) {
+      } catch (_) {
         final queuedDraft = await _draftRepository.saveDraft(draft);
         if (!mounted) {
           return;
@@ -248,7 +356,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         }
       }
     } on StateError catch (error) {
-      _showMessage(error.message ?? 'Unable to prepare this report yet.');
+      _showMessage(error.message);
     }
   }
 
@@ -287,7 +395,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _studyLocations,
         );
       });
-    } catch (_error) {
+    } catch (_) {
       // Seeded locations remain available as a fallback for local capture flows.
     }
   }
@@ -309,7 +417,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         await _draftRepository.removeDraft(draft.reportId);
         syncedCount += 1;
       }
-    } catch (_error) {
+    } catch (_) {
       // Leave any remaining drafts in the in-memory queue for a later retry.
     } finally {
       _isSyncingQueue = false;
@@ -335,6 +443,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   @override
   Widget build(BuildContext context) {
     final signal = _frame.signal;
+    final showPermissionGate = !_isDataCollectionEnabled;
 
     return Scaffold(
       backgroundColor: const Color(0xFF04121F),
@@ -343,6 +452,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         foregroundColor: Colors.white,
         title: const Text('Data Collection'),
         actions: [
+          IconButton(
+            tooltip: 'Account Center',
+            onPressed: () {
+              Navigator.of(context).pushNamed('/account-center');
+            },
+            icon: const Icon(Icons.account_circle_outlined),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton.tonalIcon(
@@ -436,17 +552,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
                               width: 10,
                               height: 10,
                               decoration: BoxDecoration(
-                                color: _isCapturing
-                                    ? const Color(0xFF34D399)
-                                    : const Color(0xFFF59E0B),
+                                color: _captureAvailabilityColor,
                                 shape: BoxShape.circle,
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              _isCapturing
-                                  ? 'Collecting live samples'
-                                  : 'Ready to capture',
+                              _captureAvailabilityLabel,
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.92),
                                 fontWeight: FontWeight.w600,
@@ -463,36 +575,64 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
                   _NoiseBarCard(descriptor: signal.descriptor),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isWide = constraints.maxWidth >= 920;
+                    child: Stack(
+                      children: [
+                        IgnorePointer(
+                          ignoring: showPermissionGate,
+                          child: Opacity(
+                            opacity: showPermissionGate ? 0.42 : 1.0,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isWide = constraints.maxWidth >= 920;
 
-                        if (isWide) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(child: _leftColumn(signal)),
-                              const SizedBox(width: 16),
-                              SizedBox(
-                                width: 340,
-                                child: _rightColumn(compact: false),
-                              ),
-                            ],
-                          );
-                        }
+                                if (isWide) {
+                                  return Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(child: _leftColumn(signal)),
+                                      const SizedBox(width: 16),
+                                      SizedBox(
+                                        width: 340,
+                                        child: _rightColumn(compact: false),
+                                      ),
+                                    ],
+                                  );
+                                }
 
-                        return SingleChildScrollView(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _leftColumn(signal, compact: true),
-                              const SizedBox(height: 16),
-                              _rightColumn(compact: true),
-                            ],
+                                return SingleChildScrollView(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      _leftColumn(signal, compact: true),
+                                      const SizedBox(height: 16),
+                                      _rightColumn(compact: true),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                           ),
-                        );
-                      },
+                        ),
+                        if (showPermissionGate)
+                          Positioned.fill(
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 420,
+                                ),
+                                child: _MicrophonePermissionGateCard(
+                                  permissionState: _microphonePermissionState,
+                                  permanentlyDenied:
+                                      _microphonePermanentlyDenied,
+                                  onRetry: _initMicrophone,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ],
@@ -586,6 +726,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         ),
         const SizedBox(height: 12),
         _CaptureControlsCard(
+          enabled: _isDataCollectionEnabled,
           canSaveDraft:
               _capturedSamples.length >= _minimumSamplesRequired &&
               _selectedLocation != null &&
@@ -601,8 +742,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           const SizedBox(height: 12),
           _DraftReviewCard(
             draft: _lastProcessedDraft!,
-            submissionSummary:
-                _lastSubmissionSummary ?? 'Prepared on device',
+            submissionSummary: _lastSubmissionSummary ?? 'Prepared on device',
             wasQueued: _lastSubmissionQueued,
           ),
         ],
@@ -765,7 +905,9 @@ class _CaptureStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = sampleCount == 0 ? 0.0 : (sampleCount / minSamples).clamp(0.0, 1.0);
+    final progress = sampleCount == 0
+        ? 0.0
+        : (sampleCount / minSamples).clamp(0.0, 1.0);
 
     return _GlassCard(
       child: Column(
@@ -896,7 +1038,7 @@ class _LocationCard extends StatelessWidget {
           DropdownButtonFormField<DataCollectionStudyLocation>(
             key: const Key('location-dropdown'),
             isExpanded: true,
-            value: selectedLocation,
+            initialValue: selectedLocation,
             dropdownColor: const Color(0xFF102235),
             decoration: InputDecoration(
               filled: true,
@@ -961,10 +1103,7 @@ class _LocationCard extends StatelessWidget {
 }
 
 class _SignalHistoryCard extends StatelessWidget {
-  const _SignalHistoryCard({
-    required this.samples,
-    required this.minSamples,
-  });
+  const _SignalHistoryCard({required this.samples, required this.minSamples});
 
   final List<double> samples;
   final int minSamples;
@@ -1250,6 +1389,7 @@ class _OccupancyCard extends StatelessWidget {
 
 class _CaptureControlsCard extends StatelessWidget {
   const _CaptureControlsCard({
+    required this.enabled,
     required this.canSaveDraft,
     required this.isCapturing,
     required this.isSubmitting,
@@ -1259,6 +1399,7 @@ class _CaptureControlsCard extends StatelessWidget {
     required this.onSaveDraft,
   });
 
+  final bool enabled;
   final bool canSaveDraft;
   final bool isCapturing;
   final bool isSubmitting;
@@ -1297,25 +1438,25 @@ class _CaptureControlsCard extends StatelessWidget {
             children: [
               FilledButton.icon(
                 key: const Key('start-capture-button'),
-                onPressed: isCapturing ? null : onStart,
+                onPressed: enabled && !isCapturing ? onStart : null,
                 icon: const Icon(Icons.play_arrow_rounded),
                 label: const Text('Start'),
               ),
               FilledButton.tonalIcon(
                 key: const Key('pause-capture-button'),
-                onPressed: isCapturing ? onPause : null,
+                onPressed: enabled && isCapturing ? onPause : null,
                 icon: const Icon(Icons.pause_rounded),
                 label: const Text('Pause'),
               ),
               FilledButton.tonalIcon(
                 key: const Key('reset-capture-button'),
-                onPressed: onReset,
+                onPressed: enabled ? onReset : null,
                 icon: const Icon(Icons.restart_alt_rounded),
                 label: const Text('Reset'),
               ),
               FilledButton.tonalIcon(
                 key: const Key('save-draft-button'),
-                onPressed: canSaveDraft ? onSaveDraft : null,
+                onPressed: enabled && canSaveDraft ? onSaveDraft : null,
                 icon: const Icon(Icons.cloud_upload_outlined),
                 label: Text(isSubmitting ? 'Submitting...' : 'Submit Report'),
               ),
@@ -1406,16 +1547,117 @@ class _DraftReviewCard extends StatelessWidget {
   }
 }
 
-class _SignalHistoryPainter extends CustomPainter {
-  _SignalHistoryPainter({
-    required this.samples,
+class _MicrophonePermissionGateCard extends StatelessWidget {
+  const _MicrophonePermissionGateCard({
+    required this.permissionState,
+    required this.permanentlyDenied,
+    required this.onRetry,
   });
+
+  final _MicrophonePermissionState permissionState;
+  final bool permanentlyDenied;
+  final Future<void> Function() onRetry;
+
+  String get _headline {
+    switch (permissionState) {
+      case _MicrophonePermissionState.requesting:
+        return 'Checking microphone permission';
+      case _MicrophonePermissionState.granted:
+        return 'Microphone ready';
+      case _MicrophonePermissionState.denied:
+        return 'Microphone permission required';
+      case _MicrophonePermissionState.unavailable:
+        return 'Microphone unavailable';
+    }
+  }
+
+  String get _body {
+    switch (permissionState) {
+      case _MicrophonePermissionState.requesting:
+        return 'This workflow stays locked until microphone access is confirmed.';
+      case _MicrophonePermissionState.granted:
+        return 'Microphone access is available.';
+      case _MicrophonePermissionState.denied:
+        return 'Noise reports stay disabled until the app can record live microphone input. Occupancy-only submissions are intentionally blocked.';
+      case _MicrophonePermissionState.unavailable:
+        return 'The app could not access live microphone input, so report collection is disabled until microphone access works again.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: _GlassCard(
+        key: const Key('microphone-permission-gate'),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          Text(
+            _headline,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _body,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.82),
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.tonalIcon(
+                key: const Key('retry-microphone-permission-button'),
+                onPressed:
+                    permissionState == _MicrophonePermissionState.requesting
+                    ? null
+                    : () {
+                        unawaited(onRetry());
+                      },
+                icon: const Icon(Icons.mic_rounded),
+                label: Text(
+                  permissionState == _MicrophonePermissionState.requesting
+                      ? 'Checking...'
+                      : 'Retry access',
+                ),
+              ),
+              if (permanentlyDenied)
+                FilledButton.icon(
+                  key: const Key('open-app-settings-button'),
+                  onPressed: () {
+                    unawaited(openAppSettings());
+                  },
+                  icon: const Icon(Icons.settings_outlined),
+                  label: const Text('Open Settings'),
+                ),
+            ],
+          ),
+        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SignalHistoryPainter extends CustomPainter {
+  _SignalHistoryPainter({required this.samples});
 
   final List<double> samples;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final backgroundPaint = Paint()..color = Colors.white.withValues(alpha: 0.04);
+    final backgroundPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.04);
     final background = RRect.fromRectAndRadius(
       Offset.zero & size,
       const Radius.circular(18),
@@ -1439,7 +1681,9 @@ class _SignalHistoryPainter extends CustomPainter {
         : samples;
     final minSample = visibleSamples.reduce((a, b) => a < b ? a : b);
     final maxSample = visibleSamples.reduce((a, b) => a > b ? a : b);
-    final range = (maxSample - minSample).abs() < 0.01 ? 1.0 : maxSample - minSample;
+    final range = (maxSample - minSample).abs() < 0.01
+        ? 1.0
+        : maxSample - minSample;
 
     final path = Path();
     for (var index = 0; index < visibleSamples.length; index += 1) {
@@ -1458,11 +1702,7 @@ class _SignalHistoryPainter extends CustomPainter {
 
     final linePaint = Paint()
       ..shader = const LinearGradient(
-        colors: [
-          Color(0xFF7CE8FF),
-          Color(0xFFFF91DD),
-          Color(0xFFFFD564),
-        ],
+        colors: [Color(0xFF7CE8FF), Color(0xFFFF91DD), Color(0xFFFFD564)],
       ).createShader(Offset.zero & size)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
@@ -1479,9 +1719,7 @@ class _SignalHistoryPainter extends CustomPainter {
 }
 
 class _ProgressBarPainter extends CustomPainter {
-  const _ProgressBarPainter({
-    required this.progress,
-  });
+  const _ProgressBarPainter({required this.progress});
 
   final double progress;
 
@@ -1490,11 +1728,7 @@ class _ProgressBarPainter extends CustomPainter {
     final background = Paint()..color = const Color(0xFF17324A);
     final fill = Paint()
       ..shader = const LinearGradient(
-        colors: [
-          Color(0xFF2563EB),
-          Color(0xFF06B6D4),
-          Color(0xFF34D399),
-        ],
+        colors: [Color(0xFF2563EB), Color(0xFF06B6D4), Color(0xFF34D399)],
       ).createShader(Offset.zero & size);
     final rrect = RRect.fromRectAndRadius(
       Offset.zero & size,
@@ -1524,6 +1758,7 @@ String _formatDuration(Duration duration) {
 
 class _GlassCard extends StatelessWidget {
   const _GlassCard({
+    super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
   });
@@ -1636,10 +1871,7 @@ class ProceduralSurfacePainter extends CustomPainter {
               Colors.transparent,
             ],
           ).createShader(
-            Rect.fromCircle(
-              center: model.glowCenter,
-              radius: model.glowRadius,
-            ),
+            Rect.fromCircle(center: model.glowCenter, radius: model.glowRadius),
           );
     canvas.drawCircle(model.glowCenter, model.glowRadius, glowPaint);
 

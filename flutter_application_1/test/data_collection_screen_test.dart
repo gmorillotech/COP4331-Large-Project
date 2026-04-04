@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/data_collection/data_collection_backend.dart';
+import 'package:flutter_application_1/data_collection/data_collection_model.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:flutter_application_1/data_collection/data_collection_workflow.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class FakeBackendClient implements DataCollectionBackendClient {
   FakeBackendClient({
@@ -29,6 +31,32 @@ class FakeBackendClient implements DataCollectionBackendClient {
   }
 }
 
+Future<PermissionStatus> grantedMicrophonePermission() async {
+  return PermissionStatus.granted;
+}
+
+Future<PermissionStatus> deniedMicrophonePermission() async {
+  return PermissionStatus.denied;
+}
+
+Widget buildScreen({
+  SignalSampler signalSampler = demoSignalLevel,
+  ReportDraftRepository? draftRepository,
+  DataCollectionBackendClient? backendClient,
+  MicrophonePermissionRequest microphonePermissionRequest =
+      grantedMicrophonePermission,
+}) {
+  return MaterialApp(
+    home: DataCollectionScreen(
+      signalSampler: signalSampler,
+      draftRepository: draftRepository,
+      backendClient: backendClient,
+      microphonePermissionRequest: microphonePermissionRequest,
+      allowSyntheticAudioInput: true,
+    ),
+  );
+}
+
 void main() {
   late InMemoryReportDraftRepository repository;
   late FakeBackendClient backendClient;
@@ -41,12 +69,7 @@ void main() {
 
   testWidgets('data collection screen renders core controls', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
-      ),
+      buildScreen(draftRepository: repository, backendClient: backendClient),
     );
 
     expect(find.byKey(const Key('data-collection-screen')), findsOneWidget);
@@ -63,12 +86,7 @@ void main() {
 
   testWidgets('occupancy slider exposes exactly five levels', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
-      ),
+      buildScreen(draftRepository: repository, backendClient: backendClient),
     );
 
     final slider = tester.widget<Slider>(find.byType(Slider));
@@ -83,27 +101,31 @@ void main() {
     expect(find.text('Current selection: Full'), findsOneWidget);
   });
 
-  testWidgets('debug signal updates displayed readout and noise label', (tester) async {
+  testWidgets('debug signal updates displayed readout and noise label', (
+    tester,
+  ) async {
     double scriptedSignal(Duration elapsed) {
       return elapsed < const Duration(milliseconds: 450) ? 0.08 : 0.98;
     }
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          signalSampler: scriptedSignal,
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
+      buildScreen(
+        signalSampler: scriptedSignal,
+        draftRepository: repository,
+        backendClient: backendClient,
       ),
     );
+    await tester.pump();
 
+    expect(find.byKey(const Key('microphone-permission-gate')), findsNothing);
     expect(find.byKey(const Key('noise-label')), findsOneWidget);
     expect(
       tester.widget<Text>(find.byKey(const Key('noise-label'))).data,
       'Quiet',
     );
-    final initialText = tester.widget<RichText>(find.byKey(const Key('decibel-readout')));
+    final initialText = tester.widget<RichText>(
+      find.byKey(const Key('decibel-readout')),
+    );
     final initialValue = initialText.text.toPlainText();
 
     // Pump many individual frames so the signal smoothing can converge
@@ -111,7 +133,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
 
-    final updatedText = tester.widget<RichText>(find.byKey(const Key('decibel-readout')));
+    final updatedText = tester.widget<RichText>(
+      find.byKey(const Key('decibel-readout')),
+    );
     final updatedValue = updatedText.text.toPlainText();
 
     expect(updatedValue, isNot(equals(initialValue)));
@@ -121,14 +145,37 @@ void main() {
     );
   });
 
+  testWidgets('screen is gated when microphone permission is denied', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildScreen(
+        draftRepository: repository,
+        backendClient: backendClient,
+        microphonePermissionRequest: deniedMicrophonePermission,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('microphone-permission-gate')), findsOneWidget);
+    expect(find.text('Microphone permission required'), findsOneWidget);
+
+    final startButton = tester.widget<FilledButton>(
+      find.byKey(const Key('start-capture-button')),
+    );
+    expect(startButton.onPressed, isNull);
+    expect(find.text('Microphone access required'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('retry-microphone-permission-button')),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('microphone-permission-gate')), findsOneWidget);
+  });
+
   testWidgets('animation widget mounts and disposes cleanly', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
-      ),
+      buildScreen(draftRepository: repository, backendClient: backendClient),
     );
 
     expect(tester.takeException(), isNull);
@@ -141,13 +188,9 @@ void main() {
 
   testWidgets('capture controls toggle start and pause states', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
-      ),
+      buildScreen(draftRepository: repository, backendClient: backendClient),
     );
+    await tester.pump();
 
     expect(find.text('Ready to capture'), findsOneWidget);
 
@@ -177,12 +220,10 @@ void main() {
     }
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          signalSampler: scriptedSignal,
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
+      buildScreen(
+        signalSampler: scriptedSignal,
+        draftRepository: repository,
+        backendClient: backendClient,
       ),
     );
 
@@ -195,7 +236,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
     }
 
-    final saveButton = tester.widget<FilledButton>(find.byKey(const Key('save-draft-button')));
+    final saveButton = tester.widget<FilledButton>(
+      find.byKey(const Key('save-draft-button')),
+    );
     expect(saveButton.onPressed, isNotNull);
 
     await tester.ensureVisible(find.byKey(const Key('save-draft-button')));
@@ -219,12 +262,10 @@ void main() {
     }
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: DataCollectionScreen(
-          signalSampler: scriptedSignal,
-          draftRepository: repository,
-          backendClient: backendClient,
-        ),
+      buildScreen(
+        signalSampler: scriptedSignal,
+        draftRepository: repository,
+        backendClient: backendClient,
       ),
     );
 
@@ -245,6 +286,9 @@ void main() {
     expect(repository.drafts, isNotEmpty);
     expect(backendClient.submittedReports, isEmpty);
     expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
-    expect(find.textContaining('Queued offline for this session'), findsOneWidget);
+    expect(
+      find.textContaining('Queued offline for this session'),
+      findsOneWidget,
+    );
   });
 }
