@@ -17,112 +17,7 @@ app.use(cors());
 app.use(express.json());
 
 
-const mapAnnotations = [
-  {
-    id: "library-floor-1-quiet",
-    lat: 28.60024,
-    lng: -81.20182,
-    title: "Quiet Study",
-    buildingName: "John C. Hitt Library",
-    floorLabel: "Floor 1",
-    sublocationLabel: "North Reading Room",
-    summary: "Good for focused work with light foot traffic.",
-    statusText: "Usually quiet at this time",
-    noiseText: "Noise: Quiet",
-    occupancyText: "Occupancy: 2 users",
-    updatedAtLabel: "Updated 2 minutes ago",
-    iconType: "library",
-    severity: "low",
-    color: "#2a9d8f",
-    isFavorite: true,
-  },
-  {
-    id: "library-floor-2-moderate",
-    lat: 28.60036,
-    lng: -81.20168,
-    title: "Collaboration Tables",
-    buildingName: "John C. Hitt Library",
-    floorLabel: "Floor 2",
-    sublocationLabel: "West Commons",
-    summary: "Conversation-friendly seating with moderate ambient sound.",
-    statusText: "Moderate buzz near group tables",
-    noiseText: "Noise: Moderate",
-    occupancyText: "Occupancy: 9 users",
-    updatedAtLabel: "Updated 4 minutes ago",
-    iconType: "library",
-    severity: "medium",
-    color: "#ff9f1c",
-  },
-  {
-    id: "library-floor-3-busy",
-    lat: 28.60048,
-    lng: -81.20155,
-    title: "Open Computer Lab",
-    buildingName: "John C. Hitt Library",
-    floorLabel: "Floor 3",
-    sublocationLabel: "Digital Media Area",
-    summary: "High circulation zone with steady keyboard and discussion noise.",
-    statusText: "Busiest floor in the building",
-    noiseText: "Noise: Busy",
-    occupancyText: "Occupancy: 18 users",
-    updatedAtLabel: "Updated 1 minute ago",
-    iconType: "library",
-    severity: "high",
-    color: "#d9485f",
-  },
-  {
-    id: "library-floor-4-empty",
-    lat: 28.60018,
-    lng: -81.20198,
-    title: "Silent Study Cubicles",
-    buildingName: "John C. Hitt Library",
-    floorLabel: "Floor 4",
-    sublocationLabel: "East Quiet Wing",
-    summary: "Sparse traffic and the calmest option in the library right now.",
-    statusText: "Mostly empty",
-    noiseText: "Noise: Very quiet",
-    occupancyText: "Occupancy: 1 user",
-    updatedAtLabel: "Updated 6 minutes ago",
-    iconType: "library",
-    severity: "low",
-    color: "#2a9d8f",
-    isFavorite: true,
-  },
-  {
-    id: "msb-floor-2-moderate",
-    lat: 28.60116,
-    lng: -81.19886,
-    title: "Study Nook",
-    buildingName: "Mathematical Sciences Building",
-    floorLabel: "Floor 2",
-    sublocationLabel: "Atrium Balcony",
-    summary: "Reliable seating between classes with moderate hallway spillover.",
-    statusText: "Moderate between class blocks",
-    noiseText: "Noise: Moderate",
-    occupancyText: "Occupancy: 6 users",
-    updatedAtLabel: "Updated 7 minutes ago",
-    iconType: "study",
-    severity: "medium",
-    color: "#3a86ff",
-  },
-  {
-    id: "student-union-food-court",
-    lat: 28.60192,
-    lng: -81.19994,
-    title: "Food Court Seating",
-    buildingName: "Student Union",
-    floorLabel: "Level 1",
-    sublocationLabel: "South Dining Hall",
-    summary: "Convenient seating but consistently loud during lunch hours.",
-    statusText: "Lunch rush is active",
-    noiseText: "Noise: Loud",
-    occupancyText: "Occupancy: 21 users",
-    updatedAtLabel: "Updated just now",
-    iconType: "community",
-    severity: "high",
-    color: "#d9485f",
-  },
-];
+
 
 function toSeverity(noiseLevel) {
   if (!Number.isFinite(noiseLevel)) {
@@ -228,28 +123,6 @@ const startServer = async () => {
 };
 
 startServer();
-app.post("/api/login", async (req, res) => {
-  const { login = "", password = "" } = req.body ?? {};
-  const matchesUser =
-    login.toLowerCase() === defaultUser.login && password === defaultUser.password;
-
-  if (!matchesUser) {
-    return res.status(200).json({
-      id: -1,
-      firstName: "",
-      lastName: "",
-      error: "Invalid user name/password",
-    });
-  }
-
-  return res.status(200).json({
-    id: defaultUser.id,
-    firstName: defaultUser.firstName,
-    lastName: defaultUser.lastName,
-    error: "",
-  });
-});
-
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
@@ -258,50 +131,36 @@ app.get("/api/map-annotations", async (req, res) => {
       LocationGroup.find().lean(),
     ]);
 
-    const locationsById = new Map(locations.map((location) => [location.studyLocationId, location]));
-    const groupsById = new Map(groups.map((group) => [group.locationGroupId, group]));
-    const results = mapAnnotations.map((annotation) => {
-      const liveLocation = locationsById.get(annotation.id);
-      if (!liveLocation) {
-        return annotation;
-      }
+    const groupsById = new Map(groups.map((g) => [g.locationGroupId, g]));
 
-      const liveGroup = groupsById.get(liveLocation.locationGroupId);
-      const liveNoise = liveLocation.currentNoiseLevel;
-      const liveOccupancy = liveLocation.currentOccupancyLevel;
-
-      // Only overwrite noise/occupancy fields when the DB has a real number.
-      // If currentNoiseLevel is null (not yet reported), fall back to the
-      // static annotation value so we never display "unavailable" to the user.
-      const hasLiveNoise = Number.isFinite(liveNoise);
-      const hasLiveOccupancy = Number.isFinite(liveOccupancy);
+    const results = locations.map((location) => {
+      const group = groupsById.get(location.locationGroupId);
+      const noise = location.currentNoiseLevel;
+      const occupancy = location.currentOccupancyLevel;
+      const hasNoise = Number.isFinite(noise);
+      const hasOccupancy = Number.isFinite(occupancy);
 
       return {
-        ...annotation,
-        // Use the live group name if available, otherwise keep the static one
-        buildingName: liveGroup?.name ?? annotation.buildingName,
-        // Only replace severity/noiseText/occupancyText when live data exists
-        severity:      hasLiveNoise      ? toSeverity(liveNoise)        : annotation.severity,
-        noiseText:     hasLiveNoise      ? toNoiseText(liveNoise)        : annotation.noiseText,
-        occupancyText: hasLiveOccupancy  ? toOccupancyText(liveOccupancy): annotation.occupancyText,
-        // Only replace statusText when BOTH values are live
+        id: location.studyLocationId,
+        lat: location.latitude,
+        lng: location.longitude,
+        title: group?.name ?? location.name,
+        buildingName: group?.name,
+        sublocationLabel: location.name,
+        severity: toSeverity(noise),
+        noiseText: toNoiseText(noise),
+        occupancyText: toOccupancyText(occupancy),
         statusText:
-          hasLiveNoise && hasLiveOccupancy
-            ? `Live: ${liveNoise.toFixed(1)} dB, occupancy ${liveOccupancy.toFixed(1)} / 5`
-            : annotation.statusText,
-        updatedAtLabel: formatUpdatedAtLabel(liveLocation.updatedAt),
+          hasNoise && hasOccupancy
+            ? `Live: ${noise.toFixed(1)} dB, occupancy ${occupancy.toFixed(1)} / 5`
+            : undefined,
+        updatedAtLabel: formatUpdatedAtLabel(location.updatedAt),
       };
     });
-    console.log("Locations successfully found")
-    res.status(200).json({
-      results,
-      error: "",
-    });
-  } catch (_error) {
-    console.log("database error")
-    res.status(200).json({
-      results: mapAnnotations,
-      error: "",
-    });
+
+    res.status(200).json({ results, error: "" });
+  } catch (err) {
+    console.error("map-annotations error:", err.message);
+    res.status(500).json({ results: [], error: "Failed to load locations" });
   }
 });
