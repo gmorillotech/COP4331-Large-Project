@@ -5,14 +5,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-
-import 'data_collection/data_collection_screen.dart';
 
 const String _configuredMapApiBaseUrl = String.fromEnvironment('MAP_API_BASE_URL');
 const String _mapRoute = '/map';
 const String _dataCollectionRoute = '/data-collection';
+const String _accountCenterRoute = '/account-center';
 
 void main() => runApp(const MainApp());
 
@@ -29,6 +29,7 @@ class MainApp extends StatelessWidget {
       routes: {
         _mapRoute: (_) => const MapSearchPage(),
         _dataCollectionRoute: (_) => const DataCollectionScreen(),
+        _accountCenterRoute: (_) => const AccountCenterPage(),
       },
     );
   }
@@ -309,8 +310,10 @@ class _MapSearchPageState extends State<MapSearchPage> {
   final _mapViewportKey = GlobalKey();
   GoogleMapController? _mapController;
   Timer? _debounce;
+  Timer? _filterDebounce;
+  int _searchRequestId = 0;
 
-  List<LocationRecord> _records = const [];
+  List<MapNode> _records = const [];
   List<MapNode> _groups = const [];
   Map<String, Offset> _screenPoints = const {};
   String _status = 'Loading map data...';
@@ -321,7 +324,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   bool _detailsExpanded = false;
   bool _projectionPending = false;
   double _zoom = _defaultCamera.zoom;
-  LatLng _cameraCenter = _defaultCamera.target;
+  final LatLng _cameraCenter = _defaultCamera.target;
   List<SearchSort?> _sortOrder = const [SearchSort.relevance, SearchSort.distance, null];
   double _maxRadiusMeters = 300;
   double? _minNoise;
@@ -348,7 +351,8 @@ class _MapSearchPageState extends State<MapSearchPage> {
     return 'http://localhost:5050';
   }
 
-  List<MapNode> get _locations => _records.map(_locationNode).toList(growable: false);
+  bool get _showGroups => _zoom < _groupZoomThreshold;
+  List<MapNode> get _locations => _records.where((n) => !n.isGroup).toList(growable: false);
   List<MapNode> get _visibleNodes => _filtered(_showGroups ? _groups : _locations);
   List<MapNode> get _results {
     if (_query.isEmpty) return _visibleNodes;
@@ -446,7 +450,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
       );
     } catch (error) {
       _applyRecords(
-        _seededRecords,
+        _fallbackNodes(),
         status:
             'API unavailable at $_baseUrl. Using seeded map data for local testing.',
       );
@@ -455,7 +459,10 @@ class _MapSearchPageState extends State<MapSearchPage> {
     }
   }
 
-  void _applyRecords(List<LocationRecord> records, {required String status}) {
+  List<MapNode> _buildGroups(List<MapNode> nodes) =>
+      nodes.where((n) => n.isGroup).toList(growable: false);
+
+  void _applyRecords(List<MapNode> records, {required String status}) {
     final groups = _buildGroups(records);
     setState(() {
       _records = records;
@@ -532,26 +539,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
     return nodes.where((node) => _query.isEmpty || node.searchTerms.contains(_query)).toList(growable: false);
   }
 
-  MapNode _locationNode(LocationRecord record) => MapNode(
-        id: record.id,
-        kind: NodeKind.location,
-        title: record.title,
-        buildingName: record.buildingName,
-        summary: record.summary,
-        statusText: record.statusText,
-        noiseText: record.noiseText,
-        occupancyText: record.occupancyText,
-        updatedAtLabel: record.updatedAtLabel,
-        position: record.position,
-        color: record.color,
-        severity: record.severity,
-        searchTerms: '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'.toLowerCase(),
-        badge: _badgeForFloor(record.floorLabel, record.title),
-        groupId: _groupId(record.buildingName),
-        sublocationLabel: record.sublocationLabel,
-        isFavorite: record.isFavorite,
-      );
-
   List<MapNode> _filtered(List<MapNode> nodes) => _filter == null ? nodes : nodes.where((n) => n.severity == _filter).toList();
 
   void _onSearch(String value) {
@@ -561,14 +548,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
       setState(() => _query = value.trim().toLowerCase());
       unawaited(_runSearch());
     });
-  }
-
-  String _buildStatus(int resultCount) {
-    final noun = resultCount == 1 ? 'result' : 'results';
-    final sortLabels = _sortOrder.whereType<SearchSort>().map((value) => _sortLabel(value).toLowerCase()).toList(growable: false);
-    final sortText = sortLabels.isEmpty ? 'relevance' : sortLabels.join(' then ');
-    final usersNote = _showUsers ? ' User overlays are reserved for a later backend pass.' : '';
-    return '$resultCount $noun within ${_maxRadiusMeters.round()} m, sorted by $sortText.$usersNote';
   }
 
   void _setSortAt(int index, SearchSort? sort) {
@@ -631,18 +610,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
   void _onOccupancyChanged(String value) {
     setState(() => _maxOccupancy = double.tryParse(value.trim()));
     _scheduleFilterSearch();
-  }
-
-  void _reconcileSelection() {
-    if (_results.isEmpty) {
-      setState(() => _selectedId = null);
-      return;
-    }
-    if (_results.any((n) => n.id == _selectedId)) return;
-    setState(() {
-      _selectedId = _results.first.id;
-      _detailsExpanded = false;
-    });
   }
 
   Future<void> _focusNode(MapNode node) async {
@@ -784,7 +751,11 @@ class _MapSearchPageState extends State<MapSearchPage> {
       return;
     }
 
-    unawaited(_load());
+    unawaited(_runSearch(showLoading: true));
+  }
+
+  Future<void> _openAccountCenter() async {
+    await Navigator.of(context).pushNamed(_accountCenterRoute);
   }
 
   @override
@@ -797,6 +768,11 @@ class _MapSearchPageState extends State<MapSearchPage> {
         backgroundColor: Colors.transparent,
         actions: [
           IconButton(
+            tooltip: 'Open account center',
+            onPressed: _openAccountCenter,
+            icon: const Icon(Icons.account_circle_outlined),
+          ),
+          IconButton(
             tooltip: 'Open data collection',
             onPressed: _openDataCollection,
             icon: const Icon(Icons.mic_rounded),
@@ -807,7 +783,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final topPanelHeight = math.min(360.0, math.max(260.0, constraints.maxHeight * 0.36));
-            final resultsHeight = math.min(210.0, math.max(150.0, constraints.maxHeight * 0.24));
             return Column(
               children: [
                 SizedBox(
@@ -1092,8 +1067,10 @@ class _MapSearchPageState extends State<MapSearchPage> {
                     ),
             ),
           ],
-        ),
+        );
+      },
       ),
+    ),
     );
   }
 
@@ -1108,7 +1085,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   Widget _sortDropdown(String label, int index) {
     return DropdownButtonFormField<SearchSort?>(
-      value: _sortOrder[index],
+      initialValue: _sortOrder[index],
       decoration: InputDecoration(
         labelText: label,
         filled: true,
