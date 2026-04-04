@@ -2,6 +2,10 @@ const express = require("express");
 
 const LocationGroup = require("../models/LocationGroup");
 const StudyLocation = require("../models/StudyLocation");
+const { LocationController } = require("../controllers/locationController");
+const { LocationGroupRepository } = require("../repositories/LocationGroupRepository");
+const { StudyLocationRepository } = require("../repositories/StudyLocationRepository");
+const { LocationService } = require("../services/locationService");
 const {
   baseLocationAnnotationsById,
   distanceInMeters,
@@ -279,24 +283,18 @@ function createLocationRouter({
   LocationGroupModel = LocationGroup,
 } = {}) {
   const router = express.Router();
+  const studyLocationRepository = new StudyLocationRepository(StudyLocationModel);
+  const locationGroupRepository = new LocationGroupRepository(LocationGroupModel);
+  const locationService = new LocationService(
+    studyLocationRepository,
+    locationGroupRepository,
+    Number.POSITIVE_INFINITY,
+  );
+  const locationController = new LocationController(locationService);
 
-  router.get("/groups", async (_req, res) => {
-    try {
-      const groups = await LocationGroupModel.find().sort({ name: 1 });
-      return res.status(200).json(groups);
-    } catch (_error) {
-      return res.status(500).json({ error: "Server error fetching location groups." });
-    }
-  });
+  router.get("/groups", locationController.getAllGroups.bind(locationController));
 
-  router.get("/groups/:groupId/locations", async (req, res) => {
-    try {
-      const locations = await StudyLocationModel.find({ locationGroupId: req.params.groupId }).sort({ name: 1 });
-      return res.status(200).json(locations);
-    } catch (_error) {
-      return res.status(500).json({ error: "Server error fetching study locations." });
-    }
-  });
+  router.get("/groups/:groupId/locations", locationController.getLocationByGroup.bind(locationController));
 
   router.get("/search", async (req, res) => {
     const query = String(req.query.q ?? "").trim().toLowerCase();
@@ -385,54 +383,9 @@ function createLocationRouter({
     }
   });
 
-  router.get("/closest", async (req, res) => {
-    try {
-      const latitude = Number(req.query.lat);
-      const longitude = Number(req.query.lng);
+  router.get("/closest", locationController.getClosestLocation.bind(locationController));
 
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        return res.status(400).json({ error: "Latitude and longitude query parameters are required." });
-      }
-
-      const locations = await StudyLocationModel.find().lean();
-      const closest = locations
-        .map((location) => ({
-          ...location,
-          distanceMeters: distanceInMeters(
-            latitude,
-            longitude,
-            location.latitude,
-            location.longitude,
-          ),
-        }))
-        .sort((left, right) => left.distanceMeters - right.distanceMeters)
-        .slice(0, 10);
-
-      return res.status(200).json(closest);
-    } catch (_error) {
-      return res.status(500).json({ error: "Server error finding closest locations." });
-    }
-  });
-
-  router.get("/:locationId", async (req, res) => {
-    try {
-      const location = await StudyLocationModel.findOne({ studyLocationId: req.params.locationId });
-      if (!location) {
-        return res.status(404).json({ error: "Location not found." });
-      }
-
-      const group = await LocationGroupModel.findOne({ locationGroupId: location.locationGroupId }).select(
-        "locationGroupId name",
-      );
-
-      return res.status(200).json({
-        ...location.toObject(),
-        locationGroup: group ? group.toObject() : null,
-      });
-    } catch (_error) {
-      return res.status(500).json({ error: "Server error fetching location details." });
-    }
-  });
+  router.get("/:locationId", locationController.getLocationById.bind(locationController));
 
   return router;
 }

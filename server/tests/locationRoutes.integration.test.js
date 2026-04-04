@@ -233,6 +233,150 @@ it("GET /api/locations/search bootstraps catalog data into an empty connected da
   });
 });
 
+it("GET /api/locations/groups returns location groups sorted by name", async () => {
+  const StudyLocationModel = createQueryModel([]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-b",
+      name: "Student Union",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      locationGroupId: "group-a",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body[0].name, "John C. Hitt Library");
+    assert.equal(body[1].name, "Student Union");
+  });
+});
+
+it("GET /api/locations/groups/:groupId/locations returns group locations sorted by name", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-b",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Collaboration Tables",
+      latitude: 28.60036,
+      longitude: -81.20168,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([]);
+
+  const app = express();
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups/group-1/locations`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body[0].name, "Collaboration Tables");
+    assert.equal(body[1].name, "Quiet Study");
+  });
+});
+
+it("GET /api/locations/:locationId returns the location plus its parent group", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "library-floor-1-quiet",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: 44,
+      currentOccupancyLevel: 2,
+      updatedAt: new Date("2026-03-31T12:00:00.000Z"),
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: 52,
+      currentOccupancyLevel: 3,
+      updatedAt: new Date("2026-03-31T12:03:00.000Z"),
+    },
+  ]);
+
+  const app = express();
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/library-floor-1-quiet`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.studyLocationId, "library-floor-1-quiet");
+    assert.equal(body.locationGroup.locationGroupId, "group-john-c-hitt-library");
+    assert.equal(body.locationGroup.name, "John C. Hitt Library");
+  });
+});
+
+it("GET /api/locations/closest returns the nearest study location", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-b",
+      locationGroupId: "group-1",
+      name: "Collaboration Tables",
+      latitude: 28.60124,
+      longitude: -81.19982,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([]);
+
+  const app = express();
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/closest?lat=28.6002&lng=-81.2018`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.studyLocationId, "loc-a");
+  });
+});
+
 async function run() {
   for (const test of registeredTests) {
     await test.run();
