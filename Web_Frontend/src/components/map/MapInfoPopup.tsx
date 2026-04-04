@@ -15,6 +15,8 @@ import { inferNoiseValue, buildHeatColor } from '../../lib/mapUtils.ts';
 type MapInfoPopupProps = {
   location: MapLocation | null; // null = no location selected → renders nothing
   onClose: () => void;          // called when the user clicks the × on the popup
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void;
 };
 
 // SeverityBadge — a colored pill showing Low / Medium / High
@@ -54,7 +56,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MapInfoPopup({ location, onClose }: MapInfoPopupProps) {
+function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapInfoPopupProps) {
   // If no location is selected, render nothing — InfoWindow disappears
   if (!location) return null;
 
@@ -117,10 +119,14 @@ function MapInfoPopup({ location, onClose }: MapInfoPopupProps) {
           />
         </dl>
 
-        {/* Favorite indicator at the bottom */}
-        {location.isFavorite && (
-          <p className="map-info-popup__favorite">♥ Saved to favorites</p>
-        )}
+      {/* Favorite button at the bottom */}
+  <button
+    type="button"
+    className={`map-info-popup__favorite-btn ${isFavorite ? 'is-favorited' : ''}`}
+    onClick={() => onToggleFavorite(location.id)}
+  >
+    {isFavorite ? '♥ Saved to favorites' : '♡ Save to favorites'}
+  </button>
 
       </div>
     </InfoWindow>

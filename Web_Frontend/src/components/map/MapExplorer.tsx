@@ -25,6 +25,8 @@ import MapMarkers from './MapMarkers.tsx';
 import MapHeatOverlay from './MapHeatOverlay.tsx';
 import MapInfoPopup from './MapInfoPopup.tsx';
 import MapLocationList from './MapLocationList.tsx';
+import { useFavorites } from '../../useFavorites.ts';
+import FavoritesDrawer from '../FavoritesDrawer.tsx';
 
 // The API key is read from .env at build time (VITE_ prefix makes it browser-accessible)
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -91,6 +93,9 @@ function MapExplorer() {
 
   // Which sort option is active
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
+
+  const { favorites, isFavorite, toggleFavorite } = useFavorites(); 
+
 
   // ---- Effects --------------------------------------------------------------
 
@@ -302,6 +307,8 @@ function MapExplorer() {
               <MapInfoPopup
                 location={selectedLocation}
                 onClose={() => setSelectedId(null)}
+                isFavorite={selectedLocation ? isFavorite(selectedLocation.id) : false}
+                onToggleFavorite={toggleFavorite}
               />
             </MapCanvas>
           </MapProvider>
@@ -313,10 +320,23 @@ function MapExplorer() {
             locations={sortedLocations}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            isFavorite={isFavorite}
+            onToggleFavorite={toggleFavorite}
           />
         </aside>
 
       </div>
+
+      {/* Favorites drawer */}
+      <FavoritesDrawer
+        locations={locations}
+        isFavorite={isFavorite}
+        onToggleFavorite={toggleFavorite}
+        onSelectLocation={(id) => {
+          setSelectedId(id);
+        }}
+      />
+
     </section>
   );
 }

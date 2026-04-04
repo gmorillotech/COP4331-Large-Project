@@ -38,18 +38,22 @@ type MapLocationListProps = {
   locations: MapLocation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  isFavorite: (id: string) => boolean;
+  onToggleFavorite: (id: string) => void;
 };
 
 // HeartIcon — renders a filled heart (♥) if favorite, outline heart (♡) if not.
 // Using unicode characters keeps this dependency-free.
-function HeartIcon({ filled }: { filled: boolean }) {
+function HeartIcon({ filled, onClick }: { filled: boolean; onClick: (e: React.MouseEvent) => void }) {
   return (
-    <span
-      className="location-card__heart"
-      aria-label={filled ? 'Favorited' : 'Not favorited'}
+    <button
+      type="button"
+      className={`location-card__heart-btn ${filled ? 'is-favorited' : ''}`}
+      onClick={onClick}
+      aria-label={filled ? 'Remove from favorites' : 'Add to favorites'}
     >
       {filled ? '♥' : '♡'}
-    </span>
+    </button>
   );
 }
 
@@ -59,10 +63,14 @@ function LocationCard({
   location,
   isSelected,
   onSelect,
+  isFavorite,
+  onToggleFavorite,
 }: {
   location: MapLocation;
   isSelected: boolean;
   onSelect: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: (id: string) => void
 }) {
   // Compute the noise-driven color for this location's avatar circle
   const intensity = inferNoiseValue(location);
@@ -125,14 +133,20 @@ function LocationCard({
       </div>
 
       {/* Right: favorite heart icon */}
-      <HeartIcon filled={Boolean(location.isFavorite)} />
+      <HeartIcon
+        filled={isFavorite}
+        onClick={(e) => {
+          e.stopPropagation(); // prevent card selection when clicking heart
+          onToggleFavorite(location.id);
+        }}
+      />
     </button>
   );
 }
 
 // MapLocationList — renders the full scrollable list.
 // Shows an empty state message if the list is empty.
-function MapLocationList({ locations, selectedId, onSelect }: MapLocationListProps) {
+function MapLocationList({ locations, selectedId, onSelect,  isFavorite, onToggleFavorite }: MapLocationListProps) {
   if (locations.length === 0) {
     return (
       <div className="location-list__empty">
@@ -149,6 +163,8 @@ function MapLocationList({ locations, selectedId, onSelect }: MapLocationListPro
           location={location}
           isSelected={location.id === selectedId}
           onSelect={() => onSelect(location.id)}
+          isFavorite={isFavorite(location.id)}
+          onToggleFavorite={onToggleFavorite}
         />
       ))}
     </div>
