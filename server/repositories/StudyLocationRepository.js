@@ -1,0 +1,51 @@
+const StudyLocation = require("../models/StudyLocation");
+const { toStudyLocation } = require("./locationMappers");
+const { resolveQuery } = require("./queryHelpers");
+
+class StudyLocationRepository {
+  constructor(StudyLocationModel = StudyLocation) {
+    this.StudyLocationModel = StudyLocationModel;
+  }
+
+  async getAllStudyLocations() {
+    const locations = await resolveQuery(this.StudyLocationModel.find());
+    return locations.map(toStudyLocation);
+  }
+
+  async getStudyLocationById(studyLocationId) {
+    const location = await resolveQuery(this.StudyLocationModel.findOne({ studyLocationId }));
+    return location ? toStudyLocation(location) : null;
+  }
+
+  async updateStudyLocation(location) {
+    const updated = await resolveQuery(this.StudyLocationModel.findOneAndUpdate(
+      { studyLocationId: location.studyLocationId },
+      {
+        $set: {
+          locationGroupId: location.locationGroupId,
+          name: location.name,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          currentNoiseLevel: location.currentNoiseLevel,
+          currentOccupancyLevel: location.currentOccupancyLevel,
+          updatedAt: location.updatedAt,
+        },
+      },
+      { new: true, upsert: true },
+    ));
+
+    return toStudyLocation(updated);
+  }
+
+  async bulkUpdateStudyLocations(locations) {
+    if (locations.length === 0) {
+      return;
+    }
+
+    await Promise.all(locations.map((location) => this.updateStudyLocation(location)));
+  }
+}
+
+module.exports = {
+  StudyLocationRepository,
+};
