@@ -34,3 +34,6 @@ shared/dist
 unit_tests/dist/shared/src
 unit_tests/dist
 support_services.ts
+flutter_application_1/linux/flutter/generated_plugin_registrant.h
+flutter_application_1/macos/Flutter/GeneratedPluginRegistrant.swift
+*.h
