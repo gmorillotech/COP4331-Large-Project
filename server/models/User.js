@@ -99,4 +99,35 @@ const userSchema = new Schema(
   },
 );
 
+userSchema.methods.getProfile = function () {
+  return {
+    userId: this.userId,
+    login: this.login,
+    email: this.email,
+    firstName: this.firstName,
+    lastName: this.lastName,
+    displayName: this.displayName,
+    favorites: this.favorites,
+    userNoiseWF: this.userNoiseWF,
+    userOccupancyWF: this.userOccupancyWF,
+    createdAt: this.createdAt,
+  };
+};
+
+userSchema.methods.updateProfile = function (updates) {
+  if (updates.firstName !== undefined) this.firstName = updates.firstName;
+  if (updates.lastName !== undefined) this.lastName = updates.lastName;
+  if (updates.displayName !== undefined) this.displayName = updates.displayName;
+  if (updates.favorites !== undefined) this.favorites = updates.favorites;
+  if (updates.userNoiseWF !== undefined) this.userNoiseWF = updates.userNoiseWF;
+  if (updates.userOccupancyWF !== undefined) this.userOccupancyWF = updates.userOccupancyWF;
+  return this.save();
+};
+
+userSchema.methods.verifyEmail = function () {
+  this.emailVerifiedAt = new Date();
+  this.emailVerificationToken = null;
+  return this.save();
+};
+
 module.exports = mongoose.models.User || mongoose.model("User", userSchema);
