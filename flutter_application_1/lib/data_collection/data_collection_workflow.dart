@@ -221,6 +221,293 @@ class CaptureNoiseSummaryService {
 }
 
 @immutable
+class SessionState {
+  SessionState({
+    required this.userId,
+    required this.studyLocationId,
+    required this.startedAt,
+    this.deviceId,
+    this.lastSampleTime,
+    this.occupancyLevel,
+    List<double> noiseWindow = const <double>[],
+  }) : noiseWindow = List<double>.unmodifiable(noiseWindow);
+
+  factory SessionState.start({
+    required String userId,
+    required String studyLocationId,
+    String? deviceId,
+    DateTime? startedAt,
+  }) {
+    return SessionState(
+      userId: userId,
+      studyLocationId: studyLocationId,
+      deviceId: deviceId,
+      startedAt: startedAt ?? DateTime.now(),
+    );
+  }
+
+  final String userId;
+  final String studyLocationId;
+  final String? deviceId;
+  final DateTime startedAt;
+  final DateTime? lastSampleTime;
+  final OccupancyLevel? occupancyLevel;
+  final List<double> noiseWindow;
+
+  int get sampleCount => noiseWindow.length;
+
+  bool get hasOccupancyLevel => occupancyLevel != null;
+
+  int? get occupancyReportValue => occupancyLevel?.reportValue;
+
+  Duration get elapsed =>
+      (lastSampleTime ?? startedAt).difference(startedAt);
+
+  SessionState copyWith({
+    String? userId,
+    String? studyLocationId,
+    String? deviceId,
+    DateTime? startedAt,
+    DateTime? lastSampleTime,
+    OccupancyLevel? occupancyLevel,
+    List<double>? noiseWindow,
+    bool clearDeviceId = false,
+    bool clearLastSampleTime = false,
+    bool clearOccupancyLevel = false,
+  }) {
+    return SessionState(
+      userId: userId ?? this.userId,
+      studyLocationId: studyLocationId ?? this.studyLocationId,
+      deviceId: clearDeviceId ? null : (deviceId ?? this.deviceId),
+      startedAt: startedAt ?? this.startedAt,
+      lastSampleTime: clearLastSampleTime
+          ? null
+          : (lastSampleTime ?? this.lastSampleTime),
+      occupancyLevel: clearOccupancyLevel
+          ? null
+          : (occupancyLevel ?? this.occupancyLevel),
+      noiseWindow: noiseWindow ?? this.noiseWindow,
+    );
+  }
+
+  SessionState addNoiseReading(
+    double reading, {
+    DateTime? sampledAt,
+  }) {
+    if (!reading.isFinite || reading < 0) {
+      throw StateError(
+        'Decibel reading must be a non-negative finite number.',
+      );
+    }
+
+    return copyWith(
+      lastSampleTime: sampledAt ?? DateTime.now(),
+      noiseWindow: <double>[...noiseWindow, reading],
+    );
+  }
+
+  SessionState updateOccupancy(
+    OccupancyLevel level, {
+    DateTime? timestamp,
+  }) {
+    return copyWith(
+      occupancyLevel: level,
+      lastSampleTime: timestamp ?? lastSampleTime,
+    );
+  }
+
+  SessionState resetWindowVariables() {
+    return copyWith(noiseWindow: const <double>[]);
+  }
+}
+
+@immutable
+class SessionCoordinates {
+  const SessionCoordinates({
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final double latitude;
+  final double longitude;
+}
+
+@immutable
+class SessionUser {
+  const SessionUser({
+    required this.userId,
+    this.displayName,
+  });
+
+  final String userId;
+  final String? displayName;
+}
+
+abstract class SessionUserRepository {
+  Future<SessionUser?> findUserById(String userId);
+}
+
+class InMemorySessionUserRepository implements SessionUserRepository {
+  const InMemorySessionUserRepository({
+    this.users = const <SessionUser>[],
+  });
+
+  final List<SessionUser> users;
+
+  @override
+  Future<SessionUser?> findUserById(String userId) async {
+    for (final user in users) {
+      if (user.userId == userId) {
+        return user;
+      }
+    }
+
+    return null;
+  }
+}
+
+class SessionService {
+  SessionService({
+    this.locationResolver = const LocalStudyLocationResolver(),
+    this.userRepository = const InMemorySessionUserRepository(),
+    this.summaryService = const CaptureNoiseSummaryService(),
+  });
+
+  final LocalStudyLocationResolver locationResolver;
+  final SessionUserRepository userRepository;
+  final CaptureNoiseSummaryService summaryService;
+
+  SessionState? _sessionState;
+  DataCollectionStudyLocation? _resolvedStudyLocation;
+  SessionUser? _currentUser;
+
+  SessionState? get sessionState => _sessionState;
+
+  DataCollectionStudyLocation? get activeStudyLocation => _resolvedStudyLocation;
+
+  SessionUser? get currentUser => _currentUser;
+
+  Future<SessionState> initializeSession(
+    String userId,
+    SessionCoordinates coords, [
+    String? deviceId,
+  ]) async {
+    final studyLocation = resolveStudyLocation(coords);
+    await loadUserContext(userId);
+
+    _sessionState = SessionState.start(
+      userId: userId,
+      studyLocationId: studyLocation.studyLocationId,
+      deviceId: deviceId,
+    );
+    return _sessionState!;
+  }
+
+  DataCollectionStudyLocation resolveStudyLocation(SessionCoordinates coords) {
+    final studyLocation = locationResolver.resolveNearest(
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    );
+
+    if (studyLocation == null) {
+      throw StateError(
+        'No study location found within the allowed resolution distance.',
+      );
+    }
+
+    _resolvedStudyLocation = studyLocation;
+    return studyLocation;
+  }
+
+  Future<SessionUser> loadUserContext(String userId) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty) {
+      throw StateError('User id is required to initialize a session.');
+    }
+
+    final user =
+        await userRepository.findUserById(normalizedUserId) ??
+        SessionUser(userId: normalizedUserId);
+
+    _currentUser = user;
+    return user;
+  }
+
+  void getDecibelReading(
+    double reading, {
+    DateTime? timestamp,
+  }) {
+    final sessionState = _requireSessionState();
+    _sessionState = sessionState.addNoiseReading(
+      reading,
+      sampledAt: timestamp,
+    );
+  }
+
+  void updateOccupancy(
+    OccupancyLevel level, [
+    DateTime? timestamp,
+  ]) {
+    final sessionState = _requireSessionState();
+    _sessionState = sessionState.updateOccupancy(
+      level,
+      timestamp: timestamp,
+    );
+  }
+
+  CapturedReportDraft buildReport({
+    DateTime? createdAt,
+  }) {
+    final sessionState = _requireSessionState();
+    final occupancyLevel = sessionState.occupancyLevel;
+    if (occupancyLevel == null) {
+      throw StateError('Cannot build report without an occupancy level.');
+    }
+
+    final studyLocation =
+        _resolvedStudyLocation ??
+        locationResolver.findById(sessionState.studyLocationId);
+    if (studyLocation == null) {
+      throw StateError(
+        'Session study location could not be resolved for report generation.',
+      );
+    }
+
+    final builder = CapturedReportDraftBuilder(
+      summaryService: summaryService,
+      userId: sessionState.userId,
+    );
+
+    return builder.build(
+      location: studyLocation,
+      occupancy: occupancyLevel,
+      rawSamples: sessionState.noiseWindow,
+      createdAt: createdAt,
+    );
+  }
+
+  void resetWindowVariables() {
+    final sessionState = _requireSessionState();
+    _sessionState = sessionState.resetWindowVariables();
+  }
+
+  void advanceWindow() {
+    resetWindowVariables();
+  }
+
+  SessionState _requireSessionState() {
+    final sessionState = _sessionState;
+    if (sessionState == null) {
+      throw StateError(
+        'Initialize a session before reading decibels or building a report.',
+      );
+    }
+
+    return sessionState;
+  }
+}
+
+@immutable
 class CapturedReportDraft {
   const CapturedReportDraft({
     required this.reportId,
@@ -365,6 +652,8 @@ class DataCollectionApiConfig {
 abstract class ReportDraftRepository {
   Future<CapturedReportDraft> saveDraft(CapturedReportDraft draft);
 
+  Future<void> removeDraft(String reportId);
+
   List<CapturedReportDraft> get drafts;
 
   int get pendingDraftCount;
@@ -450,6 +739,11 @@ class ApiReportDraftRepository implements ReportDraftRepository {
       client.close(force: true);
     }
   }
+
+  @override
+  Future<void> removeDraft(String reportId) async {
+    _drafts.removeWhere((draft) => draft.reportId == reportId);
+  }
 }
 
 class InMemoryReportDraftRepository implements ReportDraftRepository {
@@ -473,6 +767,11 @@ class InMemoryReportDraftRepository implements ReportDraftRepository {
     );
     _drafts.insert(0, queuedDraft);
     return queuedDraft;
+  }
+
+  @override
+  Future<void> removeDraft(String reportId) async {
+    _drafts.removeWhere((draft) => draft.reportId == reportId);
   }
 
   @visibleForTesting
@@ -511,6 +810,14 @@ class FallbackReportDraftRepository implements ReportDraftRepository {
         draft.copyWith(deliveryDetail: error.message),
       );
     }
+  }
+
+  @override
+  Future<void> removeDraft(String reportId) async {
+    await Future.wait(<Future<void>>[
+      _offlineRepository.removeDraft(reportId),
+      _primaryRepository.removeDraft(reportId),
+    ]);
   }
 }
 

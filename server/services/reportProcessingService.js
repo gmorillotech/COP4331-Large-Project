@@ -8,6 +8,12 @@ const StudyLocation = require("../models/StudyLocation");
 const LocationGroup = require("../models/LocationGroup");
 const User = require("../models/User");
 const {
+  StudyLocationRepository,
+} = require("../repositories/StudyLocationRepository");
+const {
+  LocationGroupRepository,
+} = require("../repositories/LocationGroupRepository");
+const {
   findCatalogGroup,
   findCatalogLocation,
 } = require("./locationCatalog");
@@ -34,29 +40,6 @@ function toMetadata(document) {
     noiseWeightFactor: document.noiseWeightFactor,
     occupancyWeightFactor: document.occupancyWeightFactor,
     lastEvaluatedAt: new Date(document.lastEvaluatedAt),
-  };
-}
-
-function toStudyLocation(document) {
-  return {
-    studyLocationId: document.studyLocationId,
-    locationGroupId: document.locationGroupId,
-    name: document.name,
-    latitude: document.latitude,
-    longitude: document.longitude,
-    currentNoiseLevel: document.currentNoiseLevel,
-    currentOccupancyLevel: document.currentOccupancyLevel,
-    updatedAt: document.updatedAt ? new Date(document.updatedAt) : null,
-  };
-}
-
-function toLocationGroup(document) {
-  return {
-    locationGroupId: document.locationGroupId,
-    name: document.name,
-    currentNoiseLevel: document.currentNoiseLevel,
-    currentOccupancyLevel: document.currentOccupancyLevel,
-    updatedAt: document.updatedAt ? new Date(document.updatedAt) : null,
   };
 }
 
@@ -184,89 +167,12 @@ class MongooseUserRepository {
   }
 }
 
-class MongooseStudyLocationRepository {
-  async getAllStudyLocations() {
-    const locations = await StudyLocation.find().lean();
-    return locations.map(toStudyLocation);
-  }
-
-  async getStudyLocationById(studyLocationId) {
-    const location = await StudyLocation.findOne({ studyLocationId }).lean();
-    return location ? toStudyLocation(location) : null;
-  }
-
-  async updateStudyLocation(location) {
-    const updated = await StudyLocation.findOneAndUpdate(
-      { studyLocationId: location.studyLocationId },
-      {
-        $set: {
-          locationGroupId: location.locationGroupId,
-          name: location.name,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          currentNoiseLevel: location.currentNoiseLevel,
-          currentOccupancyLevel: location.currentOccupancyLevel,
-          updatedAt: location.updatedAt,
-        },
-      },
-      { new: true, upsert: true },
-    ).lean();
-
-    return toStudyLocation(updated);
-  }
-
-  async bulkUpdateStudyLocations(locations) {
-    if (locations.length === 0) {
-      return;
-    }
-
-    await Promise.all(locations.map((location) => this.updateStudyLocation(location)));
-  }
-}
-
-class MongooseLocationGroupRepository {
-  async getAllLocationGroups() {
-    const groups = await LocationGroup.find().lean();
-    return groups.map(toLocationGroup);
-  }
-
-  async getLocationGroupById(locationGroupId) {
-    const group = await LocationGroup.findOne({ locationGroupId }).lean();
-    return group ? toLocationGroup(group) : null;
-  }
-
-  async updateLocationGroup(group) {
-    const updated = await LocationGroup.findOneAndUpdate(
-      { locationGroupId: group.locationGroupId },
-      {
-        $set: {
-          name: group.name,
-          currentNoiseLevel: group.currentNoiseLevel,
-          currentOccupancyLevel: group.currentOccupancyLevel,
-          updatedAt: group.updatedAt,
-        },
-      },
-      { new: true, upsert: true },
-    ).lean();
-
-    return toLocationGroup(updated);
-  }
-
-  async bulkUpdateLocationGroups(groups) {
-    if (groups.length === 0) {
-      return;
-    }
-
-    await Promise.all(groups.map((group) => this.updateLocationGroup(group)));
-  }
-}
-
 class ReportProcessingService {
   constructor() {
     this.reportRepository = new MongooseReportRepository();
     this.userRepository = new MongooseUserRepository();
-    this.studyLocationRepository = new MongooseStudyLocationRepository();
-    this.locationGroupRepository = new MongooseLocationGroupRepository();
+    this.studyLocationRepository = new StudyLocationRepository();
+    this.locationGroupRepository = new LocationGroupRepository();
     this.a1Service = new A1Service(
       this.reportRepository,
       this.userRepository,
