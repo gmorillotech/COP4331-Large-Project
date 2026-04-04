@@ -304,6 +304,9 @@ router.post("/change-password", protect, async (req, res) => {
     return res.status(200).json({ message: "Password updated successfully." });
   } catch (error) {
     return res.status(500).json({ error: "Server error while updating password." });
+  }
+});
+
 router.post("/resend-verification", async (req, res) => {
   try {
     const { email } = req.body;
