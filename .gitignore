@@ -33,3 +33,6 @@ flutter_application_1/windows/flutter/generated_plugins.cmake
 shared/dist
 unit_tests/dist/shared/src
 unit_tests/dist
+.obsidian
+.claude
+.mcp.json
