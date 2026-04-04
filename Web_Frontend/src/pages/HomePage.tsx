@@ -1,8 +1,8 @@
 import LoggedInName from '../components/LoggedInName.tsx';
-import MapExplorer from '../components/MapExplorer.tsx';
+import MapExplorer from '../components/map/index.ts';
 import PageTitle from '../components/PageTitle.tsx';
 
-function CardPage() {
+function HomePage() {
   return (
     <div>
       <PageTitle />
@@ -12,4 +12,4 @@ function CardPage() {
   );
 }
 
-export default CardPage;
+export default HomePage;
