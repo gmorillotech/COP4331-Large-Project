@@ -666,3 +666,531 @@ code {
     width: auto;
   }
 }
+
+/* ============================================================
+   MAP PAGE LAYOUT
+   The map page is split into a controls bar at the top
+   and a body row below it (map canvas left, sidebar right).
+   ============================================================ */
+
+/* Outer wrapper for the entire map page */
+.map-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 32px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  overflow: hidden;           /* clips the map canvas corners */
+  box-shadow: var(--shadow);
+  background: var(--bg);
+}
+
+/* ---- Controls bar (top section) ---- */
+/* Holds title on the left and search/sort/filters on the right */
+.map-controls-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top left, rgba(255,159,28,0.10), transparent 40%),
+    var(--bg);
+  flex-wrap: wrap;            /* wraps to two rows on narrower viewports */
+}
+
+/* Left side: eyebrow label, h2 title, subtitle */
+.map-controls-title {
+  display: grid;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.map-controls-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+.map-controls-title h2 {
+  margin: 0;
+}
+
+.map-controls-subtitle {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Right side: stacks search on top, sort + chips below */
+.map-controls-right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 320px;            /* grows to fill space, min 320px before wrapping */
+  max-width: 680px;
+}
+
+/* Search input wrapper — positions the clear button inside */
+.map-controls-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* The clear (✕) button floats inside the right side of the search input */
+.map-controls-search .map-search__clear {
+  position: absolute;
+  right: 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.map-controls-search .map-search__clear:hover {
+  background: var(--accent-bg);
+}
+
+/* Row containing the sort dropdown and filter chips side by side */
+.map-controls-filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Sort label + select combo */
+.map-sort-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* The sort <select> dropdown */
+.map-sort-select {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text-h);
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+}
+
+.map-sort-select:focus {
+  border-color: var(--accent);
+}
+
+/* Filter chips group */
+.map-filter-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Status line ---- */
+/* Shows loading state, error, or result count */
+.map-status {
+  padding: 6px 28px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-status--error {
+  color: #dc2626;           /* red for errors */
+}
+
+/* ---- Body row: map + sidebar ---- */
+.map-body-row {
+  display: flex;
+  align-items: stretch;     /* both panels stretch to the same height */
+  min-height: 580px;
+}
+
+/* Map canvas wrapper — takes all space not used by the sidebar */
+.map-canvas-wrapper {
+  flex: 1 1 auto;
+  position: relative;       /* needed so the map fills this div absolutely */
+  min-height: 580px;
+}
+
+/* Right sidebar — fixed width, scrollable */
+.map-sidebar {
+  width: 360px;
+  flex-shrink: 0;           /* never squish the sidebar narrower than 360px */
+  overflow-y: auto;         /* scroll when there are more cards than fit */
+  max-height: 580px;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* ============================================================
+   LOCATION CARDS (sidebar list)
+   ============================================================ */
+
+/* Scrollable list container */
+.location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;                   /* cards are separated by borders, not gaps */
+}
+
+/* Empty state message when no locations match */
+.location-list__empty {
+  padding: 32px 20px;
+  font-size: 14px;
+  color: var(--text);
+  text-align: center;
+}
+
+/* One location card */
+.location-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s ease;
+}
+
+.location-card:hover {
+  background: var(--accent-bg);
+}
+
+/* Highlighted state when this card's location is selected on the map */
+.location-card.is-selected {
+  background: var(--accent-bg);
+  border-left: 3px solid var(--accent);
+  padding-left: 15px;       /* compensate for the 3px left border */
+}
+
+/* Colored circle avatar on the left — letter initial inside */
+.location-card__avatar {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;          /* prevent flex from squishing it */
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  user-select: none;
+}
+
+/* Text content block */
+.location-card__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;             /* allows text to truncate inside flex */
+}
+
+/* Building / location name */
+.location-card__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;  /* truncate long names with … */
+}
+
+/* Sublocation label (e.g. "Floor 4 Reading Room") */
+.location-card__sub {
+  font-size: 12px;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+/* "Building" or "Study Spot" pill tag */
+.location-card__tag {
+  display: inline-block;
+  align-self: flex-start;   /* don't stretch to full width */
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+
+/* Study area / quiet option count lines */
+.location-card__count {
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Noise level text from the API */
+.location-card__noise {
+  font-size: 12px;
+  color: var(--text);
+  font-style: italic;
+}
+
+/* Heart icon on the far right */
+.location-card__heart {
+  font-size: 18px;
+  line-height: 1;
+  color: #f97316;           /* orange heart */
+  flex-shrink: 0;
+  margin-top: 2px;
+  user-select: none;
+}
+
+/* ============================================================
+   MAP PINS (AdvancedMarker content)
+   These divs are rendered by React but placed on the map canvas
+   by AdvancedMarker — they're not in the normal page flow.
+   ============================================================ */
+
+/* Large circle pin for a building */
+.building-pin {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2.5px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+}
+
+/* Grow slightly when selected */
+.building-pin.is-selected {
+  transform: scale(1.18);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.32);
+}
+
+/* Letter avatar text inside the building pin */
+.building-pin__letter {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+/* Small speaker badge in the top-right corner — colored dot indicating noise */
+.building-pin__badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
+
+/* Small circle pin for individual study spots inside a building */
+.study-pin {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.2);
+}
+
+.study-pin.is-selected {
+  transform: scale(1.25);
+  box-shadow: 0 3px 12px rgba(0,0,0,0.28);
+}
+
+/* ============================================================
+   RESPONSIVE — stack vertically on smaller screens
+   ============================================================ */
+@media (max-width: 900px) {
+  .map-page {
+    margin: 16px;
+  }
+
+  /* Stack map above sidebar on narrow screens */
+  .map-body-row {
+    flex-direction: column;
+  }
+
+  /* Map takes full width, fixed height */
+  .map-canvas-wrapper {
+    min-height: 400px;
+  }
+
+  /* Sidebar becomes a horizontal scroll row of cards */
+  .map-sidebar {
+    width: 100%;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .location-list {
+    flex-direction: row;    /* cards side by side in a horizontal row */
+    gap: 0;
+  }
+
+  .location-card {
+    min-width: 260px;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+  }
+
+  /* Controls bar stacks vertically on small screens */
+  .map-controls-bar {
+    flex-direction: column;
+    padding: 18px 20px 16px;
+  }
+
+  .map-controls-right {
+    max-width: 100%;
+  }
+}
+
+/* ============================================================
+   MAP INFO POPUP (InfoWindow content)
+   Google Maps renders this inside its own floating container.
+   Max-width is constrained by the InfoWindow chrome itself.
+   ============================================================ */
+
+.map-info-popup {
+  width: 280px;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text-h);
+  /* Remove default InfoWindow padding so our layout fills edge-to-edge */
+  margin: -12px -16px -12px -16px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+/* Thin colored bar at the top — tinted by noise level */
+.map-info-popup__accent {
+  height: 4px;
+  width: 100%;
+}
+
+/* Header: title + severity badge side by side */
+.map-info-popup__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 8px;
+}
+
+.map-info-popup__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-h);
+  line-height: 1.3;
+}
+
+/* Sublocation label beneath the title (e.g. "North Reading Room") */
+.map-info-popup__sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+/* Summary paragraph */
+.map-info-popup__summary {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+/* Detail rows (noise, occupancy, status, updated) */
+.popup-meta {
+  margin: 0;
+  padding: 8px 14px 10px;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.popup-meta__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.popup-meta__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.popup-meta__value {
+  font-size: 13px;
+  color: var(--text-h);
+  text-align: right;
+  margin: 0;
+}
+
+/* Favorite indicator at the bottom */
+.map-info-popup__favorite {
+  margin: 0;
+  padding: 6px 14px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f97316;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Noise chip in location cards ---- */
+/* Colored dot + label, e.g.  ● Quiet  or  ● Moderate */
+.location-card__noise-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+/* The colored circle dot */
+.location-card__noise-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
