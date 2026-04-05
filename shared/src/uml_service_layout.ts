@@ -1,5 +1,3 @@
-import { SessionCorrectionService as SupportSessionCorrectionService } from "./support_services";
-
 export interface Coordinates {
   latitude: number;
   longitude: number;
@@ -15,8 +13,11 @@ export interface User {
   userOccupancyWF: number;
 }
 
+export type ReportKind = "live" | "archive_summary";
+
 export interface Report {
   reportId: string;
+  reportKind: "live";
   userId: string;
   studyLocationId: string;
   createdAt: Date;
@@ -24,6 +25,17 @@ export interface Report {
   maxNoise: number;
   variance: number;
   occupancy: number; // expected scale: 1..5
+}
+
+export interface ArchivedReportSummary {
+  reportId: string;
+  reportKind: "archive_summary";
+  studyLocationId: string;
+  createdAt: Date;
+  avgNoise: number;
+  occupancy: number;
+  windowStart: Date;
+  windowEnd: Date;
 }
 
 export interface ReportTagMetadata {
@@ -62,21 +74,11 @@ export interface LocationGroup {
   updatedAt: Date | null;
 }
 
-export interface ArchivedSummary {
-  reportId: string;
-  reportKind: "archive_summary";
-  studyLocationId: string;
-  createdAt: Date;
-  avgNoise: number;
-  occupancy: number;
-  windowStart: Date;
-  windowEnd: Date;
-}
+export type ArchivedSummary = ArchivedReportSummary;
 
 export interface SessionState {
   userId: string;
   studyLocationId: string;
-  deviceId?: string;
   startedAt: Date;
   lastSampleTime: Date | null;
   occupancyLevel: number | null;
@@ -171,6 +173,7 @@ export interface A1ReportRepository {
   getReportsByLocation(studyLocationId: string): Promise<ReportRecord[]>;
   getAllReportsWithMetadata(): Promise<ReportRecord[]>;
   upsertReportMetadata(records: ReportTagMetadata[]): Promise<void>;
+  createArchivedReports(records: ArchivedReportSummary[]): Promise<void>;
   deleteReports(reportIds: string[]): Promise<void>;
 }
 
@@ -218,6 +221,8 @@ export interface A1Config {
   initialDecayWF: number;
   reportHalfLifeMs: number;
   minWeightThreshold: number;
+  archiveThresholdMs: number;
+  archiveBucketMinutes: number;
   groupFreshnessWindowMs: number;
   varianceSoftCap: number;
   minReportsForTrustUpdate: number;
@@ -246,18 +251,25 @@ export interface A1Config {
     user: number;
     peer: number;
   };
-  archiveThresholdMs: number;
-  archiveBucketMinutes: number;
+  historicalHalfLifeDays: number;
+  historicalMaxAgeDays: number;
+  minimumHistoricalWeight: number;
+}
+
+export interface HistoricalBaseline {
+  usualNoise: number;
+  usualOccupancy: number;
 }
 
 export interface A1PollingCycleResult {
   evaluatedAt: Date;
   activeReportCount: number;
+  compressedReportIds: string[];
   staleReportIds: string[];
   updatedStudyLocations: StudyLocation[];
   updatedLocationGroups: LocationGroup[];
   updatedUsers: User[];
-  archivedSummaries: ArchivedSummary[];
+  archivedSummaries: ArchivedReportSummary[];
 }
 
 export interface SessionCorrectionNoiseWFDiagnostics {
@@ -282,6 +294,8 @@ export const defaultA1Config: A1Config = {
   initialDecayWF: 1.0,
   reportHalfLifeMs: 5 * 60 * 1000,
   minWeightThreshold: 0.05,
+  archiveThresholdMs: 3 * 60 * 60 * 1000,
+  archiveBucketMinutes: 30,
   groupFreshnessWindowMs: 3 * 60 * 1000,
   varianceSoftCap: 25,
   minReportsForTrustUpdate: 3,
@@ -310,8 +324,9 @@ export const defaultA1Config: A1Config = {
     user: 0.2,
     peer: 0.4,
   },
-  archiveThresholdMs: 3 * 60 * 60 * 1000,
-  archiveBucketMinutes: 30,
+  historicalHalfLifeDays: 14,
+  historicalMaxAgeDays: 30,
+  minimumHistoricalWeight: 0.2,
   // Tune these later after calibration with real report data.
 };
 
@@ -428,7 +443,6 @@ export class SessionService {
   async initializeSession(
     userId: string,
     coords: Coordinates,
-    deviceId?: string,
   ): Promise<SessionState> {
     const studyLocation = await this.fetchStudyLocation(coords);
     await this.loadUserContext(userId);
@@ -436,7 +450,6 @@ export class SessionService {
     return {
       userId,
       studyLocationId: studyLocation.studyLocationId,
-      deviceId,
       startedAt: new Date(),
       lastSampleTime: null,
       occupancyLevel: null,
@@ -554,19 +567,19 @@ export class A1Service {
     const userMap = new Map<string, User>(fetchedUsers.map((user) => [user.userId, { ...user }]));
 
     const metadataUpdates: ReportTagMetadata[] = [];
-    const staleReportIds: string[] = [];
+    const evaluatedRecords: Array<{ report: Report; metadata: ReportTagMetadata; user: User }> = [];
     const activeRecords: Array<{ report: Report; metadata: ReportTagMetadata; user: User }> = [];
 
     for (const record of reportRecords) {
       const user = getOrCreateUser(userMap, record.report.userId, this.config);
       const metadata = this.evaluateReportMetadata(record.report, reportRecords, user, now);
+      metadataUpdates.push(metadata);
+      evaluatedRecords.push({ report: record.report, metadata, user });
 
       if (metadata.decayFactor <= this.config.minWeightThreshold) {
-        staleReportIds.push(record.report.reportId);
         continue;
       }
 
-      metadataUpdates.push(metadata);
       activeRecords.push({ report: record.report, metadata, user });
     }
 
@@ -574,8 +587,11 @@ export class A1Service {
       await this.reportRepository.upsertReportMetadata(metadataUpdates);
     }
 
-    if (staleReportIds.length > 0) {
-      await this.reportRepository.deleteReports(staleReportIds);
+    const { compressedReportIds, deletedSourceReportIds } =
+      await this.compressHistoricalReports(evaluatedRecords, now);
+
+    if (deletedSourceReportIds.length > 0) {
+      await this.reportRepository.deleteReports(deletedSourceReportIds);
     }
 
     const updatedStudyLocations = this.recalculateAllStudyLocations(studyLocations, activeRecords, now);
@@ -604,7 +620,8 @@ export class A1Service {
     return {
       evaluatedAt: now,
       activeReportCount: activeRecords.length,
-      staleReportIds,
+      compressedReportIds,
+      staleReportIds: deletedSourceReportIds,
       updatedStudyLocations,
       updatedLocationGroups,
       updatedUsers,
@@ -732,7 +749,7 @@ export class A1Service {
     }
   }
 
-  buildArchivedSummaries(reportRecords: ReportRecord[], now: Date): ArchivedSummary[] {
+  buildArchivedSummaries(reportRecords: ReportRecord[], now: Date): ArchivedReportSummary[] {
     const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
     const archiveEligible = reportRecords.filter(
       (record) => record.report.createdAt.getTime() < archiveCutoff.getTime(),
@@ -744,7 +761,7 @@ export class A1Service {
 
     const bucketMs = this.config.archiveBucketMinutes * 60 * 1000;
     const byLocation = groupBy(archiveEligible, (record) => record.report.studyLocationId);
-    const archivedSummaries: ArchivedSummary[] = [];
+    const archivedSummaries: ArchivedReportSummary[] = [];
 
     for (const [studyLocationId, records] of byLocation) {
       const buckets = new Map<number, ReportRecord[]>();
@@ -805,29 +822,114 @@ export class A1Service {
   }
 
   private evaluateSessionCorrection(
-    report: Report,
-    reportHistory: ReportRecord[],
-    user: User,
+    _report: Report,
+    _reportHistory: ReportRecord[],
+    _user: User,
   ): SessionCorrectionNoiseWFDiagnostics {
-    const sessionCorrectionService = new SupportSessionCorrectionService({
-      peerWindowMs: this.config.peerWindowMs,
-      historicalLookbackDays: this.config.historicalLookbackDays,
-      historicalBucketToleranceMinutes: this.config.historicalBucketToleranceMinutes,
-      minPeerCountForPeerScore: this.config.minPeerCountForPeerScore,
-      peerToleranceDb: this.config.peerToleranceDb,
-      historicalToleranceDb: this.config.historicalToleranceDb,
-      minSessionCorrectionWF: this.config.minSessionCorrectionWF,
-      userNoiseWFNeutral: this.config.userNoiseWFNeutral,
-      userNoiseWFSoftRange: this.config.userNoiseWFSoftRange,
-      componentWeights: this.config.componentWeights,
-    });
+    return {
+      sessionCorrectionNoiseWF: 1.0,
+      historicalScore: 1.0,
+      userScore: 1.0,
+      peerScore: 1.0,
+      historicalBaselineNoise: null,
+      peerBaselineNoise: null,
+      historicalPeerCount: 0,
+      currentPeerCount: 0,
+    };
+  }
 
-    return sessionCorrectionService.evaluate({
-      report,
-      reportHistory: reportHistory.map((record) => record.report),
-      user,
-      now: report.createdAt,
-    });
+  private async compressHistoricalReports(
+    evaluatedRecords: Array<{ report: Report; metadata: ReportTagMetadata; user: User }>,
+    now: Date,
+  ): Promise<{ compressedReportIds: string[]; deletedSourceReportIds: string[] }> {
+    const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
+    const buckets = new Map<
+      string,
+      Array<{ report: Report; metadata: ReportTagMetadata }>
+    >();
+
+    for (const record of evaluatedRecords) {
+      const bucketStart = floorToBucketStart(
+        record.report.createdAt,
+        this.config.archiveBucketMinutes,
+      );
+      const bucketEnd = new Date(
+        bucketStart.getTime() + this.config.archiveBucketMinutes * 60 * 1000,
+      );
+
+      if (bucketEnd.getTime() > archiveCutoff.getTime()) {
+        continue;
+      }
+
+      const bucketKey = `${record.report.studyLocationId}|${bucketStart.toISOString()}`;
+      const bucket = buckets.get(bucketKey);
+
+      if (bucket) {
+        bucket.push({ report: record.report, metadata: record.metadata });
+      } else {
+        buckets.set(bucketKey, [{ report: record.report, metadata: record.metadata }]);
+      }
+    }
+
+    const archivedSummaries: ArchivedReportSummary[] = [];
+    const deletedSourceReportIds: string[] = [];
+
+    for (const [bucketKey, records] of buckets.entries()) {
+      if (records.length === 0) {
+        continue;
+      }
+
+      const [studyLocationId, bucketStartIso] = bucketKey.split("|");
+      const windowStart = new Date(bucketStartIso);
+      const windowEnd = new Date(
+        windowStart.getTime() + this.config.archiveBucketMinutes * 60 * 1000,
+      );
+
+      const noiseWeightBasis = records.reduce(
+        (sum, record) => sum + record.metadata.noiseWeightFactor,
+        0,
+      );
+      const occupancyWeightBasis = records.reduce(
+        (sum, record) => sum + record.metadata.occupancyWeightFactor,
+        0,
+      );
+      const noiseContributionBasis = records.reduce(
+        (sum, record) => sum + record.report.avgNoise * record.metadata.noiseWeightFactor,
+        0,
+      );
+      const occupancyContributionBasis = records.reduce(
+        (sum, record) => sum + record.report.occupancy * record.metadata.occupancyWeightFactor,
+        0,
+      );
+
+      archivedSummaries.push({
+        reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
+        reportKind: "archive_summary",
+        studyLocationId,
+        createdAt: new Date(windowStart.getTime() + this.config.archiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
+        avgNoise:
+          noiseWeightBasis > 0
+            ? noiseContributionBasis / noiseWeightBasis
+            : mean(records.map((record) => record.report.avgNoise)),
+        occupancy:
+          occupancyWeightBasis > 0
+            ? occupancyContributionBasis / occupancyWeightBasis
+            : mean(records.map((record) => record.report.occupancy)),
+        windowStart,
+        windowEnd,
+      });
+
+      deletedSourceReportIds.push(...records.map((record) => record.report.reportId));
+    }
+
+    if (archivedSummaries.length > 0) {
+      await this.reportRepository.createArchivedReports(archivedSummaries);
+    }
+
+    return {
+      compressedReportIds: archivedSummaries.map((summary) => summary.reportId),
+      deletedSourceReportIds,
+    };
   }
 
   private recalculateAllStudyLocations(
@@ -1162,6 +1264,55 @@ export class ReportController {
   }
 }
 
+export function computeHistoricalBaseline(
+  summaries: ArchivedReportSummary[],
+  now: Date,
+  config: A1Config,
+): HistoricalBaseline | null {
+  const currentBucketStart = floorToBucketStart(now, config.archiveBucketMinutes);
+  const currentBucketHour = currentBucketStart.getUTCHours();
+  const currentBucketMinute = currentBucketStart.getUTCMinutes();
+
+  const maxAgeMs = config.historicalMaxAgeDays * 24 * 60 * 60 * 1000;
+  const lambda = Math.log(2) / config.historicalHalfLifeDays;
+
+  const matching: Array<{ summary: ArchivedReportSummary; weight: number }> = [];
+
+  for (const summary of summaries) {
+    const ageMs = Math.max(0, now.getTime() - summary.windowStart.getTime());
+    if (ageMs > maxAgeMs) {
+      continue;
+    }
+
+    if (
+      summary.windowStart.getUTCHours() !== currentBucketHour ||
+      summary.windowStart.getUTCMinutes() !== currentBucketMinute
+    ) {
+      continue;
+    }
+
+    const ageDays = ageMs / (24 * 60 * 60 * 1000);
+    const weight = Math.exp(-lambda * ageDays);
+    matching.push({ summary, weight });
+  }
+
+  if (matching.length === 0) {
+    return null;
+  }
+
+  const totalWeight = matching.reduce((sum, entry) => sum + entry.weight, 0);
+  if (totalWeight < config.minimumHistoricalWeight) {
+    return null;
+  }
+
+  const usualNoise =
+    matching.reduce((sum, entry) => sum + entry.summary.avgNoise * entry.weight, 0) / totalWeight;
+  const usualOccupancy =
+    matching.reduce((sum, entry) => sum + entry.summary.occupancy * entry.weight, 0) / totalWeight;
+
+  return { usualNoise, usualOccupancy };
+}
+
 function haversineDistanceMeters(a: Coordinates, b: Coordinates): number {
   const earthRadiusMeters = 6_371_000;
   const latitudeDeltaRadians = toRadians(b.latitude - a.latitude);
@@ -1350,6 +1501,16 @@ function minuteOfWeek(date: Date): number {
 function circularMinuteDistance(left: number, right: number, cycleLength: number): number {
   const directDistance = Math.abs(left - right);
   return Math.min(directDistance, cycleLength - directDistance);
+}
+
+function floorToBucketStart(date: Date, bucketMinutes: number): Date {
+  if (bucketMinutes <= 0) {
+    throw new Error("archive bucket minutes must be > 0");
+  }
+
+  const bucketMs = bucketMinutes * 60 * 1000;
+  const flooredMs = Math.floor(date.getTime() / bucketMs) * bucketMs;
+  return new Date(flooredMs);
 }
 
 function mean(values: number[]): number {

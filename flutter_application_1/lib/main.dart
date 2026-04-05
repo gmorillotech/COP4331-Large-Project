@@ -28,7 +28,8 @@ class MainApp extends StatelessWidget {
       initialRoute: _mapRoute,
       routes: {
         _mapRoute: (_) => const MapSearchPage(),
-        _dataCollectionRoute: (_) => const DataCollectionScreen(),
+        _dataCollectionRoute: (_) =>
+            const DataCollectionScreen(apiBaseUrl: _configuredMapApiBaseUrl),
         _accountCenterRoute: (_) => const AccountCenterPage(),
       },
     );

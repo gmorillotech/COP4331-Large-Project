@@ -762,6 +762,7 @@ class InMemoryReportDraftRepository implements ReportDraftRepository {
 
   @override
   Future<CapturedReportDraft> saveDraft(CapturedReportDraft draft) async {
+    _drafts.removeWhere((existing) => existing.reportId == draft.reportId);
     final queuedDraft = draft.copyWith(
       deliveryStatus: ReportDeliveryStatus.queuedOffline,
     );

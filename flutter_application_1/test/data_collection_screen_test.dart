@@ -291,4 +291,37 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('15-second auto window queues the report in memory when backend is unavailable', (
+    tester,
+  ) async {
+    backendClient = FakeBackendClient(failSubmission: true);
+
+    double scriptedSignal(Duration elapsed) {
+      final bucket = elapsed.inMilliseconds ~/ 250;
+      return 0.25 + ((bucket % 4) * 0.14);
+    }
+
+    await tester.pumpWidget(
+      buildScreen(
+        signalSampler: scriptedSignal,
+        draftRepository: repository,
+        backendClient: backendClient,
+      ),
+    );
+
+    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('start-capture-button')));
+    await tester.pump();
+
+    for (int i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
+    expect(repository.drafts, isNotEmpty);
+    expect(backendClient.submittedReports, isEmpty);
+    expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
+    expect(find.textContaining('Queued a 15-second report window'), findsOneWidget);
+  });
 }
