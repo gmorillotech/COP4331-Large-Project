@@ -6,12 +6,14 @@ const connectDB = require("./config/db");
 // Import all route files
 const authRoutes = require("./routes/authRoutes");
 const locationRoutes = require("./routes/locationRoutes");
-const reportRoutes = require("./routes/reportRoutes");
+const { createReportRouter } = require("./routes/reportRoutes");
 const StudyLocation = require("./models/StudyLocation");
 const LocationGroup = require("./models/LocationGroup");
 const studyLocationRoutes = require("./routes/studyLocationRoutes");
+const { ReportProcessingService } = require("./services/reportProcessingService");
 
 const app = express();
+const reportProcessingService = new ReportProcessingService();
 
 app.use(cors());
 app.use(express.json());
@@ -95,16 +97,20 @@ app.get("/api/health", (req, res) => {
 // Wire up API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/locations", locationRoutes);
-app.use("/api/reports", reportRoutes);
+app.use("/api/reports", createReportRouter({ reportProcessingService }));
 app.use("/api", studyLocationRoutes);
 
 
 const PORT = process.env.PORT || 5050;
+const REPORT_POLL_INTERVAL_MS = Number(process.env.REPORT_POLL_INTERVAL_MS || 60_000);
 
 // This function now correctly connects to the DB ONCE before starting the server.
 const startServer = async () => {
+  let databaseConnected = false;
+
   try {
     await connectDB(); // Connect to the database first
+    databaseConnected = true;
   } catch (err) {
     const isProduction = process.env.NODE_ENV === "production";
     if (isProduction) {
@@ -119,6 +125,12 @@ const startServer = async () => {
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    if (databaseConnected) {
+      reportProcessingService.startPollingLoop(REPORT_POLL_INTERVAL_MS);
+      console.log(`A1 polling loop started (${REPORT_POLL_INTERVAL_MS} ms interval)`);
+    } else {
+      console.warn("A1 polling loop disabled because MongoDB is unavailable.");
+    }
   });
 };
 

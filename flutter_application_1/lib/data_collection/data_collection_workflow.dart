@@ -284,6 +284,8 @@ class CapturedReportDraftBuilder {
 abstract class ReportDraftRepository {
   Future<CapturedReportDraft> saveDraft(CapturedReportDraft draft);
 
+  Future<void> removeDraft(String reportId);
+
   List<CapturedReportDraft> get drafts;
 }
 
@@ -300,8 +302,14 @@ class InMemoryReportDraftRepository implements ReportDraftRepository {
 
   @override
   Future<CapturedReportDraft> saveDraft(CapturedReportDraft draft) async {
-    _drafts.insert(0, draft);
+    _drafts.removeWhere((existing) => existing.reportId == draft.reportId);
+    _drafts.add(draft);
     return draft;
+  }
+
+  @override
+  Future<void> removeDraft(String reportId) async {
+    _drafts.removeWhere((draft) => draft.reportId == reportId);
   }
 
   @visibleForTesting

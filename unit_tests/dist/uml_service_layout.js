@@ -136,13 +136,12 @@ class SessionService {
         this.userRepository = userRepository;
         this.config = config;
     }
-    async initializeSession(userId, coords, deviceId) {
+    async initializeSession(userId, coords) {
         const studyLocation = await this.fetchStudyLocation(coords);
         await this.loadUserContext(userId);
         return {
             userId,
             studyLocationId: studyLocation.studyLocationId,
-            deviceId,
             startedAt: new Date(),
             lastSampleTime: null,
             occupancyLevel: null,

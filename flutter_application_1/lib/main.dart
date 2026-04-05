@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'data_collection/data_collection_screen.dart';
+
 const String _configuredMapApiBaseUrl = String.fromEnvironment('MAP_API_BASE_URL');
 
 void main() => runApp(const MainApp());
@@ -575,7 +577,24 @@ class _MapSearchPageState extends State<MapSearchPage> {
     final selected = _selected;
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7FB),
-      appBar: AppBar(title: const Text('Study Space Search'), backgroundColor: Colors.transparent),
+      appBar: AppBar(
+        title: const Text('Study Space Search'),
+        backgroundColor: Colors.transparent,
+        actions: [
+          IconButton(
+            tooltip: 'Open data collection',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      const DataCollectionScreen(apiBaseUrl: _configuredMapApiBaseUrl),
+                ),
+              );
+            },
+            icon: const Icon(Icons.mic_rounded),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [

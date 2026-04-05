@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReportController = exports.LocationController = exports.AuthController = exports.ReportService = exports.A1Service = exports.SessionService = exports.LocationService = exports.AuthService = exports.defaultA1Config = exports.defaultSessionServiceConfig = void 0;
-const support_services_1 = require("./support_services");
 exports.defaultSessionServiceConfig = {
     minimumSampleCount: 10,
     smoothingWindowSize: 5,
@@ -12,6 +11,8 @@ exports.defaultA1Config = {
     initialDecayWF: 1.0,
     reportHalfLifeMs: 5 * 60 * 1000,
     minWeightThreshold: 0.05,
+    archiveThresholdMs: 3 * 60 * 60 * 1000,
+    archiveBucketMinutes: 30,
     groupFreshnessWindowMs: 3 * 60 * 1000,
     varianceSoftCap: 25,
     minReportsForTrustUpdate: 3,
@@ -136,13 +137,12 @@ class SessionService {
         this.userRepository = userRepository;
         this.config = config;
     }
-    async initializeSession(userId, coords, deviceId) {
+    async initializeSession(userId, coords) {
         const studyLocation = await this.fetchStudyLocation(coords);
         await this.loadUserContext(userId);
         return {
             userId,
             studyLocationId: studyLocation.studyLocationId,
-            deviceId,
             startedAt: new Date(),
             lastSampleTime: null,
             occupancyLevel: null,
@@ -233,23 +233,24 @@ class A1Service {
         const fetchedUsers = await this.userRepository.findUsersByIds(userIds);
         const userMap = new Map(fetchedUsers.map((user) => [user.userId, { ...user }]));
         const metadataUpdates = [];
-        const staleReportIds = [];
+        const evaluatedRecords = [];
         const activeRecords = [];
         for (const record of reportRecords) {
             const user = getOrCreateUser(userMap, record.report.userId, this.config);
             const metadata = this.evaluateReportMetadata(record.report, reportRecords, user, now);
+            metadataUpdates.push(metadata);
+            evaluatedRecords.push({ report: record.report, metadata, user });
             if (metadata.decayFactor <= this.config.minWeightThreshold) {
-                staleReportIds.push(record.report.reportId);
                 continue;
             }
-            metadataUpdates.push(metadata);
             activeRecords.push({ report: record.report, metadata, user });
         }
         if (metadataUpdates.length > 0) {
             await this.reportRepository.upsertReportMetadata(metadataUpdates);
         }
-        if (staleReportIds.length > 0) {
-            await this.reportRepository.deleteReports(staleReportIds);
+        const { compressedReportIds, deletedSourceReportIds } = await this.compressHistoricalReports(evaluatedRecords, now);
+        if (deletedSourceReportIds.length > 0) {
+            await this.reportRepository.deleteReports(deletedSourceReportIds);
         }
         const updatedStudyLocations = this.recalculateAllStudyLocations(studyLocations, activeRecords, now);
         await this.studyLocationRepository.bulkUpdateStudyLocations(updatedStudyLocations);
@@ -265,7 +266,8 @@ class A1Service {
         return {
             evaluatedAt: now,
             activeReportCount: activeRecords.length,
-            staleReportIds,
+            compressedReportIds,
+            staleReportIds: deletedSourceReportIds,
             updatedStudyLocations,
             updatedLocationGroups,
             updatedUsers,
@@ -346,25 +348,72 @@ class A1Service {
             await this.reportRepository.deleteReports(staleReportIds);
         }
     }
-    evaluateSessionCorrection(report, reportHistory, user) {
-        const sessionCorrectionService = new support_services_1.SessionCorrectionService({
-            peerWindowMs: this.config.peerWindowMs,
-            historicalLookbackDays: this.config.historicalLookbackDays,
-            historicalBucketToleranceMinutes: this.config.historicalBucketToleranceMinutes,
-            minPeerCountForPeerScore: this.config.minPeerCountForPeerScore,
-            peerToleranceDb: this.config.peerToleranceDb,
-            historicalToleranceDb: this.config.historicalToleranceDb,
-            minSessionCorrectionWF: this.config.minSessionCorrectionWF,
-            userNoiseWFNeutral: this.config.userNoiseWFNeutral,
-            userNoiseWFSoftRange: this.config.userNoiseWFSoftRange,
-            componentWeights: this.config.componentWeights,
-        });
-        return sessionCorrectionService.evaluate({
-            report,
-            reportHistory: reportHistory.map((record) => record.report),
-            user,
-            now: report.createdAt,
-        });
+    evaluateSessionCorrection(_report, _reportHistory, _user) {
+        return {
+            sessionCorrectionNoiseWF: 1.0,
+            historicalScore: 1.0,
+            userScore: 1.0,
+            peerScore: 1.0,
+            historicalBaselineNoise: null,
+            peerBaselineNoise: null,
+            historicalPeerCount: 0,
+            currentPeerCount: 0,
+        };
+    }
+    async compressHistoricalReports(evaluatedRecords, now) {
+        const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
+        const buckets = new Map();
+        for (const record of evaluatedRecords) {
+            const bucketStart = floorToBucketStart(record.report.createdAt, this.config.archiveBucketMinutes);
+            const bucketEnd = new Date(bucketStart.getTime() + this.config.archiveBucketMinutes * 60 * 1000);
+            if (bucketEnd.getTime() > archiveCutoff.getTime()) {
+                continue;
+            }
+            const bucketKey = `${record.report.studyLocationId}|${bucketStart.toISOString()}`;
+            const bucket = buckets.get(bucketKey);
+            if (bucket) {
+                bucket.push({ report: record.report, metadata: record.metadata });
+            }
+            else {
+                buckets.set(bucketKey, [{ report: record.report, metadata: record.metadata }]);
+            }
+        }
+        const archivedSummaries = [];
+        const deletedSourceReportIds = [];
+        for (const [bucketKey, records] of buckets.entries()) {
+            if (records.length === 0) {
+                continue;
+            }
+            const [studyLocationId, bucketStartIso] = bucketKey.split("|");
+            const windowStart = new Date(bucketStartIso);
+            const windowEnd = new Date(windowStart.getTime() + this.config.archiveBucketMinutes * 60 * 1000);
+            const noiseWeightBasis = records.reduce((sum, record) => sum + record.metadata.noiseWeightFactor, 0);
+            const occupancyWeightBasis = records.reduce((sum, record) => sum + record.metadata.occupancyWeightFactor, 0);
+            const noiseContributionBasis = records.reduce((sum, record) => sum + record.report.avgNoise * record.metadata.noiseWeightFactor, 0);
+            const occupancyContributionBasis = records.reduce((sum, record) => sum + record.report.occupancy * record.metadata.occupancyWeightFactor, 0);
+            archivedSummaries.push({
+                reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
+                reportKind: "archive_summary",
+                studyLocationId,
+                createdAt: windowStart,
+                avgNoise: noiseWeightBasis > 0
+                    ? noiseContributionBasis / noiseWeightBasis
+                    : mean(records.map((record) => record.report.avgNoise)),
+                occupancy: occupancyWeightBasis > 0
+                    ? occupancyContributionBasis / occupancyWeightBasis
+                    : mean(records.map((record) => record.report.occupancy)),
+                windowStart,
+                windowEnd,
+            });
+            deletedSourceReportIds.push(...records.map((record) => record.report.reportId));
+        }
+        if (archivedSummaries.length > 0) {
+            await this.reportRepository.createArchivedReports(archivedSummaries);
+        }
+        return {
+            compressedReportIds: archivedSummaries.map((summary) => summary.reportId),
+            deletedSourceReportIds,
+        };
     }
     recalculateAllStudyLocations(studyLocations, activeRecords, now) {
         const reportsByLocationId = groupBy(activeRecords, (record) => record.report.studyLocationId);
@@ -696,6 +745,14 @@ function minuteOfWeek(date) {
 function circularMinuteDistance(left, right, cycleLength) {
     const directDistance = Math.abs(left - right);
     return Math.min(directDistance, cycleLength - directDistance);
+}
+function floorToBucketStart(date, bucketMinutes) {
+    if (bucketMinutes <= 0) {
+        throw new Error("archive bucket minutes must be > 0");
+    }
+    const bucketMs = bucketMinutes * 60 * 1000;
+    const flooredMs = Math.floor(date.getTime() / bucketMs) * bucketMs;
+    return new Date(flooredMs);
 }
 function mean(values) {
     if (values.length === 0) {

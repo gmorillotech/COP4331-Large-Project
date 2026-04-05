@@ -13,9 +13,12 @@ const reportSchema = new Schema(
     },
     userId: {
       type: String,
-      required: true,
+      required() {
+        return this.reportKind === "live";
+      },
       index: true,
       trim: true,
+      default: null,
       ref: "User",
     },
     studyLocationId: {
@@ -37,12 +40,18 @@ const reportSchema = new Schema(
     },
     maxNoise: {
       type: Number,
-      required: true,
+      required() {
+        return this.reportKind === "live";
+      },
+      default: null,
       min: 0,
     },
     variance: {
       type: Number,
-      required: true,
+      required() {
+        return this.reportKind === "live";
+      },
+      default: null,
       min: 0,
     },
     occupancy: {
@@ -50,6 +59,28 @@ const reportSchema = new Schema(
       required: true,
       min: 1,
       max: 5,
+    },
+    reportKind: {
+      type: String,
+      enum: ["live", "archive_summary"],
+      default: "live",
+      index: true,
+    },
+    windowStart: {
+      type: Date,
+      required() {
+        return this.reportKind === "archive_summary";
+      },
+      default: null,
+      index: true,
+    },
+    windowEnd: {
+      type: Date,
+      required() {
+        return this.reportKind === "archive_summary";
+      },
+      default: null,
+      index: true,
     },
   },
   {
@@ -59,6 +90,7 @@ const reportSchema = new Schema(
 );
 
 reportSchema.index({ studyLocationId: 1, createdAt: -1 });
+reportSchema.index({ studyLocationId: 1, reportKind: 1, windowStart: 1 });
 reportSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.models.Report || mongoose.model("Report", reportSchema);
