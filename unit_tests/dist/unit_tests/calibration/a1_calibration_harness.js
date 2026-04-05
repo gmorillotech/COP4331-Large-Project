@@ -56,27 +56,48 @@ class InMemoryReportRepository {
     async createReport(reportData) {
         const report = {
             reportId: `report-${this.records.length + 1}`,
+            reportKind: "live",
             ...reportData,
         };
         this.records.push({ report });
         return report;
     }
     async getRecentReports() {
-        return this.records.map(cloneRecord);
+        return this.records
+            .filter((record) => record.report.reportKind === "live")
+            .map(cloneRecord);
     }
     async getReportsByLocation(studyLocationId) {
         return this.records
-            .filter((record) => record.report.studyLocationId === studyLocationId)
+            .filter((record) => record.report.studyLocationId === studyLocationId &&
+            record.report.reportKind === "live")
             .map(cloneRecord);
     }
     async getAllReportsWithMetadata() {
-        return this.records.map(cloneRecord);
+        return this.records
+            .filter((record) => record.report.reportKind === "live")
+            .map(cloneRecord);
     }
     async upsertReportMetadata(records) {
         for (const metadata of records) {
             const record = this.records.find((candidate) => candidate.report.reportId === metadata.reportId);
             if (record) {
                 record.metadata = { ...metadata };
+            }
+        }
+    }
+    async createArchivedReports(records) {
+        for (const archivedSummary of records) {
+            const existing = this.records.find((candidate) => candidate.report.reportId === archivedSummary.reportId);
+            const archivedRecord = {
+                report: archivedSummary,
+            };
+            if (existing) {
+                existing.report = archivedRecord.report;
+                delete existing.metadata;
+            }
+            else {
+                this.records.push(archivedRecord);
             }
         }
     }
@@ -475,6 +496,7 @@ function makeGroup(locationGroupId, overrides) {
 function makeReport(reportId, userId, studyLocationId, overrides) {
     return {
         reportId,
+        reportKind: "live",
         userId,
         studyLocationId,
         createdAt: new Date("2026-03-28T12:00:00.000Z"),

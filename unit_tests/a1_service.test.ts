@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import {
-  SessionCorrectionService,
-  defaultSessionCorrectionServiceConfig,
-} from "../shared/src/support_services";
-import {
   A1Service,
+  type ArchivedReportSummary,
   LocationService,
   ReportService,
   SessionService,
@@ -98,6 +95,7 @@ class InMemoryReportRepository implements ReportRepository {
   async createReport(reportData: BuiltReportData): Promise<Report> {
     const report: Report = {
       reportId: `report-${this.records.length + 1}`,
+      reportKind: "live",
       ...reportData,
     };
     this.records.push({ report });
@@ -105,17 +103,25 @@ class InMemoryReportRepository implements ReportRepository {
   }
 
   async getRecentReports(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async getReportsByLocation(studyLocationId: string): Promise<ReportRecord[]> {
     return this.records
-      .filter((record) => record.report.studyLocationId === studyLocationId)
+      .filter(
+        (record) =>
+          record.report.studyLocationId === studyLocationId &&
+          record.report.reportKind === "live",
+      )
       .map(cloneRecord);
   }
 
   async getAllReportsWithMetadata(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async upsertReportMetadata(records: ReportTagMetadata[]): Promise<void> {
@@ -123,6 +129,25 @@ class InMemoryReportRepository implements ReportRepository {
       const record = this.records.find((candidate) => candidate.report.reportId === metadata.reportId);
       if (record) {
         record.metadata = { ...metadata };
+      }
+    }
+  }
+
+  async createArchivedReports(records: ArchivedReportSummary[]): Promise<void> {
+    for (const archivedSummary of records) {
+      const existing = this.records.find(
+        (candidate) => candidate.report.reportId === archivedSummary.reportId,
+      );
+
+      const archivedRecord = {
+        report: archivedSummary as unknown as Report,
+      };
+
+      if (existing) {
+        existing.report = archivedRecord.report;
+        delete existing.metadata;
+      } else {
+        this.records.push(archivedRecord);
       }
     }
   }
@@ -264,7 +289,6 @@ describe("SessionService.buildReport", () => {
     const sessionState = await sessionService.initializeSession(
       "user-1",
       { latitude: 28.6024, longitude: -81.2001 },
-      "device-1",
     );
 
     for (const reading of [45, 46, 47, 50, 49, 48, 47, 46, 45, 44, 43, 90]) {
@@ -309,7 +333,7 @@ describe("SessionService.buildReport", () => {
 });
 
 describe("A1Service.evaluateReportMetadata", () => {
-  it("combines decay, variance correction, session correction, and user trust into metadata", () => {
+  it("combines decay, variance correction, neutral session correction, and user trust into metadata", () => {
     const { service, user } = createA1Harness({
       users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
     });
@@ -354,12 +378,12 @@ describe("A1Service.evaluateReportMetadata", () => {
 
     assert.ok(Math.abs(metadata.decayFactor - 0.7579) < 0.001);
     assert.ok(Math.abs(metadata.varianceCorrectionWF - 0.7142) < 0.001);
-    assert.ok(Math.abs(metadata.sessionCorrectionNoiseWF - 0.9047619) < 0.0001);
-    assert.ok(Math.abs(metadata.noiseWeightFactor - 0.4) < 0.05);
+    assert.equal(metadata.sessionCorrectionNoiseWF, 1.0);
+    assert.ok(Math.abs(metadata.noiseWeightFactor - 0.433) < 0.02);
     assert.ok(Math.abs(metadata.occupancyWeightFactor - 0.83) < 0.02);
   });
 
-  it("matches the extracted support-services session correction diagnostics", () => {
+  it("keeps session correction neutral for processed-only reports", () => {
     const { service, user } = createA1Harness({
       users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
     });
@@ -400,19 +424,8 @@ describe("A1Service.evaluateReportMetadata", () => {
     ];
 
     const metadata = service.evaluateReportMetadata(report, history, user, referenceNow());
-    const supportDiagnostics = new SessionCorrectionService(
-      defaultSessionCorrectionServiceConfig,
-    ).evaluate({
-      report,
-      reportHistory: history.map((record) => record.report),
-      user,
-      now: report.createdAt,
-    });
 
-    assert.equal(metadata.sessionCorrectionNoiseWF, supportDiagnostics.sessionCorrectionNoiseWF);
-    assert.ok(Math.abs(supportDiagnostics.historicalScore - 0.9285714285714286) < 1e-12);
-    assert.ok(Math.abs(supportDiagnostics.userScore - 0.6666666666666666) < 1e-12);
-    assert.ok(Math.abs(supportDiagnostics.peerScore - 1.0) < 1e-12);
+    assert.equal(metadata.sessionCorrectionNoiseWF, 1.0);
   });
 });
 
@@ -721,6 +734,7 @@ function makeReport(
 ): Report {
   return {
     reportId,
+    reportKind: "live",
     userId,
     studyLocationId,
     createdAt: referenceNow(),

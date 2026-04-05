@@ -4,7 +4,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const strict_1 = __importDefault(require("node:assert/strict"));
-const support_services_1 = require("../shared/src/support_services");
 const uml_service_layout_1 = require("../shared/src/uml_service_layout");
 const registeredTests = [];
 const suiteStack = [];
@@ -73,27 +72,48 @@ class InMemoryReportRepository {
     async createReport(reportData) {
         const report = {
             reportId: `report-${this.records.length + 1}`,
+            reportKind: "live",
             ...reportData,
         };
         this.records.push({ report });
         return report;
     }
     async getRecentReports() {
-        return this.records.map(cloneRecord);
+        return this.records
+            .filter((record) => record.report.reportKind === "live")
+            .map(cloneRecord);
     }
     async getReportsByLocation(studyLocationId) {
         return this.records
-            .filter((record) => record.report.studyLocationId === studyLocationId)
+            .filter((record) => record.report.studyLocationId === studyLocationId &&
+            record.report.reportKind === "live")
             .map(cloneRecord);
     }
     async getAllReportsWithMetadata() {
-        return this.records.map(cloneRecord);
+        return this.records
+            .filter((record) => record.report.reportKind === "live")
+            .map(cloneRecord);
     }
     async upsertReportMetadata(records) {
         for (const metadata of records) {
             const record = this.records.find((candidate) => candidate.report.reportId === metadata.reportId);
             if (record) {
                 record.metadata = { ...metadata };
+            }
+        }
+    }
+    async createArchivedReports(records) {
+        for (const archivedSummary of records) {
+            const existing = this.records.find((candidate) => candidate.report.reportId === archivedSummary.reportId);
+            const archivedRecord = {
+                report: archivedSummary,
+            };
+            if (existing) {
+                existing.report = archivedRecord.report;
+                delete existing.metadata;
+            }
+            else {
+                this.records.push(archivedRecord);
             }
         }
     }
@@ -194,7 +214,7 @@ describe("LocationService.getClosestLocation", () => {
 describe("SessionService.buildReport", () => {
     it("builds a report from sanitized, smoothed, and winsorized noise samples", async () => {
         const sessionService = new uml_service_layout_1.SessionService(new uml_service_layout_1.LocationService(new InMemoryStudyLocationRepository([makeLocation("loc-a", "group-1", 28.6024, -81.2001)]), new InMemoryLocationGroupRepository([makeGroup("group-1")])), new InMemoryUserRepository([makeUser("user-1")]), uml_service_layout_1.defaultSessionServiceConfig);
-        const sessionState = await sessionService.initializeSession("user-1", { latitude: 28.6024, longitude: -81.2001 }, "device-1");
+        const sessionState = await sessionService.initializeSession("user-1", { latitude: 28.6024, longitude: -81.2001 });
         for (const reading of [45, 46, 47, 50, 49, 48, 47, 46, 45, 44, 43, 90]) {
             sessionService.getDecibelReading(sessionState, reading);
         }
@@ -220,7 +240,7 @@ describe("SessionService.buildReport", () => {
     });
 });
 describe("A1Service.evaluateReportMetadata", () => {
-    it("combines decay, variance correction, session correction, and user trust into metadata", () => {
+    it("combines decay, variance correction, neutral session correction, and user trust into metadata", () => {
         const { service, user } = createA1Harness({
             users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
         });
@@ -261,11 +281,11 @@ describe("A1Service.evaluateReportMetadata", () => {
         const metadata = service.evaluateReportMetadata(report, history, user, now);
         strict_1.default.ok(Math.abs(metadata.decayFactor - 0.7579) < 0.001);
         strict_1.default.ok(Math.abs(metadata.varianceCorrectionWF - 0.7142) < 0.001);
-        strict_1.default.ok(Math.abs(metadata.sessionCorrectionNoiseWF - 0.9047619) < 0.0001);
-        strict_1.default.ok(Math.abs(metadata.noiseWeightFactor - 0.4) < 0.05);
+        strict_1.default.equal(metadata.sessionCorrectionNoiseWF, 1.0);
+        strict_1.default.ok(Math.abs(metadata.noiseWeightFactor - 0.433) < 0.02);
         strict_1.default.ok(Math.abs(metadata.occupancyWeightFactor - 0.83) < 0.02);
     });
-    it("matches the extracted support-services session correction diagnostics", () => {
+    it("keeps session correction neutral for processed-only reports", () => {
         const { service, user } = createA1Harness({
             users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
         });
@@ -303,16 +323,7 @@ describe("A1Service.evaluateReportMetadata", () => {
             },
         ];
         const metadata = service.evaluateReportMetadata(report, history, user, referenceNow());
-        const supportDiagnostics = new support_services_1.SessionCorrectionService(support_services_1.defaultSessionCorrectionServiceConfig).evaluate({
-            report,
-            reportHistory: history.map((record) => record.report),
-            user,
-            now: report.createdAt,
-        });
-        strict_1.default.equal(metadata.sessionCorrectionNoiseWF, supportDiagnostics.sessionCorrectionNoiseWF);
-        strict_1.default.ok(Math.abs(supportDiagnostics.historicalScore - 0.9285714285714286) < 1e-12);
-        strict_1.default.ok(Math.abs(supportDiagnostics.userScore - 0.6666666666666666) < 1e-12);
-        strict_1.default.ok(Math.abs(supportDiagnostics.peerScore - 1.0) < 1e-12);
+        strict_1.default.equal(metadata.sessionCorrectionNoiseWF, 1.0);
     });
 });
 describe("A1Service location and group status updates", () => {
@@ -557,6 +568,7 @@ function makeGroup(locationGroupId, overrides) {
 function makeReport(reportId, userId, studyLocationId, overrides) {
     return {
         reportId,
+        reportKind: "live",
         userId,
         studyLocationId,
         createdAt: referenceNow(),

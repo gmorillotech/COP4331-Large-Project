@@ -25,7 +25,8 @@ void main() {
     expect(find.byKey(const Key('stable-mic')), findsOneWidget);
     expect(find.byKey(const Key('location-dropdown')), findsOneWidget);
     expect(find.byKey(const Key('start-capture-button')), findsOneWidget);
-    expect(find.byKey(const Key('save-draft-button')), findsOneWidget);
+    expect(find.byKey(const Key('pause-capture-button')), findsOneWidget);
+    expect(find.byKey(const Key('reset-capture-button')), findsOneWidget);
     expect(find.byKey(const Key('signal-history-chart')), findsOneWidget);
     expect(find.byKey(const Key('capture-progress-bar')), findsOneWidget);
   });
@@ -127,7 +128,7 @@ void main() {
     expect(find.text('Paused'), findsOneWidget);
   });
 
-  testWidgets('capture history and draft review populate after saving a draft', (
+  testWidgets('capture history and queued report review populate after one auto window', (
     tester,
   ) async {
     double scriptedSignal(Duration elapsed) {
@@ -148,21 +149,13 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('start-capture-button')));
     await tester.pump();
-    // Pump individual frames at the sample interval so samples accumulate
-    for (int i = 0; i < 12; i++) {
+    // Pump through a full 15-second tumbling window.
+    for (int i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }
 
-    final saveButton = tester.widget<FilledButton>(find.byKey(const Key('save-draft-button')));
-    expect(saveButton.onPressed, isNotNull);
-
-    await tester.ensureVisible(find.byKey(const Key('save-draft-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('save-draft-button')));
-    await tester.pump();
-
     expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
     expect(repository.drafts, isNotEmpty);
-    expect(find.textContaining('Enough samples collected'), findsOneWidget);
+    expect(find.textContaining('Queued'), findsWidgets);
   });
 }

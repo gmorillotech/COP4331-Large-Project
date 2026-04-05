@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -11,6 +14,9 @@ import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
 import 'data_collection_workflow.dart';
 
+const String _configuredReportApiBaseUrl =
+    String.fromEnvironment('MAP_API_BASE_URL');
+
 class DataCollectionScreen extends StatefulWidget {
   const DataCollectionScreen({
     super.key,
@@ -21,6 +27,7 @@ class DataCollectionScreen extends StatefulWidget {
     this.locationResolver = const LocalStudyLocationResolver(),
     this.draftBuilder = const CapturedReportDraftBuilder(),
     this.draftRepository,
+    this.apiBaseUrl,
   });
 
   final SignalSampler signalSampler;
@@ -30,6 +37,7 @@ class DataCollectionScreen extends StatefulWidget {
   final LocalStudyLocationResolver locationResolver;
   final CapturedReportDraftBuilder draftBuilder;
   final ReportDraftRepository? draftRepository;
+  final String? apiBaseUrl;
 
   @override
   State<DataCollectionScreen> createState() => _DataCollectionScreenState();
@@ -38,6 +46,8 @@ class DataCollectionScreen extends StatefulWidget {
 class _DataCollectionScreenState extends State<DataCollectionScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _sampleInterval = Duration(milliseconds: 250);
+  static const Duration _reportWindow = Duration(seconds: 15);
+  static const Duration _queueRetryDelay = Duration(seconds: 5);
 
   late final Ticker _ticker;
   late final ProceduralSurfaceEngine _engine;
@@ -48,8 +58,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   final List<double> _capturedSamples = <double>[];
 
   bool _isCapturing = false;
+  bool _queueFlushInProgress = false;
   int _lastRecordedSampleMs = -1;
-  CapturedReportDraft? _lastSavedDraft;
+  int? _windowStartedMs;
+  Timer? _queueRetryTimer;
+  CapturedReportDraft? _lastQueuedDraft;
+  CapturedReportDraft? _lastSubmittedDraft;
+  String _submissionStatus = 'Waiting for the first 15s report window.';
 
   // Microphone state
   NoiseMeter? _noiseMeter;
@@ -62,6 +77,27 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
   Duration get _capturedDuration =>
       Duration(milliseconds: _capturedSamples.length * _sampleInterval.inMilliseconds);
+
+  String get _apiBaseUrl {
+    final explicitBaseUrl = widget.apiBaseUrl?.trim() ?? '';
+    if (explicitBaseUrl.isNotEmpty) {
+      return explicitBaseUrl;
+    }
+
+    if (_configuredReportApiBaseUrl.isNotEmpty) {
+      return _configuredReportApiBaseUrl;
+    }
+
+    if (kIsWeb) {
+      return 'http://localhost:5000';
+    }
+
+    if (Platform.isAndroid) {
+      return 'http://10.0.2.2:5000';
+    }
+
+    return 'http://localhost:5000';
+  }
 
   @override
   void initState() {
@@ -79,11 +115,17 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     );
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
+    if (_draftRepository.drafts.isNotEmpty) {
+      _submissionStatus =
+          'Resuming with ${_draftRepository.drafts.length} pending queued report(s).';
+      unawaited(_flushQueue());
+    }
   }
 
   @override
   void dispose() {
     _noiseSubscription?.cancel();
+    _queueRetryTimer?.cancel();
     _ticker.dispose();
     super.dispose();
   }
@@ -126,6 +168,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _frame = nextFrame;
       if (_isCapturing) {
         _recordSampleIfNeeded(nextFrame);
+        _queueCompletedWindowIfReady(nextFrame);
       }
     });
   }
@@ -142,22 +185,35 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }
 
   void _startCapture() {
-    setState(() {
-      final shouldStartFresh = _lastRecordedSampleMs < 0;
-      _isCapturing = true;
-      _lastSavedDraft = null;
+    final location = _selectedLocation;
+    if (location == null) {
+      _showMessage('Select a study location before starting a recording session.');
+      return;
+    }
 
-      if (shouldStartFresh) {
-        _capturedSamples.clear();
-        _capturedSamples.add(_frame.signal.decibels);
-        _lastRecordedSampleMs = _frame.signal.elapsed.inMilliseconds;
-      }
+    setState(() {
+      _isCapturing = true;
+      _capturedSamples.clear();
+      _capturedSamples.add(_frame.signal.decibels);
+      _lastRecordedSampleMs = _frame.signal.elapsed.inMilliseconds;
+      _windowStartedMs = _frame.signal.elapsed.inMilliseconds;
+      _submissionStatus = _draftRepository.drafts.isEmpty
+          ? 'Recording live. First report will auto-submit after 15 seconds.'
+          : 'Recording live. Pending uploads will retry in the background.';
     });
+
+    unawaited(_flushQueue());
   }
 
   void _pauseCapture() {
     setState(() {
       _isCapturing = false;
+      _capturedSamples.clear();
+      _lastRecordedSampleMs = -1;
+      _windowStartedMs = null;
+      _submissionStatus = _draftRepository.drafts.isEmpty
+          ? 'Recording paused. The partial 15s window was discarded.'
+          : 'Recording paused. Pending uploads will keep retrying while the app stays open.';
     });
   }
 
@@ -166,37 +222,138 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _isCapturing = false;
       _capturedSamples.clear();
       _lastRecordedSampleMs = -1;
-      _lastSavedDraft = null;
+      _windowStartedMs = null;
+      _lastQueuedDraft = null;
+      _lastSubmittedDraft = null;
+      _submissionStatus = _draftRepository.drafts.isEmpty
+          ? 'Session reset. Start again to collect a fresh 15s report window.'
+          : 'Session reset. Pending uploads remain queued while the app stays open.';
     });
   }
 
-  Future<void> _saveDraft() async {
+  void _queueCompletedWindowIfReady(SurfaceFrameState frame) {
+    final startedAtMs = _windowStartedMs;
     final location = _selectedLocation;
-    if (location == null) {
-      _showMessage('Select a study location before saving a draft.');
+    if (startedAtMs == null || location == null) {
+      return;
+    }
+
+    final elapsedMs = frame.signal.elapsed.inMilliseconds;
+    if (elapsedMs - startedAtMs < _reportWindow.inMilliseconds) {
       return;
     }
 
     try {
-      final draft = widget.draftBuilder.build(
+      final queuedDraft = widget.draftBuilder.build(
         location: location,
         occupancy: _occupancy,
-        rawSamples: _capturedSamples,
+        rawSamples: List<double>.from(_capturedSamples),
+        createdAt: DateTime.now(),
       );
-      final savedDraft = await _draftRepository.saveDraft(draft);
-      if (!mounted) {
-        return;
-      }
 
-      setState(() {
-        _lastSavedDraft = savedDraft;
-        _isCapturing = false;
-      });
-      _showMessage(
-        'Draft queued locally. It is ready for the future report API.',
-      );
+      _capturedSamples.clear();
+      _windowStartedMs = elapsedMs;
+      _lastQueuedDraft = queuedDraft;
+      _submissionStatus = 'Queued a 15s report window for upload.';
+      _lastRecordedSampleMs = elapsedMs;
+      unawaited(_enqueueDraft(queuedDraft));
     } on StateError catch (error) {
-      _showMessage(error.message ?? 'Unable to save this report draft yet.');
+      _capturedSamples.clear();
+      _windowStartedMs = elapsedMs;
+      _lastRecordedSampleMs = elapsedMs;
+      _submissionStatus =
+          error.message ?? 'Skipped a 15s window because it was not valid for upload.';
+    }
+  }
+
+  Future<void> _enqueueDraft(CapturedReportDraft draft) async {
+    await _draftRepository.saveDraft(draft);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _submissionStatus =
+          'Queued ${_draftRepository.drafts.length} report(s) for upload.';
+    });
+
+    unawaited(_flushQueue());
+  }
+
+  Future<void> _flushQueue() async {
+    if (_queueFlushInProgress) {
+      return;
+    }
+
+    _queueRetryTimer?.cancel();
+    _queueRetryTimer = null;
+    _queueFlushInProgress = true;
+
+    try {
+      while (mounted && _draftRepository.drafts.isNotEmpty) {
+        final nextDraft = _draftRepository.drafts.first;
+        final submitted = await _submitDraft(nextDraft);
+
+        if (!submitted) {
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _submissionStatus =
+                'Upload retry scheduled. Pending queue: ${_draftRepository.drafts.length}.';
+          });
+          _queueRetryTimer = Timer(_queueRetryDelay, () {
+            if (mounted) {
+              unawaited(_flushQueue());
+            }
+          });
+          return;
+        }
+
+        await _draftRepository.removeDraft(nextDraft.reportId);
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _lastSubmittedDraft = nextDraft;
+          _submissionStatus = _draftRepository.drafts.isEmpty
+              ? 'All queued reports uploaded successfully.'
+              : 'Uploaded one report. ${_draftRepository.drafts.length} remaining in queue.';
+        });
+      }
+    } finally {
+      _queueFlushInProgress = false;
+    }
+  }
+
+  Future<bool> _submitDraft(CapturedReportDraft draft) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+
+    try {
+      final request = await client
+          .postUrl(Uri.parse('$_apiBaseUrl/api/reports'))
+          .timeout(const Duration(seconds: 6));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(<String, dynamic>{
+        'userId': draft.userId,
+        'studyLocationId': draft.studyLocationId,
+        'createdAt': draft.createdAt.toUtc().toIso8601String(),
+        'avgNoise': draft.avgNoise,
+        'maxNoise': draft.maxNoise,
+        'variance': draft.variance,
+        'occupancy': draft.occupancy,
+      }));
+
+      final response =
+          await request.close().timeout(const Duration(seconds: 6));
+      await response.drain<void>();
+      return response.statusCode == 201;
+    } catch (_error) {
+      return false;
+    } finally {
+      client.close(force: true);
     }
   }
 
@@ -277,7 +434,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Local draft workflow before API hookup',
+                              '15s tumbling reports with queued server upload',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.96),
                                 fontWeight: FontWeight.w700,
@@ -389,8 +546,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
             queueCount: _draftRepository.drafts.length,
             captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
             lastReadingDb: signal.decibels,
-            minSamples: _minimumSamplesRequired,
             capturedDuration: _capturedDuration,
+            reportWindow: _reportWindow,
+            submissionStatus: _submissionStatus,
           ),
           const SizedBox(height: 12),
           _SignalHistoryCard(
@@ -410,8 +568,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           queueCount: _draftRepository.drafts.length,
           captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
           lastReadingDb: signal.decibels,
-          minSamples: _minimumSamplesRequired,
           capturedDuration: _capturedDuration,
+          reportWindow: _reportWindow,
+          submissionStatus: _submissionStatus,
         ),
         const SizedBox(height: 12),
         _SignalHistoryCard(
@@ -431,9 +590,16 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           locations: widget.locationResolver.studyLocations,
           selectedLocation: _selectedLocation,
           onChanged: (location) {
+            if (_isCapturing) {
+              _showMessage(
+                'Pause the recording session before changing the study location.',
+              );
+              return;
+            }
+
             setState(() {
               _selectedLocation = location;
-              _lastSavedDraft = null;
+              _lastQueuedDraft = null;
             });
           },
         ),
@@ -447,18 +613,21 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         ),
         const SizedBox(height: 12),
         _CaptureControlsCard(
-          canSaveDraft:
-              _capturedSamples.length >= _minimumSamplesRequired &&
-              _selectedLocation != null,
           isCapturing: _isCapturing,
           onStart: _startCapture,
           onPause: _pauseCapture,
           onReset: _resetCapture,
-          onSaveDraft: _saveDraft,
         ),
-        if (_lastSavedDraft != null) ...[
+        if ((_lastQueuedDraft ?? _lastSubmittedDraft) != null) ...[
           const SizedBox(height: 12),
-          _DraftReviewCard(draft: _lastSavedDraft!),
+          _LatestReportCard(
+            draft: _draftRepository.drafts.isNotEmpty
+                ? _lastQueuedDraft!
+                : (_lastSubmittedDraft ?? _lastQueuedDraft!),
+            queuedCount: _draftRepository.drafts.length,
+            wasUploaded:
+                _draftRepository.drafts.isEmpty && _lastSubmittedDraft != null,
+          ),
         ],
       ],
     );
@@ -606,20 +775,29 @@ class _CaptureStatusCard extends StatelessWidget {
     required this.queueCount,
     required this.captureStateLabel,
     required this.lastReadingDb,
-    required this.minSamples,
     required this.capturedDuration,
+    required this.reportWindow,
+    required this.submissionStatus,
   });
 
   final int sampleCount;
   final int queueCount;
   final String captureStateLabel;
   final double lastReadingDb;
-  final int minSamples;
   final Duration capturedDuration;
+  final Duration reportWindow;
+  final String submissionStatus;
 
   @override
   Widget build(BuildContext context) {
-    final progress = sampleCount == 0 ? 0.0 : (sampleCount / minSamples).clamp(0.0, 1.0);
+    final progress = reportWindow.inMilliseconds == 0
+        ? 0.0
+        : (capturedDuration.inMilliseconds / reportWindow.inMilliseconds)
+            .clamp(0.0, 1.0);
+    final secondsRemaining = math.max(
+      0,
+      reportWindow.inSeconds - capturedDuration.inSeconds,
+    );
 
     return _GlassCard(
       child: Column(
@@ -641,28 +819,36 @@ class _CaptureStatusCard extends StatelessWidget {
             children: [
               _MetricChip(
                 label: 'Samples',
-                value: '$sampleCount / $minSamples',
+                value: '$sampleCount',
               ),
               _MetricChip(label: 'State', value: captureStateLabel),
               _MetricChip(
-                label: 'Elapsed',
+                label: 'Window',
                 value: _formatDuration(capturedDuration),
               ),
               _MetricChip(
                 label: 'Last dB',
                 value: lastReadingDb.toStringAsFixed(1),
               ),
-              _MetricChip(label: 'Draft queue', value: '$queueCount'),
+              _MetricChip(label: 'Upload queue', value: '$queueCount'),
             ],
           ),
           const SizedBox(height: 14),
           Text(
-            sampleCount >= minSamples
-                ? 'Enough samples collected to save a local draft.'
-                : 'Collect ${minSamples - sampleCount} more samples to unlock draft save.',
+            captureStateLabel == 'Capturing'
+                ? 'Next report auto-submits in ${secondsRemaining}s. Partial windows are discarded if you pause.'
+                : 'Start capture to begin a fresh 15s tumbling report window.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.76),
               fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            submissionStatus,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 10),
@@ -785,7 +971,7 @@ class _LocationCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Client-side location binding is ready now. The future API only needs this studyLocationId.',
+              'Each 15s report is bound to this studyLocationId before it is queued for the server.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.7),
                 fontWeight: FontWeight.w500,
@@ -850,8 +1036,8 @@ class _SignalHistoryCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             samples.isEmpty
-                ? 'No samples recorded yet. Start capture to build a local noise trace.'
-                : 'Showing the most recent ${samples.length.clamp(0, minSamples * 2)} captured decibel samples.',
+                ? 'No samples recorded yet. Start capture to build the current 15s report window.'
+                : 'Showing the most recent ${samples.length.clamp(0, minSamples * 2)} processed-window samples.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
               fontWeight: FontWeight.w600,
@@ -1104,20 +1290,16 @@ class _OccupancyCard extends StatelessWidget {
 
 class _CaptureControlsCard extends StatelessWidget {
   const _CaptureControlsCard({
-    required this.canSaveDraft,
     required this.isCapturing,
     required this.onStart,
     required this.onPause,
     required this.onReset,
-    required this.onSaveDraft,
   });
 
-  final bool canSaveDraft;
   final bool isCapturing;
   final VoidCallback onStart;
   final VoidCallback onPause;
   final VoidCallback onReset;
-  final VoidCallback onSaveDraft;
 
   @override
   Widget build(BuildContext context) {
@@ -1136,7 +1318,7 @@ class _CaptureControlsCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'This now covers the pre-backend app-side work: collect samples, bind a location, set occupancy, and save an A1-shaped local draft.',
+            'Recording sessions now auto-create processed reports every 15 seconds and queue them for the server endpoint while the app stays open.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
               fontWeight: FontWeight.w500,
@@ -1165,12 +1347,6 @@ class _CaptureControlsCard extends StatelessWidget {
                 icon: const Icon(Icons.restart_alt_rounded),
                 label: const Text('Reset'),
               ),
-              FilledButton.tonalIcon(
-                key: const Key('save-draft-button'),
-                onPressed: canSaveDraft ? onSaveDraft : null,
-                icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Save Draft'),
-              ),
             ],
           ),
         ],
@@ -1179,10 +1355,16 @@ class _CaptureControlsCard extends StatelessWidget {
   }
 }
 
-class _DraftReviewCard extends StatelessWidget {
-  const _DraftReviewCard({required this.draft});
+class _LatestReportCard extends StatelessWidget {
+  const _LatestReportCard({
+    required this.draft,
+    required this.queuedCount,
+    required this.wasUploaded,
+  });
 
   final CapturedReportDraft draft;
+  final int queuedCount;
+  final bool wasUploaded;
 
   @override
   Widget build(BuildContext context) {
@@ -1192,7 +1374,7 @@ class _DraftReviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'LOCAL DRAFT REVIEW',
+            wasUploaded ? 'LAST UPLOADED REPORT' : 'LATEST QUEUED REPORT',
             style: TextStyle(
               color: const Color(0xFFBDEBFF),
               fontSize: 12,
@@ -1238,10 +1420,20 @@ class _DraftReviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Queued locally until the report API/database are constructed.',
+            wasUploaded
+                ? 'This 15s window has been accepted by the server.'
+                : 'This 15s window is waiting in the in-memory upload queue.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.78),
               fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Pending queue depth: $queuedCount',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.66),
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],

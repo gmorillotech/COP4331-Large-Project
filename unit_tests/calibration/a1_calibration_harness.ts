@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   A1Service,
+  type ArchivedReportSummary,
   defaultA1Config,
   type A1Config,
   type BuiltReportData,
@@ -72,6 +73,7 @@ class InMemoryReportRepository implements ReportRepository {
   async createReport(reportData: BuiltReportData): Promise<Report> {
     const report: Report = {
       reportId: `report-${this.records.length + 1}`,
+      reportKind: "live",
       ...reportData,
     };
     this.records.push({ report });
@@ -79,17 +81,25 @@ class InMemoryReportRepository implements ReportRepository {
   }
 
   async getRecentReports(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async getReportsByLocation(studyLocationId: string): Promise<ReportRecord[]> {
     return this.records
-      .filter((record) => record.report.studyLocationId === studyLocationId)
+      .filter(
+        (record) =>
+          record.report.studyLocationId === studyLocationId &&
+          record.report.reportKind === "live",
+      )
       .map(cloneRecord);
   }
 
   async getAllReportsWithMetadata(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async upsertReportMetadata(records: ReportTagMetadata[]): Promise<void> {
@@ -97,6 +107,25 @@ class InMemoryReportRepository implements ReportRepository {
       const record = this.records.find((candidate) => candidate.report.reportId === metadata.reportId);
       if (record) {
         record.metadata = { ...metadata };
+      }
+    }
+  }
+
+  async createArchivedReports(records: ArchivedReportSummary[]): Promise<void> {
+    for (const archivedSummary of records) {
+      const existing = this.records.find(
+        (candidate) => candidate.report.reportId === archivedSummary.reportId,
+      );
+
+      const archivedRecord = {
+        report: archivedSummary as unknown as Report,
+      };
+
+      if (existing) {
+        existing.report = archivedRecord.report;
+        delete existing.metadata;
+      } else {
+        this.records.push(archivedRecord);
       }
     }
   }
@@ -617,6 +646,7 @@ function makeReport(
 ): Report {
   return {
     reportId,
+    reportKind: "live",
     userId,
     studyLocationId,
     createdAt: new Date("2026-03-28T12:00:00.000Z"),
