@@ -62,6 +62,17 @@ export interface LocationGroup {
   updatedAt: Date | null;
 }
 
+export interface ArchivedSummary {
+  reportId: string;
+  reportKind: "archive_summary";
+  studyLocationId: string;
+  createdAt: Date;
+  avgNoise: number;
+  occupancy: number;
+  windowStart: Date;
+  windowEnd: Date;
+}
+
 export interface SessionState {
   userId: string;
   studyLocationId: string;
@@ -166,6 +177,10 @@ export interface A1ReportRepository {
 export interface ReportRepository
   extends ReportWriteRepository, ReportReadRepository, A1ReportRepository {}
 
+export interface ArchivedSummaryRepository {
+  createArchivedReports(summaries: ArchivedSummary[]): Promise<void>;
+}
+
 export interface LocationQueryRepository {
   getAllStudyLocations(): Promise<StudyLocation[]>;
   getStudyLocationById(studyLocationId: string): Promise<StudyLocation | null>;
@@ -231,6 +246,8 @@ export interface A1Config {
     user: number;
     peer: number;
   };
+  archiveThresholdMs: number;
+  archiveBucketMinutes: number;
 }
 
 export interface A1PollingCycleResult {
@@ -240,6 +257,7 @@ export interface A1PollingCycleResult {
   updatedStudyLocations: StudyLocation[];
   updatedLocationGroups: LocationGroup[];
   updatedUsers: User[];
+  archivedSummaries: ArchivedSummary[];
 }
 
 export interface SessionCorrectionNoiseWFDiagnostics {
@@ -292,6 +310,8 @@ export const defaultA1Config: A1Config = {
     user: 0.2,
     peer: 0.4,
   },
+  archiveThresholdMs: 3 * 60 * 60 * 1000,
+  archiveBucketMinutes: 30,
   // Tune these later after calibration with real report data.
 };
 
@@ -303,20 +323,20 @@ export class AuthService {
   }
 
   async authenticateUser(loginData: LoginInput): Promise<AuthenticationResult> {
-    const authenticationResult = await this.userRepository.authenticate(loginData);
+    const result = await this.userRepository.authenticate(loginData);
 
-    if (!authenticationResult) {
+    if (!result) {
       throw new Error("Invalid login credentials");
     }
 
-    return authenticationResult;
+    return result;
   }
 
   async verifyEmail(token: string): Promise<User> {
     const user = await this.userRepository.verifyEmail(token);
 
     if (!user) {
-      throw new Error("Invalid verification token");
+      throw new Error("Invalid or expired verification token");
     }
 
     return user;
@@ -333,9 +353,9 @@ export class AuthService {
 
 export class LocationService {
   constructor(
-    private readonly studyLocationRepository: StudyLocationRepository,
-    private readonly locationGroupRepository: LocationGroupRepository,
-    private readonly maxResolutionDistanceMeters: number = 150,
+    private readonly studyLocationRepository: LocationQueryRepository,
+    private readonly locationGroupRepository: LocationGroupQueryRepository,
+    private readonly maxResolutionDistanceMeters: number = 100,
   ) {}
 
   async getAllGroups(): Promise<LocationGroup[]> {
@@ -343,8 +363,8 @@ export class LocationService {
   }
 
   async listLocationsByGroup(groupId: string): Promise<StudyLocation[]> {
-    const locations = await this.studyLocationRepository.getAllStudyLocations();
-    return locations.filter((location) => location.locationGroupId === groupId);
+    const allLocations = await this.studyLocationRepository.getAllStudyLocations();
+    return allLocations.filter((location) => location.locationGroupId === groupId);
   }
 
   async getLocationById(locationId: string): Promise<StudyLocation> {
@@ -519,6 +539,7 @@ export class A1Service {
     private readonly studyLocationRepository: A1StudyLocationRepository,
     private readonly locationGroupRepository: A1LocationGroupRepository,
     private readonly config: A1Config = defaultA1Config,
+    private readonly archivedSummaryRepository?: ArchivedSummaryRepository,
   ) {}
 
   async runPollingCycle(now: Date = new Date()): Promise<A1PollingCycleResult> {
@@ -575,6 +596,11 @@ export class A1Service {
       }
     }
 
+    const archivedSummaries = this.buildArchivedSummaries(reportRecords, now);
+    if (archivedSummaries.length > 0 && this.archivedSummaryRepository) {
+      await this.archivedSummaryRepository.createArchivedReports(archivedSummaries);
+    }
+
     return {
       evaluatedAt: now,
       activeReportCount: activeRecords.length,
@@ -582,6 +608,7 @@ export class A1Service {
       updatedStudyLocations,
       updatedLocationGroups,
       updatedUsers,
+      archivedSummaries,
     };
   }
 
@@ -703,6 +730,78 @@ export class A1Service {
     if (staleReportIds.length > 0) {
       await this.reportRepository.deleteReports(staleReportIds);
     }
+  }
+
+  buildArchivedSummaries(reportRecords: ReportRecord[], now: Date): ArchivedSummary[] {
+    const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
+    const archiveEligible = reportRecords.filter(
+      (record) => record.report.createdAt.getTime() < archiveCutoff.getTime(),
+    );
+
+    if (archiveEligible.length === 0) {
+      return [];
+    }
+
+    const bucketMs = this.config.archiveBucketMinutes * 60 * 1000;
+    const byLocation = groupBy(archiveEligible, (record) => record.report.studyLocationId);
+    const archivedSummaries: ArchivedSummary[] = [];
+
+    for (const [studyLocationId, records] of byLocation) {
+      const buckets = new Map<number, ReportRecord[]>();
+
+      for (const record of records) {
+        const bucketKey = Math.floor(record.report.createdAt.getTime() / bucketMs) * bucketMs;
+        const bucket = buckets.get(bucketKey);
+        if (bucket) {
+          bucket.push(record);
+        } else {
+          buckets.set(bucketKey, [record]);
+        }
+      }
+
+      for (const [bucketKey, bucketRecords] of buckets) {
+        const windowStart = new Date(bucketKey);
+        const windowEnd = new Date(bucketKey + bucketMs);
+
+        const noiseWeightBasis = bucketRecords.reduce(
+          (sum, record) => sum + (record.metadata?.noiseWeightFactor ?? 0),
+          0,
+        );
+        const noiseContributionBasis = bucketRecords.reduce(
+          (sum, record) =>
+            sum + record.report.avgNoise * (record.metadata?.noiseWeightFactor ?? 0),
+          0,
+        );
+        const occupancyWeightBasis = bucketRecords.reduce(
+          (sum, record) => sum + (record.metadata?.occupancyWeightFactor ?? 0),
+          0,
+        );
+        const occupancyContributionBasis = bucketRecords.reduce(
+          (sum, record) =>
+            sum + record.report.occupancy * (record.metadata?.occupancyWeightFactor ?? 0),
+          0,
+        );
+
+        archivedSummaries.push({
+          reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
+          reportKind: "archive_summary",
+          studyLocationId,
+          createdAt: new Date(windowStart.getTime() + this.config.archiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
+          avgNoise:
+            noiseWeightBasis > 0
+              ? noiseContributionBasis / noiseWeightBasis
+              : mean(bucketRecords.map((record) => record.report.avgNoise)),
+          occupancy:
+            occupancyWeightBasis > 0
+              ? occupancyContributionBasis / occupancyWeightBasis
+              : mean(bucketRecords.map((record) => record.report.occupancy)),
+          windowStart,
+          windowEnd,
+        });
+      }
+    }
+
+    return archivedSummaries;
   }
 
   private evaluateSessionCorrection(
