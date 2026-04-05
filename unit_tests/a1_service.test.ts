@@ -11,6 +11,8 @@ import {
   defaultA1Config,
   defaultSessionServiceConfig,
   type A1Config,
+  type ArchivedSummary,
+  type ArchivedSummaryRepository,
   type BuiltReportData,
   type LocationGroup,
   type LocationGroupRepository,
@@ -210,6 +212,20 @@ class InMemoryLocationGroupRepository implements LocationGroupRepository {
 
   snapshot(): LocationGroup[] {
     return this.groups.map((group) => ({ ...group }));
+  }
+}
+
+class InMemoryArchivedSummaryRepository implements ArchivedSummaryRepository {
+  private readonly summaries: ArchivedSummary[] = [];
+
+  async createArchivedReports(summaries: ArchivedSummary[]): Promise<void> {
+    for (const summary of summaries) {
+      this.summaries.push({ ...summary, createdAt: new Date(summary.createdAt), windowStart: new Date(summary.windowStart), windowEnd: new Date(summary.windowEnd) });
+    }
+  }
+
+  snapshot(): ArchivedSummary[] {
+    return this.summaries.map((s) => ({ ...s, createdAt: new Date(s.createdAt), windowStart: new Date(s.windowStart), windowEnd: new Date(s.windowEnd) }));
   }
 }
 
@@ -603,6 +619,53 @@ describe("A1Service polling cycle", () => {
   });
 });
 
+describe("A1Service archive compression", () => {
+  it("sets archive createdAt to windowStart + archiveThresholdMs + archiveBucketMinutes", async () => {
+    // Place a report old enough to be archive-eligible (> 3.5 hours ago).
+    const now = referenceNow();
+    const reportTime = new Date(now.getTime() - 4 * 60 * 60 * 1000); // 4 hours before now
+    const archiveRepo = new InMemoryArchivedSummaryRepository();
+
+    const harness = createA1Harness({
+      users: [makeUser("user-1")],
+      reports: [
+        {
+          report: makeReport("old-report", "user-1", "loc-a", {
+            createdAt: reportTime,
+            avgNoise: 55,
+            occupancy: 3,
+          }),
+        },
+      ],
+      archivedSummaryRepository: archiveRepo,
+    });
+
+    const result = await harness.service.runPollingCycle(now);
+
+    assert.ok(result.archivedSummaries.length > 0, "Expected at least one archived summary");
+
+    const summary = result.archivedSummaries[0];
+
+    // createdAt should be windowStart + 3h (archiveThresholdMs) + 30m (archiveBucketMinutes)
+    const expectedCreatedAt = new Date(
+      summary.windowStart.getTime()
+        + defaultA1Config.archiveThresholdMs
+        + defaultA1Config.archiveBucketMinutes * 60 * 1000,
+    );
+
+    assert.equal(
+      summary.createdAt.toISOString(),
+      expectedCreatedAt.toISOString(),
+      "Archive createdAt should equal windowStart + 3h30m",
+    );
+
+    // Verify the repository received the summaries
+    const stored = archiveRepo.snapshot();
+    assert.equal(stored.length, result.archivedSummaries.length);
+    assert.equal(stored[0].createdAt.toISOString(), expectedCreatedAt.toISOString());
+  });
+});
+
 describe("ReportService.submitNewReport", () => {
   it("accepts a ReportSubmission and initializes metadata immediately", async () => {
     const harness = createA1Harness({
@@ -638,6 +701,7 @@ function createA1Harness(input?: {
   reports?: ReportRecord[];
   locations?: StudyLocation[];
   groups?: LocationGroup[];
+  archivedSummaryRepository?: ArchivedSummaryRepository;
 }) {
   const config: A1Config = {
     ...defaultA1Config,
@@ -657,6 +721,7 @@ function createA1Harness(input?: {
     studyLocationRepository,
     locationGroupRepository,
     config,
+    input?.archivedSummaryRepository,
   );
 
   return {
