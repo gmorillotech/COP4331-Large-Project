@@ -1,0 +1,202 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'auth_models.dart';
+
+// ── Base URL resolution (same pattern as account_center_backend.dart) ──
+
+const String _configuredApiBaseUrl =
+    String.fromEnvironment('ACCOUNT_CENTER_API_BASE_URL');
+const String _configuredDataCollectionApiBaseUrl =
+    String.fromEnvironment('DATA_COLLECTION_API_BASE_URL');
+
+String _defaultBaseUrl() {
+  if (_configuredApiBaseUrl.isNotEmpty) return _configuredApiBaseUrl;
+  if (_configuredDataCollectionApiBaseUrl.isNotEmpty) {
+    return _configuredDataCollectionApiBaseUrl;
+  }
+  if (kIsWeb) return 'http://localhost:5050';
+  if (Platform.isAndroid) return 'http://10.0.2.2:5050';
+  return 'http://localhost:5050';
+}
+
+// ── AuthService ── mirrors the web frontend's localStorage + fetch pattern ──
+
+class AuthService extends ChangeNotifier {
+  AuthService({SharedPreferences? prefs, String? baseUrl})
+      : _prefs = prefs,
+        _baseUrl = (baseUrl ?? _defaultBaseUrl()).trim();
+
+  SharedPreferences? _prefs;
+  final String _baseUrl;
+
+  String? _token;
+  AuthUser? _user;
+  bool _initializing = true;
+
+  String? get token => _token;
+  AuthUser? get user => _user;
+  bool get isAuthenticated => _token != null;
+  bool get initializing => _initializing;
+
+  // ── Initialize (read from SharedPreferences, like web reads localStorage) ──
+
+  Future<void> initialize() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    final savedToken = _prefs!.getString('token');
+    final savedUser = _prefs!.getString('user_data');
+
+    if (savedToken != null && savedToken.isNotEmpty && savedUser != null) {
+      _token = savedToken;
+      try {
+        _user = AuthUser.fromJson(
+          Map<String, dynamic>.from(jsonDecode(savedUser) as Map),
+        );
+      } catch (_) {
+        _token = null;
+      }
+    }
+
+    _initializing = false;
+    notifyListeners();
+  }
+
+  // ── Login (mirrors doLogin in Login.tsx) ──
+
+  Future<LoginResult> login({
+    required String login,
+    required String password,
+  }) async {
+    final response = await _post('/api/auth/login', {
+      'login': login,
+      'password': password,
+    });
+
+    final res = response.body;
+
+    if (!response.ok) {
+      final errorMsg = res['error'] as String? ?? '';
+      if (errorMsg.toLowerCase().contains('verify')) {
+        throw LoginFailure(
+          reason: LoginFailureReason.emailNotVerified,
+          message:
+              'Your account is not verified. Please check your email or resend the verification link.',
+        );
+      }
+      throw LoginFailure(
+        reason: LoginFailureReason.invalidCredentials,
+        message: errorMsg.isNotEmpty
+            ? errorMsg
+            : 'User/Password combination incorrect',
+      );
+    }
+
+    final result = LoginResult.fromJson(res);
+
+    // localStorage.setItem('user_data', JSON.stringify(res.user));
+    // localStorage.setItem('token', res.accessToken);
+    _token = result.accessToken;
+    _user = result.user;
+    await _prefs?.setString('token', result.accessToken);
+    await _prefs?.setString('user_data', jsonEncode(result.user.toJson()));
+
+    notifyListeners();
+    return result;
+  }
+
+  // ── Logout ──
+
+  Future<void> logout() async {
+    _token = null;
+    _user = null;
+    await _prefs?.remove('token');
+    await _prefs?.remove('user_data');
+    notifyListeners();
+  }
+
+  // ── Forgot Password (mirrors doForgotPassword in Login.tsx) ──
+
+  Future<String> forgotPassword({required String email}) async {
+    final response = await _post('/api/auth/forgot-password', {
+      'email': email,
+    });
+    return response.body['message'] as String? ??
+        'Password reset link sent to your email.';
+  }
+
+  // ── Resend Verification (mirrors doResendVerification in Login.tsx) ──
+
+  Future<String> resendVerification({required String email}) async {
+    final response = await _post('/api/auth/resend-verification', {
+      'email': email.trim().toLowerCase(),
+    });
+
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: LoginFailureReason.serverError,
+        message: response.body['error'] as String? ??
+            'Unable to resend verification email.',
+      );
+    }
+
+    return response.body['message'] as String? ??
+        'Verification email resent! Check your inbox.';
+  }
+
+  // ── Handle 401 from any protected API call ──
+
+  void handleUnauthorized() {
+    logout();
+  }
+
+  // ── HTTP helper (mirrors fetch() pattern from the web frontend) ──
+
+  Future<_HttpResponse> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    try {
+      final uri = Uri.parse('$_baseUrl$path');
+      final request = await client.postUrl(uri).timeout(
+            const Duration(seconds: 6),
+          );
+      request.persistentConnection = false;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(body));
+
+      final response = await request.close();
+      final text = await response.transform(utf8.decoder).join().timeout(
+            const Duration(seconds: 6),
+          );
+
+      final payload = text.trim().isEmpty
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(jsonDecode(text) as Map);
+
+      return _HttpResponse(
+        statusCode: response.statusCode,
+        body: payload,
+      );
+    } catch (e) {
+      if (e is LoginFailure) rethrow;
+      throw LoginFailure(
+        reason: LoginFailureReason.networkError,
+        message: 'Unable to contact the server',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+}
+
+class _HttpResponse {
+  const _HttpResponse({required this.statusCode, required this.body});
+  final int statusCode;
+  final Map<String, dynamic> body;
+  bool get ok => statusCode >= 200 && statusCode < 300;
+}

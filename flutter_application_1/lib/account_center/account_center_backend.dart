@@ -244,11 +244,23 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
   HttpAccountCenterBackendClient({
     String? baseUrl,
     String? authToken,
+    this.authTokenProvider,
+    this.onUnauthorized,
   })  : _baseUrl = (baseUrl ?? defaultAccountCenterApiBaseUrl()).trim(),
-        authToken = (authToken ?? defaultAccountCenterAuthToken()).trim();
+        _explicitAuthToken = (authToken ?? defaultAccountCenterAuthToken()).trim();
 
   final String _baseUrl;
-  final String authToken;
+  final String _explicitAuthToken;
+  final String Function()? authTokenProvider;
+  final VoidCallback? onUnauthorized;
+
+  String get authToken {
+    if (authTokenProvider != null) {
+      final token = authTokenProvider!();
+      if (token.trim().isNotEmpty) return token.trim();
+    }
+    return _explicitAuthToken;
+  }
 
   @override
   Future<AccountProfileResult> loadProfile() async {
@@ -391,6 +403,11 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
   }) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return;
+    }
+
+    if (response.statusCode == 401) {
+      onUnauthorized?.call();
+      throw HttpException('Session expired. Please log in again.');
     }
 
     final message = (payload['error'] as String? ?? fallbackMessage).trim();

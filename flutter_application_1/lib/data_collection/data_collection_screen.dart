@@ -7,6 +7,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:provider/provider.dart';
+
+import '../auth/auth_service.dart';
 import 'data_collection_backend.dart';
 import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
@@ -128,13 +131,15 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     }
   }
 
+  bool _depsInitialized = false;
+
   @override
   void initState() {
     super.initState();
     _engine = ProceduralSurfaceEngine(config: widget.config);
-    _draftRepository =
-        widget.draftRepository ?? InMemoryReportDraftRepository.instance;
     _backendClient = widget.backendClient ?? HttpDataCollectionBackendClient();
+    // _draftRepository is set in didChangeDependencies for Provider access
+    _draftRepository = widget.draftRepository ?? InMemoryReportDraftRepository.instance;
     _occupancy = widget.initialOccupancy;
     _studyLocations = List<DataCollectionStudyLocation>.from(
       widget.locationResolver.studyLocations,
@@ -151,6 +156,24 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _initMicrophone();
     unawaited(_hydrateStudyLocations());
     unawaited(_flushQueuedDrafts());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_depsInitialized && widget.draftRepository == null) {
+      _depsInitialized = true;
+      final authService = Provider.of<AuthService>(context, listen: false);
+      _draftRepository = FallbackReportDraftRepository(
+        primaryRepository: ApiReportDraftRepository(
+          apiConfig: DataCollectionApiConfig(
+            authTokenProvider: () => authService.token ?? '',
+            userIdProvider: () => authService.user?.userId ?? '',
+          ),
+          onUnauthorized: () => authService.handleUnauthorized(),
+        ),
+      );
+    }
   }
 
   @override

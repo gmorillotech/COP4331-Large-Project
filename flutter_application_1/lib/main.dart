@@ -3,34 +3,101 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/account_center/account_center_page.dart';
+import 'package:flutter_application_1/auth/auth_service.dart';
+import 'package:flutter_application_1/auth/login_page.dart';
+import 'package:flutter_application_1/auth/reset_password_page.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const String _configuredMapApiBaseUrl = String.fromEnvironment('MAP_API_BASE_URL');
+const String _loginRoute = '/login';
 const String _mapRoute = '/map';
 const String _dataCollectionRoute = '/data-collection';
 const String _accountCenterRoute = '/account-center';
 
-void main() => runApp(const MainApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  runApp(MainApp(prefs: prefs));
+}
 
-class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+class MainApp extends StatefulWidget {
+  const MainApp({super.key, required this.prefs});
+
+  final SharedPreferences prefs;
+
+  @override
+  State<MainApp> createState() => _MainAppState();
+}
+
+class _MainAppState extends State<MainApp> {
+  late final AuthService _authService;
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _authService = AuthService(prefs: widget.prefs)..initialize();
+    _appLinks = AppLinks();
+    _linkSubscription = _appLinks.uriLinkStream.listen(_handleDeepLink);
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    _authService.dispose();
+    super.dispose();
+  }
+
+  void _handleDeepLink(Uri uri) {
+    if (uri.path == '/reset-password') {
+      final token = uri.queryParameters['token'];
+      if (token != null && token.isNotEmpty) {
+        _navigatorKey.currentState?.push(
+          MaterialPageRoute<void>(
+            builder: (_) => ResetPasswordPage(token: token),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Study Space Map',
-      theme: ThemeData(useMaterial3: true),
-      initialRoute: _mapRoute,
-      routes: {
-        _mapRoute: (_) => const MapSearchPage(),
-        _dataCollectionRoute: (_) => const DataCollectionScreen(),
-        _accountCenterRoute: (_) => const AccountCenterPage(),
-      },
+    return ChangeNotifierProvider<AuthService>.value(
+      value: _authService,
+      child: Consumer<AuthService>(
+        builder: (context, auth, _) {
+          return MaterialApp(
+            navigatorKey: _navigatorKey,
+            debugShowCheckedModeBanner: false,
+            title: 'Study Space Map',
+            theme: ThemeData(useMaterial3: true),
+            home: auth.initializing
+                ? const Scaffold(
+                    body: Center(child: CircularProgressIndicator()))
+                : auth.isAuthenticated
+                    ? const MapSearchPage()
+                    : const LoginPage(),
+            routes: {
+              _loginRoute: (_) => const LoginPage(),
+              if (auth.isAuthenticated) ...{
+                _mapRoute: (_) => const MapSearchPage(),
+                _dataCollectionRoute: (_) => const DataCollectionScreen(),
+                _accountCenterRoute: (_) => const AccountCenterPage(),
+              },
+            },
+          );
+        },
+      ),
     );
   }
 }
