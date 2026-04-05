@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import {
-  SessionCorrectionService,
-  defaultSessionCorrectionServiceConfig,
-} from "../shared/src/support_services";
-import {
   A1Service,
+  type ArchivedReportSummary,
   LocationService,
   ReportService,
   SessionService,
+  computeHistoricalBaseline,
   defaultA1Config,
   defaultSessionServiceConfig,
   type A1Config,
+  type HistoricalBaseline,
   type BuiltReportData,
   type LocationGroup,
   type LocationGroupRepository,
@@ -98,6 +97,7 @@ class InMemoryReportRepository implements ReportRepository {
   async createReport(reportData: BuiltReportData): Promise<Report> {
     const report: Report = {
       reportId: `report-${this.records.length + 1}`,
+      reportKind: "live",
       ...reportData,
     };
     this.records.push({ report });
@@ -105,17 +105,25 @@ class InMemoryReportRepository implements ReportRepository {
   }
 
   async getRecentReports(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async getReportsByLocation(studyLocationId: string): Promise<ReportRecord[]> {
     return this.records
-      .filter((record) => record.report.studyLocationId === studyLocationId)
+      .filter(
+        (record) =>
+          record.report.studyLocationId === studyLocationId &&
+          record.report.reportKind === "live",
+      )
       .map(cloneRecord);
   }
 
   async getAllReportsWithMetadata(): Promise<ReportRecord[]> {
-    return this.records.map(cloneRecord);
+    return this.records
+      .filter((record) => record.report.reportKind === "live")
+      .map(cloneRecord);
   }
 
   async upsertReportMetadata(records: ReportTagMetadata[]): Promise<void> {
@@ -123,6 +131,25 @@ class InMemoryReportRepository implements ReportRepository {
       const record = this.records.find((candidate) => candidate.report.reportId === metadata.reportId);
       if (record) {
         record.metadata = { ...metadata };
+      }
+    }
+  }
+
+  async createArchivedReports(records: ArchivedReportSummary[]): Promise<void> {
+    for (const archivedSummary of records) {
+      const existing = this.records.find(
+        (candidate) => candidate.report.reportId === archivedSummary.reportId,
+      );
+
+      const archivedRecord = {
+        report: archivedSummary as unknown as Report,
+      };
+
+      if (existing) {
+        existing.report = archivedRecord.report;
+        delete existing.metadata;
+      } else {
+        this.records.push(archivedRecord);
       }
     }
   }
@@ -264,7 +291,6 @@ describe("SessionService.buildReport", () => {
     const sessionState = await sessionService.initializeSession(
       "user-1",
       { latitude: 28.6024, longitude: -81.2001 },
-      "device-1",
     );
 
     for (const reading of [45, 46, 47, 50, 49, 48, 47, 46, 45, 44, 43, 90]) {
@@ -309,7 +335,7 @@ describe("SessionService.buildReport", () => {
 });
 
 describe("A1Service.evaluateReportMetadata", () => {
-  it("combines decay, variance correction, session correction, and user trust into metadata", () => {
+  it("combines decay, variance correction, neutral session correction, and user trust into metadata", () => {
     const { service, user } = createA1Harness({
       users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
     });
@@ -354,12 +380,12 @@ describe("A1Service.evaluateReportMetadata", () => {
 
     assert.ok(Math.abs(metadata.decayFactor - 0.7579) < 0.001);
     assert.ok(Math.abs(metadata.varianceCorrectionWF - 0.7142) < 0.001);
-    assert.ok(Math.abs(metadata.sessionCorrectionNoiseWF - 0.9047619) < 0.0001);
-    assert.ok(Math.abs(metadata.noiseWeightFactor - 0.4) < 0.05);
+    assert.equal(metadata.sessionCorrectionNoiseWF, 1.0);
+    assert.ok(Math.abs(metadata.noiseWeightFactor - 0.433) < 0.02);
     assert.ok(Math.abs(metadata.occupancyWeightFactor - 0.83) < 0.02);
   });
 
-  it("matches the extracted support-services session correction diagnostics", () => {
+  it("keeps session correction neutral for processed-only reports", () => {
     const { service, user } = createA1Harness({
       users: [makeUser("user-1", { userNoiseWF: 0.8, userOccupancyWF: 1.1 })],
     });
@@ -400,19 +426,8 @@ describe("A1Service.evaluateReportMetadata", () => {
     ];
 
     const metadata = service.evaluateReportMetadata(report, history, user, referenceNow());
-    const supportDiagnostics = new SessionCorrectionService(
-      defaultSessionCorrectionServiceConfig,
-    ).evaluate({
-      report,
-      reportHistory: history.map((record) => record.report),
-      user,
-      now: report.createdAt,
-    });
 
-    assert.equal(metadata.sessionCorrectionNoiseWF, supportDiagnostics.sessionCorrectionNoiseWF);
-    assert.ok(Math.abs(supportDiagnostics.historicalScore - 0.9285714285714286) < 1e-12);
-    assert.ok(Math.abs(supportDiagnostics.userScore - 0.6666666666666666) < 1e-12);
-    assert.ok(Math.abs(supportDiagnostics.peerScore - 1.0) < 1e-12);
+    assert.equal(metadata.sessionCorrectionNoiseWF, 1.0);
   });
 });
 
@@ -721,6 +736,7 @@ function makeReport(
 ): Report {
   return {
     reportId,
+    reportKind: "live",
     userId,
     studyLocationId,
     createdAt: referenceNow(),
@@ -775,6 +791,154 @@ function decayWeight(ageMinutes: number): number {
   const halfLifeMinutes = defaultA1Config.reportHalfLifeMs / 60_000;
   return Math.exp(-(Math.log(2) / halfLifeMinutes) * ageMinutes);
 }
+
+// --- Historical baseline tests ---
+
+function makeSummary(
+  locationId: string,
+  windowStart: Date,
+  avgNoise: number,
+  occupancy: number,
+): ArchivedReportSummary {
+  const windowEnd = new Date(windowStart.getTime() + 30 * 60_000);
+  return {
+    reportId: `archive-${locationId}-${windowStart.toISOString()}`,
+    reportKind: "archive_summary",
+    studyLocationId: locationId,
+    createdAt: new Date(windowStart.getTime() + 3.5 * 60 * 60_000),
+    avgNoise,
+    occupancy,
+    windowStart,
+    windowEnd,
+  };
+}
+
+function daysAgo(now: Date, days: number): Date {
+  return new Date(now.getTime() - days * 24 * 60 * 60_000);
+}
+
+describe("computeHistoricalBaseline", () => {
+  const now = new Date("2026-04-05T14:45:00.000Z"); // bucket = 14:30 UTC
+
+  it("returns weighted baseline for matching half-hour bucket", () => {
+    const summaries = [
+      makeSummary("loc-a", new Date("2026-04-04T14:30:00.000Z"), 50, 3),
+      makeSummary("loc-a", new Date("2026-04-03T14:30:00.000Z"), 60, 4),
+    ];
+
+    const result = computeHistoricalBaseline(summaries, now, defaultA1Config);
+    assert.ok(result !== null);
+    assert.ok(result.usualNoise > 50 && result.usualNoise < 60);
+    assert.ok(result.usualOccupancy > 3 && result.usualOccupancy < 4);
+    // Recent summary (1 day ago) should pull result closer to 50/3
+    assert.ok(result.usualNoise < 55);
+    assert.ok(result.usualOccupancy < 3.5);
+  });
+
+  it("returns null when no summaries match the time-of-day bucket", () => {
+    const summaries = [
+      makeSummary("loc-a", new Date("2026-04-04T15:00:00.000Z"), 50, 3), // 15:00, not 14:30
+      makeSummary("loc-a", new Date("2026-04-03T10:30:00.000Z"), 60, 4), // 10:30, not 14:30
+    ];
+
+    const result = computeHistoricalBaseline(summaries, now, defaultA1Config);
+    assert.equal(result, null);
+  });
+
+  it("returns null when no summaries exist", () => {
+    const result = computeHistoricalBaseline([], now, defaultA1Config);
+    assert.equal(result, null);
+  });
+
+  it("returns null when total weight below minimum threshold", () => {
+    // Summaries 28 days old — weight = exp(-ln(2) * 28 / 14) = 0.25 * ... very small
+    // At 28 days with 14-day half-life: weight = exp(-ln(2)*28/14) = exp(-2*ln(2)) = 0.25
+    // But we only have 1 summary so total = 0.25, which is > 0.2
+    // Use 29 days: exp(-ln(2)*29/14) ≈ 0.233... still > 0.2
+    // Use a custom config with higher minimum
+    const strictConfig = { ...defaultA1Config, minimumHistoricalWeight: 0.99 };
+    const summaries = [
+      makeSummary("loc-a", daysAgo(now, 5), 50, 3),
+    ];
+    // Fix the windowStart to match the bucket
+    summaries[0].windowStart = new Date(
+      daysAgo(now, 5).getFullYear(),
+      daysAgo(now, 5).getMonth(),
+      daysAgo(now, 5).getDate(),
+    );
+    // Actually, let's use a proper UTC-based approach
+    const fiveDaysAgo = new Date("2026-03-31T14:30:00.000Z");
+    summaries[0] = makeSummary("loc-a", fiveDaysAgo, 50, 3);
+
+    const result = computeHistoricalBaseline(summaries, now, strictConfig);
+    assert.equal(result, null);
+  });
+
+  it("filters out summaries older than historicalMaxAgeDays", () => {
+    const oldSummary = makeSummary("loc-a", new Date("2026-02-20T14:30:00.000Z"), 50, 3); // 44 days ago
+    const result = computeHistoricalBaseline([oldSummary], now, defaultA1Config);
+    assert.equal(result, null);
+  });
+
+  it("weights recent summaries more heavily", () => {
+    const recentSummary = makeSummary("loc-a", new Date("2026-04-04T14:30:00.000Z"), 40, 2); // 1 day ago
+    const olderSummary = makeSummary("loc-a", new Date("2026-03-23T14:30:00.000Z"), 80, 5); // 13 days ago
+
+    const result = computeHistoricalBaseline([recentSummary, olderSummary], now, defaultA1Config);
+    assert.ok(result !== null);
+    // With 14-day half-life: recent weight ≈ 0.95, older weight ≈ 0.51
+    // Weighted avg should be closer to 40 than 80
+    assert.ok(result.usualNoise < 60, `Expected noise < 60 but got ${result.usualNoise}`);
+    assert.ok(result.usualOccupancy < 3.5, `Expected occupancy < 3.5 but got ${result.usualOccupancy}`);
+  });
+});
+
+// --- Archive createdAt test ---
+
+describe("A1Service archive compression", () => {
+  it("sets archive createdAt to windowStart + 3.5 hours", async () => {
+    const referenceTime = new Date("2026-04-05T18:00:00.000Z");
+    // Report from 4 hours ago — definitely archive-eligible
+    const reportTime = new Date(referenceTime.getTime() - 4 * 60 * 60_000);
+
+    const harness = createA1Harness({
+      users: [makeUser("user-1")],
+      locations: [makeLocation("loc-a", "group-a", 28.6, -81.2)],
+      groups: [makeGroup("group-a")],
+      reports: [
+        {
+          report: makeReport("report-1", "user-1", "loc-a", {
+            createdAt: reportTime,
+            avgNoise: 50,
+            occupancy: 3,
+          }),
+        },
+      ],
+    });
+
+    await harness.service.runPollingCycle(referenceTime);
+
+    // Find the archived summary
+    const snapshot = harness.reportRepository.snapshot();
+    const archived = snapshot.find(
+      (r) => (r.report.reportKind as string) === "archive_summary",
+    );
+    assert.ok(archived, "Expected an archive_summary to be created");
+
+    const expectedWindowStart = new Date(
+      Math.floor(reportTime.getTime() / (30 * 60_000)) * (30 * 60_000),
+    );
+    const expectedCreatedAt = new Date(
+      expectedWindowStart.getTime() + 3.5 * 60 * 60_000,
+    );
+
+    assert.equal(
+      archived.report.createdAt.getTime(),
+      expectedCreatedAt.getTime(),
+      `Archive createdAt should be windowStart + 3.5h. Got ${archived.report.createdAt.toISOString()}, expected ${expectedCreatedAt.toISOString()}`,
+    );
+  });
+});
 
 void runRegisteredTests();
 

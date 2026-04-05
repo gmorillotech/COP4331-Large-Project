@@ -1,7 +1,12 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 
-const { A1Service, ReportService } = require("../../shared/src/uml_service_layout");
+const {
+  A1Service,
+  ReportService,
+  computeHistoricalBaseline,
+  defaultA1Config,
+} = require("../../shared/src/uml_service_layout");
 const Report = require("../models/Report");
 const ReportTagMetadata = require("../models/ReportTagMetadata");
 const StudyLocation = require("../models/StudyLocation");
@@ -21,6 +26,7 @@ const {
 function toReport(document) {
   return {
     reportId: document.reportId,
+    reportKind: document.reportKind ?? "live",
     userId: document.userId,
     studyLocationId: document.studyLocationId,
     createdAt: new Date(document.createdAt),
@@ -28,6 +34,19 @@ function toReport(document) {
     maxNoise: document.maxNoise,
     variance: document.variance,
     occupancy: document.occupancy,
+  };
+}
+
+function toArchivedReportSummary(document) {
+  return {
+    reportId: document.reportId,
+    reportKind: document.reportKind ?? "archive_summary",
+    studyLocationId: document.studyLocationId,
+    createdAt: new Date(document.createdAt),
+    avgNoise: document.avgNoise,
+    occupancy: document.occupancy,
+    windowStart: new Date(document.windowStart),
+    windowEnd: new Date(document.windowEnd),
   };
 }
 
@@ -61,6 +80,7 @@ class MongooseReportRepository {
   async createReport(reportData) {
     const saved = await new Report({
       reportId: crypto.randomUUID(),
+      reportKind: "live",
       userId: reportData.userId,
       studyLocationId: reportData.studyLocationId,
       createdAt: reportData.createdAt ?? new Date(),
@@ -74,17 +94,26 @@ class MongooseReportRepository {
   }
 
   async getRecentReports() {
-    const reports = await Report.find().sort({ createdAt: -1 }).lean();
+    const reports = await Report.find({ reportKind: "live" })
+      .sort({ createdAt: -1 })
+      .lean();
     return this.#attachMetadata(reports);
   }
 
   async getReportsByLocation(studyLocationId) {
-    const reports = await Report.find({ studyLocationId }).sort({ createdAt: -1 }).lean();
+    const reports = await Report.find({
+      studyLocationId,
+      reportKind: "live",
+    })
+      .sort({ createdAt: -1 })
+      .lean();
     return this.#attachMetadata(reports);
   }
 
   async getAllReportsWithMetadata() {
-    const reports = await Report.find().sort({ createdAt: -1 }).lean();
+    const reports = await Report.find({ reportKind: "live" })
+      .sort({ createdAt: -1 })
+      .lean();
     return this.#attachMetadata(reports);
   }
 
@@ -122,6 +151,36 @@ class MongooseReportRepository {
       Report.deleteMany({ reportId: { $in: reportIds } }),
       ReportTagMetadata.deleteMany({ reportId: { $in: reportIds } }),
     ]);
+  }
+
+  async createArchivedReports(records) {
+    if (records.length === 0) {
+      return;
+    }
+
+    await Report.bulkWrite(
+      records.map((record) => ({
+        updateOne: {
+          filter: { reportId: record.reportId },
+          update: {
+            $set: {
+              reportId: record.reportId,
+              reportKind: "archive_summary",
+              userId: null,
+              studyLocationId: record.studyLocationId,
+              createdAt: record.createdAt,
+              avgNoise: record.avgNoise,
+              maxNoise: null,
+              variance: null,
+              occupancy: record.occupancy,
+              windowStart: record.windowStart,
+              windowEnd: record.windowEnd,
+            },
+          },
+          upsert: true,
+        },
+      })),
+    );
   }
 
   async #attachMetadata(reports) {
@@ -180,6 +239,8 @@ class ReportProcessingService {
       this.locationGroupRepository,
     );
     this.reportService = new ReportService(this.reportRepository, this.a1Service);
+    this.pollTimer = null;
+    this.pollInFlight = null;
   }
 
   async submitCanonicalReport(reportData) {
@@ -187,7 +248,6 @@ class ReportProcessingService {
     await this.#ensureCollectorUser(reportData.userId);
 
     const report = await this.reportService.submitNewReport(reportData);
-    const cycle = await this.a1Service.runPollingCycle(report.createdAt);
     const metadataRecords = await this.reportRepository.getReportsByLocation(report.studyLocationId);
     const createdRecord =
       metadataRecords.find((record) => record.report.reportId === report.reportId) ?? null;
@@ -203,8 +263,98 @@ class ReportProcessingService {
       metadata: createdRecord?.metadata ?? null,
       studyLocation,
       locationGroup,
-      cycle,
+      cycle: null,
     };
+  }
+
+  async runPollingCycle(now = new Date()) {
+    return this.a1Service.runPollingCycle(now);
+  }
+
+  async listArchivedSummariesByLocation(
+    studyLocationId,
+    { from = null, to = null, limit = 500 } = {},
+  ) {
+    const filter = {
+      studyLocationId,
+      reportKind: "archive_summary",
+    };
+
+    if (from || to) {
+      filter.windowStart = {};
+
+      if (from) {
+        filter.windowStart.$gte = from;
+      }
+
+      if (to) {
+        filter.windowStart.$lt = to;
+      }
+    }
+
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 500));
+    const summaries = await Report.find(filter)
+      .sort({ windowStart: 1 })
+      .limit(safeLimit)
+      .lean();
+
+    return summaries.map(toArchivedReportSummary);
+  }
+
+  async getHistoricalBaseline(studyLocationId, now = new Date()) {
+    const maxAgeDays = defaultA1Config.historicalMaxAgeDays || 30;
+    const from = new Date(now.getTime() - maxAgeDays * 24 * 60 * 60 * 1000);
+
+    const summaries = await this.listArchivedSummariesByLocation(studyLocationId, {
+      from,
+      to: now,
+      limit: 1000,
+    });
+
+    return computeHistoricalBaseline(summaries, now, defaultA1Config);
+  }
+
+  startPollingLoop(pollIntervalMs = 60_000) {
+    if (this.pollTimer) {
+      return;
+    }
+
+    const safePollIntervalMs = Math.max(1_000, Number(pollIntervalMs) || 60_000);
+    const pollOnce = async () => {
+      if (this.pollInFlight) {
+        return this.pollInFlight;
+      }
+
+      this.pollInFlight = this.runPollingCycle()
+        .catch((error) => {
+          console.error("A1 polling cycle failed:", error.message);
+          return null;
+        })
+        .finally(() => {
+          this.pollInFlight = null;
+        });
+
+      return this.pollInFlight;
+    };
+
+    this.pollTimer = setInterval(() => {
+      void pollOnce();
+    }, safePollIntervalMs);
+
+    if (typeof this.pollTimer.unref === "function") {
+      this.pollTimer.unref();
+    }
+
+    void pollOnce();
+  }
+
+  stopPollingLoop() {
+    if (!this.pollTimer) {
+      return;
+    }
+
+    clearInterval(this.pollTimer);
+    this.pollTimer = null;
   }
 
   async #ensureCatalogLocation(studyLocationId) {

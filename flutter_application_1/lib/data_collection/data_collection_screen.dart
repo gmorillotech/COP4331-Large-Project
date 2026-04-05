@@ -31,6 +31,7 @@ class DataCollectionScreen extends StatefulWidget {
     this.draftBuilder = const CapturedReportDraftBuilder(),
     this.draftRepository,
     this.backendClient,
+    this.apiBaseUrl,
     this.microphonePermissionRequest = _requestMicrophonePermission,
     this.allowSyntheticAudioInput = false,
   });
@@ -43,6 +44,7 @@ class DataCollectionScreen extends StatefulWidget {
   final CapturedReportDraftBuilder draftBuilder;
   final ReportDraftRepository? draftRepository;
   final DataCollectionBackendClient? backendClient;
+  final String? apiBaseUrl;
   final MicrophonePermissionRequest microphonePermissionRequest;
   final bool allowSyntheticAudioInput;
 
@@ -53,6 +55,8 @@ class DataCollectionScreen extends StatefulWidget {
 class _DataCollectionScreenState extends State<DataCollectionScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _sampleInterval = Duration(milliseconds: 250);
+  static const Duration _reportWindow = Duration(seconds: 15);
+  static const Duration _queueRetryDelay = Duration(seconds: 5);
 
   late final Ticker _ticker;
   late final ProceduralSurfaceEngine _engine;
@@ -68,6 +72,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   bool _isSubmitting = false;
   bool _isSyncingQueue = false;
   int _lastRecordedSampleMs = -1;
+  int? _windowStartedMs;
+  Timer? _queueRetryTimer;
   CapturedReportDraft? _lastProcessedDraft;
   String? _lastSubmissionSummary;
   bool _lastSubmissionQueued = false;
@@ -134,7 +140,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _engine = ProceduralSurfaceEngine(config: widget.config);
     _draftRepository =
         widget.draftRepository ?? InMemoryReportDraftRepository.instance;
-    _backendClient = widget.backendClient ?? HttpDataCollectionBackendClient();
+    _backendClient = widget.backendClient ??
+        HttpDataCollectionBackendClient(baseUrl: widget.apiBaseUrl);
     _occupancy = widget.initialOccupancy;
     _studyLocations = List<DataCollectionStudyLocation>.from(
       widget.locationResolver.studyLocations,
@@ -150,12 +157,18 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
     unawaited(_hydrateStudyLocations());
+    if (_draftRepository.drafts.isNotEmpty) {
+      _lastSubmissionQueued = true;
+      _lastSubmissionSummary =
+          'Resuming with ${_draftRepository.drafts.length} queued report(s).';
+    }
     unawaited(_flushQueuedDrafts());
   }
 
   @override
   void dispose() {
     _noiseSubscription?.cancel();
+    _queueRetryTimer?.cancel();
     _ticker.dispose();
     super.dispose();
   }
@@ -237,6 +250,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
     final rawLevel = _audioInputLevel(elapsed);
     final nextFrame = _engine.tick(rawLevel: rawLevel, elapsed: elapsed);
+    final shouldEvaluateWindow = _isCapturing;
 
     setState(() {
       _frame = nextFrame;
@@ -244,6 +258,10 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         _recordSampleIfNeeded(nextFrame);
       }
     });
+
+    if (shouldEvaluateWindow) {
+      unawaited(_queueCompletedWindowIfReady(nextFrame));
+    }
   }
 
   void _recordSampleIfNeeded(SurfaceFrameState frame) {
@@ -266,22 +284,27 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     }
 
     setState(() {
-      final shouldStartFresh = _lastRecordedSampleMs < 0;
       _isCapturing = true;
       _lastProcessedDraft = null;
-      _lastSubmissionSummary = null;
-
-      if (shouldStartFresh) {
-        _capturedSamples.clear();
-        _capturedSamples.add(_frame.signal.decibels);
-        _lastRecordedSampleMs = _frame.signal.elapsed.inMilliseconds;
-      }
+      _lastSubmissionSummary = _draftRepository.drafts.isEmpty
+          ? null
+          : 'Pending queued uploads will retry in the background.';
+      _lastSubmissionQueued = _draftRepository.drafts.isNotEmpty;
+      _capturedSamples.clear();
+      _capturedSamples.add(_frame.signal.decibels);
+      _lastRecordedSampleMs = _frame.signal.elapsed.inMilliseconds;
+      _windowStartedMs = _frame.signal.elapsed.inMilliseconds;
     });
+
+    unawaited(_flushQueuedDrafts());
   }
 
   void _pauseCapture() {
     setState(() {
       _isCapturing = false;
+      _capturedSamples.clear();
+      _lastRecordedSampleMs = -1;
+      _windowStartedMs = null;
     });
   }
 
@@ -290,9 +313,77 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _isCapturing = false;
       _capturedSamples.clear();
       _lastRecordedSampleMs = -1;
+      _windowStartedMs = null;
       _lastProcessedDraft = null;
       _lastSubmissionSummary = null;
+      _lastSubmissionQueued = false;
     });
+  }
+
+  CapturedReportDraft _buildDraft({
+    required List<double> rawSamples,
+    DateTime? createdAt,
+  }) {
+    final location = _selectedLocation;
+    if (location == null) {
+      throw StateError('Select a study location before submitting a report.');
+    }
+
+    return widget.draftBuilder.build(
+      location: location,
+      occupancy: _occupancy,
+      rawSamples: rawSamples,
+      createdAt: createdAt,
+    );
+  }
+
+  Future<void> _queueCompletedWindowIfReady(SurfaceFrameState frame) async {
+    final startedAtMs = _windowStartedMs;
+    if (!_isCapturing || startedAtMs == null) {
+      return;
+    }
+
+    final elapsedMs = frame.signal.elapsed.inMilliseconds;
+    if (elapsedMs - startedAtMs < _reportWindow.inMilliseconds) {
+      return;
+    }
+
+    try {
+      final draft = _buildDraft(
+        rawSamples: List<double>.from(_capturedSamples),
+        createdAt: DateTime.now(),
+      );
+
+      setState(() {
+        _capturedSamples.clear();
+        _lastRecordedSampleMs = elapsedMs;
+        _windowStartedMs = elapsedMs;
+      });
+
+      final queuedDraft = await _draftRepository.saveDraft(draft);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _lastProcessedDraft = queuedDraft;
+        _lastSubmissionSummary = 'Queued a 15-second report window for upload.';
+        _lastSubmissionQueued = true;
+      });
+      unawaited(_flushQueuedDrafts());
+    } on StateError catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _capturedSamples.clear();
+        _lastRecordedSampleMs = elapsedMs;
+        _windowStartedMs = elapsedMs;
+        _lastSubmissionSummary = error.message;
+        _lastSubmissionQueued = false;
+      });
+    }
   }
 
   Future<void> _saveDraft() async {
@@ -307,18 +398,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       return;
     }
 
-    final location = _selectedLocation;
-    if (location == null) {
-      _showMessage('Select a study location before submitting a report.');
-      return;
-    }
-
     try {
-      final draft = widget.draftBuilder.build(
-        location: location,
-        occupancy: _occupancy,
-        rawSamples: _capturedSamples,
-      );
+      final draft = _buildDraft(rawSamples: List<double>.from(_capturedSamples));
       setState(() => _isSubmitting = true);
 
       try {
@@ -332,6 +413,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _lastSubmissionSummary = 'Submitted to backend';
           _lastSubmissionQueued = false;
           _isCapturing = false;
+          _capturedSamples.clear();
+          _lastRecordedSampleMs = -1;
+          _windowStartedMs = null;
         });
         _showMessage('Report submitted to the backend.');
         unawaited(_flushQueuedDrafts(announceSuccess: true));
@@ -346,6 +430,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _lastSubmissionSummary = 'Queued offline for this session';
           _lastSubmissionQueued = true;
           _isCapturing = false;
+          _capturedSamples.clear();
+          _lastRecordedSampleMs = -1;
+          _windowStartedMs = null;
         });
         _showMessage(
           'Backend unavailable. Report queued in memory for retry this session.',
@@ -405,6 +492,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       return;
     }
 
+    _queueRetryTimer?.cancel();
+    _queueRetryTimer = null;
     _isSyncingQueue = true;
     var syncedCount = 0;
     final queuedDrafts = List<CapturedReportDraft>.from(
@@ -416,9 +505,24 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         await _backendClient.submitReport(draft);
         await _draftRepository.removeDraft(draft.reportId);
         syncedCount += 1;
+
+        if (mounted) {
+          setState(() {
+            _lastProcessedDraft = draft.copyWith(
+              deliveryStatus: ReportDeliveryStatus.submittedToApi,
+              deliveryDetail: 'Synced from the local retry queue.',
+            );
+            _lastSubmissionSummary = 'Uploaded queued report to backend';
+            _lastSubmissionQueued = false;
+          });
+        }
       }
     } catch (_) {
-      // Leave any remaining drafts in the in-memory queue for a later retry.
+      _queueRetryTimer = Timer(_queueRetryDelay, () {
+        if (mounted) {
+          unawaited(_flushQueuedDrafts());
+        }
+      });
     } finally {
       _isSyncingQueue = false;
     }
@@ -531,7 +635,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Backend-linked report capture',
+                              'Backend-linked 15s report capture',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.96),
                                 fontWeight: FontWeight.w700,
@@ -1135,7 +1239,7 @@ class _SignalHistoryCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             samples.isEmpty
-                ? 'No samples recorded yet. Start capture to build a local noise trace.'
+                ? 'No samples recorded yet. Start capture to build the current 15-second report window.'
                 : 'Showing the most recent ${samples.length.clamp(0, minSamples * 2)} captured decibel samples.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
