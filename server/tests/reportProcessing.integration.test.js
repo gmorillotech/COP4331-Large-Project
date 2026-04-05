@@ -44,6 +44,8 @@ function clone(value) {
     ...(value.createdAt ? { createdAt: new Date(value.createdAt) } : {}),
     ...(value.updatedAt ? { updatedAt: new Date(value.updatedAt) } : {}),
     ...(value.lastEvaluatedAt ? { lastEvaluatedAt: new Date(value.lastEvaluatedAt) } : {}),
+    ...(value.windowStart ? { windowStart: new Date(value.windowStart) } : {}),
+    ...(value.windowEnd ? { windowEnd: new Date(value.windowEnd) } : {}),
     ...(value.favorites ? { favorites: [...value.favorites] } : {}),
   };
 }
@@ -60,6 +62,7 @@ function installInMemoryModelPatches() {
   const originals = {
     reportSave: Report.prototype.save,
     reportFind: Report.find,
+    reportBulkWrite: Report.bulkWrite,
     reportDeleteMany: Report.deleteMany,
     metadataFind: ReportTagMetadata.find,
     metadataBulkWrite: ReportTagMetadata.bulkWrite,
@@ -79,6 +82,7 @@ function installInMemoryModelPatches() {
   Report.prototype.save = async function saveReport() {
     const document = {
       reportId: this.reportId,
+      reportKind: this.reportKind,
       userId: this.userId,
       studyLocationId: this.studyLocationId,
       createdAt: this.createdAt,
@@ -96,6 +100,10 @@ function installInMemoryModelPatches() {
       Object.entries(filter).every(([key, value]) => {
         if (value && typeof value === "object" && Array.isArray(value.$in)) {
           return value.$in.includes(report[key]);
+        }
+
+        if (value && typeof value === "object" && "$ne" in value) {
+          return report[key] !== value.$ne;
         }
 
         return report[key] === value;
@@ -118,6 +126,21 @@ function installInMemoryModelPatches() {
         };
       },
     };
+  };
+
+  Report.bulkWrite = async (operations) => {
+    for (const operation of operations) {
+      const record = {
+        reportId: operation.updateOne.filter.reportId,
+        ...operation.updateOne.update.$set,
+      };
+      const index = state.reports.findIndex((item) => item.reportId === record.reportId);
+      if (index >= 0) {
+        state.reports[index] = clone(record);
+      } else {
+        state.reports.push(clone(record));
+      }
+    }
   };
 
   Report.deleteMany = async (filter) => {
@@ -255,6 +278,7 @@ function installInMemoryModelPatches() {
     restore() {
       Report.prototype.save = originals.reportSave;
       Report.find = originals.reportFind;
+      Report.bulkWrite = originals.reportBulkWrite;
       Report.deleteMany = originals.reportDeleteMany;
       ReportTagMetadata.find = originals.metadataFind;
       ReportTagMetadata.bulkWrite = originals.metadataBulkWrite;
@@ -273,7 +297,7 @@ function installInMemoryModelPatches() {
   };
 }
 
-it("submitCanonicalReport persists report metadata and updates location/group/user state", async () => {
+it("submitCanonicalReport persists report metadata and leaves aggregate state for polling", async () => {
   const harness = installInMemoryModelPatches();
   const service = new ReportProcessingService();
 
@@ -309,19 +333,17 @@ it("submitCanonicalReport persists report metadata and updates location/group/us
     assert.ok(first.metadata);
     assert.ok(second.studyLocation);
     assert.ok(second.locationGroup);
-    assert.ok(second.cycle);
+    assert.equal(second.cycle, null);
     assert.equal(second.studyLocation.studyLocationId, "library-floor-1-quiet");
     assert.equal(
       second.locationGroup.locationGroupId,
       "group-john-c-hitt-library",
     );
-    assert.ok(second.studyLocation.currentNoiseLevel > 48);
-    assert.ok(second.studyLocation.currentNoiseLevel < 60);
-    assert.ok(second.studyLocation.currentOccupancyLevel > 2);
-    assert.ok(second.studyLocation.currentOccupancyLevel < 4);
-    assert.ok(second.locationGroup.currentNoiseLevel !== null);
-    assert.ok(second.locationGroup.currentOccupancyLevel !== null);
-    assert.equal(second.cycle.activeReportCount, 2);
+    assert.equal(second.studyLocation.currentNoiseLevel, null);
+    assert.equal(second.studyLocation.currentOccupancyLevel, null);
+    assert.equal(second.locationGroup.currentNoiseLevel, null);
+    assert.equal(second.locationGroup.currentOccupancyLevel, null);
+    assert.equal(harness.state.reports[0].reportKind, "live");
   } finally {
     harness.restore();
   }
