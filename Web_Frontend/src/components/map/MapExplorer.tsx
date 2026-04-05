@@ -94,7 +94,7 @@ function MapExplorer() {
   // Which sort option is active
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
 
-  const { favorites, isFavorite, toggleFavorite } = useFavorites(); 
+  const {isFavorite, toggleFavorite } = useFavorites(); 
 
 
   // ---- Effects --------------------------------------------------------------
