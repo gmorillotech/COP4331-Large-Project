@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../auth/auth_service.dart';
 import '../data_collection/data_collection_workflow.dart';
 import 'account_center_backend.dart';
 import 'account_center_models.dart';
@@ -56,11 +58,26 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
           location.studyLocationId: location.displayLabel,
       };
 
+  bool _initialized = false;
+
   @override
   void initState() {
     super.initState();
-    _backendClient = widget.backendClient ?? HybridAccountCenterBackendClient();
-    _loadProfile();
+    if (widget.backendClient != null) {
+      _backendClient = widget.backendClient!;
+      _initialized = true;
+      _loadProfile();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _backendClient = _buildAuthAwareClient();
+      _initialized = true;
+      _loadProfile();
+    }
   }
 
   @override
@@ -73,6 +90,16 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  AccountCenterBackendClient _buildAuthAwareClient() {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    return HybridAccountCenterBackendClient(
+      remoteClient: HttpAccountCenterBackendClient(
+        authTokenProvider: () => authService.token ?? '',
+        onUnauthorized: () => authService.handleUnauthorized(),
+      ),
+    );
   }
 
   Future<void> _loadProfile({String? statusMessage}) async {
