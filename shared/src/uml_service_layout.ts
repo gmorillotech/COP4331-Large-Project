@@ -245,6 +245,14 @@ export interface A1Config {
     user: number;
     peer: number;
   };
+  historicalHalfLifeDays: number;
+  historicalMaxAgeDays: number;
+  minimumHistoricalWeight: number;
+}
+
+export interface HistoricalBaseline {
+  usualNoise: number;
+  usualOccupancy: number;
 }
 
 export interface A1PollingCycleResult {
@@ -309,6 +317,9 @@ export const defaultA1Config: A1Config = {
     user: 0.2,
     peer: 0.4,
   },
+  historicalHalfLifeDays: 14,
+  historicalMaxAgeDays: 30,
+  minimumHistoricalWeight: 0.2,
   // Tune these later after calibration with real report data.
 };
 
@@ -809,7 +820,7 @@ export class A1Service {
         reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
         reportKind: "archive_summary",
         studyLocationId,
-        createdAt: windowStart,
+        createdAt: new Date(windowStart.getTime() + this.config.archiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
         avgNoise:
           noiseWeightBasis > 0
             ? noiseContributionBasis / noiseWeightBasis
@@ -1165,6 +1176,55 @@ export class ReportController {
     const reports = await this.reportRepository.getRecentReports();
     res.status(200).json(reports);
   }
+}
+
+export function computeHistoricalBaseline(
+  summaries: ArchivedReportSummary[],
+  now: Date,
+  config: A1Config,
+): HistoricalBaseline | null {
+  const currentBucketStart = floorToBucketStart(now, config.archiveBucketMinutes);
+  const currentBucketHour = currentBucketStart.getUTCHours();
+  const currentBucketMinute = currentBucketStart.getUTCMinutes();
+
+  const maxAgeMs = config.historicalMaxAgeDays * 24 * 60 * 60 * 1000;
+  const lambda = Math.log(2) / config.historicalHalfLifeDays;
+
+  const matching: Array<{ summary: ArchivedReportSummary; weight: number }> = [];
+
+  for (const summary of summaries) {
+    const ageMs = Math.max(0, now.getTime() - summary.windowStart.getTime());
+    if (ageMs > maxAgeMs) {
+      continue;
+    }
+
+    if (
+      summary.windowStart.getUTCHours() !== currentBucketHour ||
+      summary.windowStart.getUTCMinutes() !== currentBucketMinute
+    ) {
+      continue;
+    }
+
+    const ageDays = ageMs / (24 * 60 * 60 * 1000);
+    const weight = Math.exp(-lambda * ageDays);
+    matching.push({ summary, weight });
+  }
+
+  if (matching.length === 0) {
+    return null;
+  }
+
+  const totalWeight = matching.reduce((sum, entry) => sum + entry.weight, 0);
+  if (totalWeight < config.minimumHistoricalWeight) {
+    return null;
+  }
+
+  const usualNoise =
+    matching.reduce((sum, entry) => sum + entry.summary.avgNoise * entry.weight, 0) / totalWeight;
+  const usualOccupancy =
+    matching.reduce((sum, entry) => sum + entry.summary.occupancy * entry.weight, 0) / totalWeight;
+
+  return { usualNoise, usualOccupancy };
 }
 
 function haversineDistanceMeters(a: Coordinates, b: Coordinates): number {

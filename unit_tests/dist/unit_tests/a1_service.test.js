@@ -615,6 +615,114 @@ function decayWeight(ageMinutes) {
     const halfLifeMinutes = uml_service_layout_1.defaultA1Config.reportHalfLifeMs / 60_000;
     return Math.exp(-(Math.log(2) / halfLifeMinutes) * ageMinutes);
 }
+// --- Historical baseline tests ---
+function makeSummary(locationId, windowStart, avgNoise, occupancy) {
+    const windowEnd = new Date(windowStart.getTime() + 30 * 60_000);
+    return {
+        reportId: `archive-${locationId}-${windowStart.toISOString()}`,
+        reportKind: "archive_summary",
+        studyLocationId: locationId,
+        createdAt: new Date(windowStart.getTime() + 3.5 * 60 * 60_000),
+        avgNoise,
+        occupancy,
+        windowStart,
+        windowEnd,
+    };
+}
+function daysAgo(now, days) {
+    return new Date(now.getTime() - days * 24 * 60 * 60_000);
+}
+describe("computeHistoricalBaseline", () => {
+    const now = new Date("2026-04-05T14:45:00.000Z"); // bucket = 14:30 UTC
+    it("returns weighted baseline for matching half-hour bucket", () => {
+        const summaries = [
+            makeSummary("loc-a", new Date("2026-04-04T14:30:00.000Z"), 50, 3),
+            makeSummary("loc-a", new Date("2026-04-03T14:30:00.000Z"), 60, 4),
+        ];
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)(summaries, now, uml_service_layout_1.defaultA1Config);
+        strict_1.default.ok(result !== null);
+        strict_1.default.ok(result.usualNoise > 50 && result.usualNoise < 60);
+        strict_1.default.ok(result.usualOccupancy > 3 && result.usualOccupancy < 4);
+        // Recent summary (1 day ago) should pull result closer to 50/3
+        strict_1.default.ok(result.usualNoise < 55);
+        strict_1.default.ok(result.usualOccupancy < 3.5);
+    });
+    it("returns null when no summaries match the time-of-day bucket", () => {
+        const summaries = [
+            makeSummary("loc-a", new Date("2026-04-04T15:00:00.000Z"), 50, 3), // 15:00, not 14:30
+            makeSummary("loc-a", new Date("2026-04-03T10:30:00.000Z"), 60, 4), // 10:30, not 14:30
+        ];
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)(summaries, now, uml_service_layout_1.defaultA1Config);
+        strict_1.default.equal(result, null);
+    });
+    it("returns null when no summaries exist", () => {
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)([], now, uml_service_layout_1.defaultA1Config);
+        strict_1.default.equal(result, null);
+    });
+    it("returns null when total weight below minimum threshold", () => {
+        // Summaries 28 days old — weight = exp(-ln(2) * 28 / 14) = 0.25 * ... very small
+        // At 28 days with 14-day half-life: weight = exp(-ln(2)*28/14) = exp(-2*ln(2)) = 0.25
+        // But we only have 1 summary so total = 0.25, which is > 0.2
+        // Use 29 days: exp(-ln(2)*29/14) ≈ 0.233... still > 0.2
+        // Use a custom config with higher minimum
+        const strictConfig = { ...uml_service_layout_1.defaultA1Config, minimumHistoricalWeight: 0.99 };
+        const summaries = [
+            makeSummary("loc-a", daysAgo(now, 5), 50, 3),
+        ];
+        // Fix the windowStart to match the bucket
+        summaries[0].windowStart = new Date(daysAgo(now, 5).getFullYear(), daysAgo(now, 5).getMonth(), daysAgo(now, 5).getDate());
+        // Actually, let's use a proper UTC-based approach
+        const fiveDaysAgo = new Date("2026-03-31T14:30:00.000Z");
+        summaries[0] = makeSummary("loc-a", fiveDaysAgo, 50, 3);
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)(summaries, now, strictConfig);
+        strict_1.default.equal(result, null);
+    });
+    it("filters out summaries older than historicalMaxAgeDays", () => {
+        const oldSummary = makeSummary("loc-a", new Date("2026-02-20T14:30:00.000Z"), 50, 3); // 44 days ago
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)([oldSummary], now, uml_service_layout_1.defaultA1Config);
+        strict_1.default.equal(result, null);
+    });
+    it("weights recent summaries more heavily", () => {
+        const recentSummary = makeSummary("loc-a", new Date("2026-04-04T14:30:00.000Z"), 40, 2); // 1 day ago
+        const olderSummary = makeSummary("loc-a", new Date("2026-03-23T14:30:00.000Z"), 80, 5); // 13 days ago
+        const result = (0, uml_service_layout_1.computeHistoricalBaseline)([recentSummary, olderSummary], now, uml_service_layout_1.defaultA1Config);
+        strict_1.default.ok(result !== null);
+        // With 14-day half-life: recent weight ≈ 0.95, older weight ≈ 0.51
+        // Weighted avg should be closer to 40 than 80
+        strict_1.default.ok(result.usualNoise < 60, `Expected noise < 60 but got ${result.usualNoise}`);
+        strict_1.default.ok(result.usualOccupancy < 3.5, `Expected occupancy < 3.5 but got ${result.usualOccupancy}`);
+    });
+});
+// --- Archive createdAt test ---
+describe("A1Service archive compression", () => {
+    it("sets archive createdAt to windowStart + 3.5 hours", async () => {
+        const referenceTime = new Date("2026-04-05T18:00:00.000Z");
+        // Report from 4 hours ago — definitely archive-eligible
+        const reportTime = new Date(referenceTime.getTime() - 4 * 60 * 60_000);
+        const harness = createA1Harness({
+            users: [makeUser("user-1")],
+            locations: [makeLocation("loc-a", "group-a", 28.6, -81.2)],
+            groups: [makeGroup("group-a")],
+            reports: [
+                {
+                    report: makeReport("report-1", "user-1", "loc-a", {
+                        createdAt: reportTime,
+                        avgNoise: 50,
+                        occupancy: 3,
+                    }),
+                },
+            ],
+        });
+        await harness.service.runPollingCycle(referenceTime);
+        // Find the archived summary
+        const snapshot = harness.reportRepository.snapshot();
+        const archived = snapshot.find((r) => r.report.reportKind === "archive_summary");
+        strict_1.default.ok(archived, "Expected an archive_summary to be created");
+        const expectedWindowStart = new Date(Math.floor(reportTime.getTime() / (30 * 60_000)) * (30 * 60_000));
+        const expectedCreatedAt = new Date(expectedWindowStart.getTime() + 3.5 * 60 * 60_000);
+        strict_1.default.equal(archived.report.createdAt.getTime(), expectedCreatedAt.getTime(), `Archive createdAt should be windowStart + 3.5h. Got ${archived.report.createdAt.toISOString()}, expected ${expectedCreatedAt.toISOString()}`);
+    });
+});
 void runRegisteredTests();
 async function runRegisteredTests() {
     let failures = 0;
