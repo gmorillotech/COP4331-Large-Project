@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 
-const { A1Service, ReportService } = require("../../shared/dist/uml_service_layout");
+const { A1Service, ReportService } = require("../../shared/src/uml_service_layout");
 const Report = require("../models/Report");
 const ReportTagMetadata = require("../models/ReportTagMetadata");
 const StudyLocation = require("../models/StudyLocation");
