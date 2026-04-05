@@ -621,11 +621,31 @@ class DataCollectionApiConfig {
       'DATA_COLLECTION_USER_ID',
       defaultValue: 'local-user',
     ),
+    this.authTokenProvider,
+    this.userIdProvider,
   });
 
   final String? baseUrl;
   final String authToken;
   final String defaultUserId;
+  final String Function()? authTokenProvider;
+  final String Function()? userIdProvider;
+
+  String get resolvedAuthToken {
+    if (authTokenProvider != null) {
+      final token = authTokenProvider!();
+      if (token.trim().isNotEmpty) return token.trim();
+    }
+    return authToken.trim();
+  }
+
+  String get resolvedUserId {
+    if (userIdProvider != null) {
+      final id = userIdProvider!();
+      if (id.trim().isNotEmpty) return id.trim();
+    }
+    return defaultUserId;
+  }
 
   String get resolvedBaseUrl {
     if (baseUrl != null && baseUrl!.trim().isNotEmpty) {
@@ -662,9 +682,11 @@ abstract class ReportDraftRepository {
 class ApiReportDraftRepository implements ReportDraftRepository {
   ApiReportDraftRepository({
     this.apiConfig = const DataCollectionApiConfig(),
+    this.onUnauthorized,
   });
 
   final DataCollectionApiConfig apiConfig;
+  final VoidCallback? onUnauthorized;
   final List<CapturedReportDraft> _drafts = <CapturedReportDraft>[];
 
   @override
@@ -682,13 +704,13 @@ class ApiReportDraftRepository implements ReportDraftRepository {
           .postUrl(Uri.parse('${apiConfig.resolvedBaseUrl}/api/reports'))
           .timeout(const Duration(seconds: 8));
       request.headers.contentType = ContentType.json;
-      if (apiConfig.authToken.trim().isNotEmpty) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiConfig.authToken}');
+      if (apiConfig.resolvedAuthToken.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiConfig.resolvedAuthToken}');
       }
 
       request.write(
         jsonEncode({
-          'userId': draft.userId.isEmpty ? apiConfig.defaultUserId : draft.userId,
+          'userId': draft.userId.isEmpty ? apiConfig.resolvedUserId : draft.userId,
           'studyLocationId': draft.studyLocationId,
           'createdAt': draft.createdAt.toIso8601String(),
           'avgNoise': draft.avgNoise,
@@ -703,6 +725,11 @@ class ApiReportDraftRepository implements ReportDraftRepository {
             const Duration(seconds: 8),
           );
       final payload = body.isEmpty ? const <String, dynamic>{} : jsonDecode(body) as Map<String, dynamic>;
+
+      if (response.statusCode == 401) {
+        onUnauthorized?.call();
+        throw StateError('Session expired. Please log in again.');
+      }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final message = (payload['error'] as String?) ??
