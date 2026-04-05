@@ -20,14 +20,6 @@ const {
 } = require("./services/mapSearchData");
 const { loadSearchSource } = require("./services/locationSearchSource");
 
-const defaultUser = {
-  id: 1,
-  login: "admin",
-  password: "password",
-  firstName: "Default",
-  lastName: "User",
-};
-
 const app = express();
 
 app.use(cors());
@@ -87,28 +79,6 @@ const startServer = async () => {
 };
 
 startServer();
-app.post("/api/login", async (req, res) => {
-  const { login = "", password = "" } = req.body ?? {};
-  const matchesUser =
-    login.toLowerCase() === defaultUser.login && password === defaultUser.password;
-
-  if (!matchesUser) {
-    return res.status(200).json({
-      id: -1,
-      firstName: "",
-      lastName: "",
-      error: "Invalid user name/password",
-    });
-  }
-
-  return res.status(200).json({
-    id: defaultUser.id,
-    firstName: defaultUser.firstName,
-    lastName: defaultUser.lastName,
-    error: "",
-  });
-});
-
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
