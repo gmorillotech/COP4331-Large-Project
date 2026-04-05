@@ -1,3 +1,6 @@
 node_modules/
 .env
 Frontend/.vite
+.obsidian
+.claude
+.mcp.json

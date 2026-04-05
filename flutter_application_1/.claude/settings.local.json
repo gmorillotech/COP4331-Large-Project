@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(flutter test:*)",
-      "Bash(flutter devices:*)",
-      "Bash(flutter pub:*)"
-    ]
-  }
-}
