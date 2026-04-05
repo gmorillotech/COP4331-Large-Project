@@ -91,12 +91,16 @@ const register = async (req, res) => {
 
     if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${emailVerificationToken}`;
-      await transporter.sendMail({
-        to: normalizedEmail,
-        from: `Meta Location <${process.env.EMAIL_USER}>`,
-        subject: "Verify Your Account",
-        html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-      });
+      try {
+        await transporter.sendMail({
+          to: normalizedEmail,
+          from: `Meta Location <${process.env.EMAIL_USER}>`,
+          subject: "Verify Your Account",
+          html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+        });
+      } catch (mailError) {
+        console.error("Failed to send verification email during registration:", mailError.message);
+      }
     }
 
     return res.status(201).json({
@@ -170,12 +174,17 @@ const resendVerification = async (req, res) => {
     await user.save();
 
     const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${token}`;
-    await transporter.sendMail({
-      to: user.email,
-      from: `Meta Location <${process.env.EMAIL_USER}>`,
-      subject: "Verify Your Account",
-      html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-    });
+    try {
+      await transporter.sendMail({
+        to: user.email,
+        from: `Meta Location <${process.env.EMAIL_USER}>`,
+        subject: "Verify Your Account",
+        html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+      });
+    } catch (mailError) {
+      console.error("Failed to send verification email:", mailError.message);
+      return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
+    }
 
     return res.json({ message: "Verification email resent." });
   } catch (error) {
@@ -201,12 +210,16 @@ const forgotPassword = async (req, res) => {
     user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
 
-    await transporter.sendMail({
-      to: user.email,
-      from: `Meta Location <${process.env.EMAIL_USER}>`,
-      subject: "Password Reset Request",
-      html: `<p>You requested a password reset. Click this link to continue: <a href="${process.env.FRONTEND_URL}/reset-password?token=${resetToken}">${process.env.FRONTEND_URL}/reset-password?token=${resetToken}</a></p><p>This link will expire in one hour.</p>`,
-    });
+    try {
+      await transporter.sendMail({
+        to: user.email,
+        from: `Meta Location <${process.env.EMAIL_USER}>`,
+        subject: "Password Reset Request",
+        html: `<p>You requested a password reset. Click this link to continue: <a href="${process.env.FRONTEND_URL}/reset-password?token=${resetToken}">${process.env.FRONTEND_URL}/reset-password?token=${resetToken}</a></p><p>This link will expire in one hour.</p>`,
+      });
+    } catch (mailError) {
+      console.error("Failed to send password reset email:", mailError.message);
+    }
 
     return res.status(200).json({
       message: "If an account with that email exists, a password reset link has been sent.",
@@ -220,6 +233,12 @@ const forgotPassword = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body ?? {};
+
+    const trimmedNewPassword = String(newPassword || "").trim();
+    if (trimmedNewPassword.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters long." });
+    }
+
     const user = await User.findOne({
       passwordResetToken: token,
       passwordResetExpiresAt: { $gt: new Date() },
@@ -229,7 +248,7 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ error: "Password reset token is invalid or has expired." });
     }
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
     user.passwordResetToken = null;
     user.passwordResetExpiresAt = null;
     user.passwordChangedAt = new Date();
