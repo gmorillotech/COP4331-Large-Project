@@ -1,40 +1,146 @@
+# Dependencies
 node_modules/
+
+# Environment and local workspace state
 .env
-Frontend/.vite
-flutter_application_1/linux/flutter/generated_plugin_registrant.cc
-flutter_application_1/linux/flutter/generated_plugin_registrant.h
-flutter_application_1/linux/flutter/generated_plugins.cmake
-flutter_application_1/macos/Flutter/GeneratedPluginRegistrant.swift
-flutter_application_1/windows/flutter/generated_plugin_registrant.cc
-flutter_application_1/windows/flutter/generated_plugin_registrant.h
-flutter_application_1/windows/flutter/generated_plugins.cmake
-.DS_Store
+Web_Frontend/.env
+server/.env
+.claude/
+.mcp.json
+.obsidian/
+.dart-tool/
 
-# Web Frontend build output
+# Build output
 Web_Frontend/dist/
+Web_Frontend/dist-ssr/
+shared/dist/
+unit_tests/dist/
+flutter_application_1/coverage/
+flutter_application_1/build/*
+!flutter_application_1/build/app/
+flutter_application_1/build/app/*
+!flutter_application_1/build/app/outputs/
+flutter_application_1/build/app/outputs/*
+!flutter_application_1/build/app/outputs/apk/
+!flutter_application_1/build/app/outputs/flutter-apk/
+flutter_application_1/build/app/outputs/apk/*
+!flutter_application_1/build/app/outputs/apk/debug/
+!flutter_application_1/build/app/outputs/apk/release/
+flutter_application_1/build/app/outputs/apk/debug/*
+flutter_application_1/build/app/outputs/apk/release/*
+!flutter_application_1/build/app/outputs/apk/debug/*.apk
+!flutter_application_1/build/app/outputs/apk/release/*.apk
+flutter_application_1/build/app/outputs/flutter-apk/*
+!flutter_application_1/build/app/outputs/flutter-apk/*.apk
 
-# Flutter
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+*.ipr
+*.iws
+*.sln
+*.sln.docstates
+*.suo
+*.sw?
+*.user
+*.userosscache
+*.ntvs*
+*.njsproj
+
+# Frontend local overrides
+*.local
+
+# Flutter and Dart
 flutter_application_1/.dart_tool/
 flutter_application_1/.flutter-plugins
 flutter_application_1/.flutter-plugins-dependencies
-flutter_application_1/build/
-flutter_application_1/pubspec.lock
+flutter_application_1/.pub-cache/
+flutter_application_1/.pub/
+flutter_application_1/.build/
+flutter_application_1/.buildlog/
+flutter_application_1/.history/
+flutter_application_1/.svn/
+flutter_application_1/.swiftpm/
+flutter_application_1/migrate_working_dir/
+flutter_application_1/**/*.pyc
+flutter_application_1/**/*.class
+flutter_application_1/**/doc/api/
+flutter_application_1/app.*.symbols
+flutter_application_1/app.*.map.json
+
+# Flutter Android
 flutter_application_1/android/.gradle/
-flutter_application_1/android/local.properties
-flutter_application_1/android/gradle/wrapper/gradle-wrapper.jar
-flutter_application_1/ios/Flutter/Generated.xcconfig
-flutter_application_1/ios/Flutter/ephemeral/
-flutter_application_1/ios/Flutter/flutter_export_environment.sh
+flutter_application_1/android/.cxx/
+flutter_application_1/android/app/debug/
+flutter_application_1/android/app/profile/
+flutter_application_1/android/app/release/
 flutter_application_1/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+flutter_application_1/android/captures/
+flutter_application_1/android/key.properties
+flutter_application_1/android/local.properties
+flutter_application_1/android/**/*.jks
+flutter_application_1/android/**/*.keystore
+
+# Flutter iOS
+flutter_application_1/ios/**/*.moved-aside
+flutter_application_1/ios/**/*.mode1v3
+flutter_application_1/ios/**/*.mode2v3
+flutter_application_1/ios/**/*.pbxuser
+flutter_application_1/ios/**/*.perspectivev3
+flutter_application_1/ios/**/.generated/
+flutter_application_1/ios/**/.sconsign.dblite
+flutter_application_1/ios/**/.symlinks/
+flutter_application_1/ios/**/.vagrant/
+flutter_application_1/ios/**/DerivedData/
+flutter_application_1/ios/**/Icon?
+flutter_application_1/ios/**/Pods/
+flutter_application_1/ios/**/xcuserdata/
+!flutter_application_1/ios/**/default.mode1v3
+!flutter_application_1/ios/**/default.mode2v3
+!flutter_application_1/ios/**/default.pbxuser
+!flutter_application_1/ios/**/default.perspectivev3
+flutter_application_1/ios/Flutter/.last_build_id
+flutter_application_1/ios/Flutter/App.framework
+flutter_application_1/ios/Flutter/Flutter.framework
+flutter_application_1/ios/Flutter/Flutter.podspec
+flutter_application_1/ios/Flutter/Generated.xcconfig
+flutter_application_1/ios/Flutter/app.flx
+flutter_application_1/ios/Flutter/app.zip
+flutter_application_1/ios/Flutter/ephemeral/
+flutter_application_1/ios/Flutter/flutter_assets/
+flutter_application_1/ios/Flutter/flutter_export_environment.sh
 flutter_application_1/ios/Runner/GeneratedPluginRegistrant.*
+flutter_application_1/ios/ServiceDefinitions.json
+flutter_application_1/ios/profile/
+
+# Flutter Linux
+flutter_application_1/linux/flutter/ephemeral/
+flutter_application_1/linux/flutter/generated_plugin_registrant.cc
+flutter_application_1/linux/flutter/generated_plugin_registrant.h
+flutter_application_1/linux/flutter/generated_plugins.cmake
+
+# Flutter macOS
 flutter_application_1/macos/Flutter/ephemeral/
+flutter_application_1/macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Flutter Windows
+flutter_application_1/windows/*.[Cc]ache
+!flutter_application_1/windows/*.[Cc]ache/
+flutter_application_1/windows/flutter/ephemeral/
 flutter_application_1/windows/flutter/generated_plugin_registrant.cc
+flutter_application_1/windows/flutter/generated_plugin_registrant.h
 flutter_application_1/windows/flutter/generated_plugins.cmake
-shared/dist
-unit_tests/dist/shared/src
-unit_tests/dist
-.obsidian
-.claude
-.mcp.json
-flutter_application_1/macos
-.dart-tool
+flutter_application_1/windows/x64/
+flutter_application_1/windows/x86/
