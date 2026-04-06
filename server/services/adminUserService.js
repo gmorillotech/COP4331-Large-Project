@@ -80,7 +80,7 @@ async function listUsers(queryTerm) {
     };
   }
 
-  const users = await User.find(filter)
+  const users = await User.find({ ...filter, userId: { $exists: true, $ne: null } })
     .select("-passwordHash -passwordResetToken -passwordResetExpiresAt -emailVerificationToken")
     .sort({ createdAt: -1 });
 

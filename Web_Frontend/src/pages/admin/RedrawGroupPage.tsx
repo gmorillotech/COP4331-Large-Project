@@ -10,17 +10,17 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 type Vertex = { latitude: number; longitude: number };
 
 type LocationGroup = {
-  _id: string;
+  locationGroupId: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  centerLatitude: number;
+  centerLongitude: number;
   shapeType?: string;
-  radius?: number;
+  radiusMeters?: number;
   polygon?: Vertex[];
 };
 
 type ChildLocation = {
-  _id: string;
+  studyLocationId: string;
   latitude: number;
   longitude: number;
   name?: string;
@@ -56,7 +56,7 @@ function RedrawGroupPage() {
         const allGroups: LocationGroup[] = Array.isArray(groupsData)
           ? groupsData
           : groupsData.groups ?? [];
-        const targetGroup = allGroups.find((g) => g._id === groupId);
+        const targetGroup = allGroups.find((g) => g.locationGroupId === groupId);
 
         if (!targetGroup) {
           setError('Group not found.');
@@ -69,8 +69,8 @@ function RedrawGroupPage() {
         if (targetGroup.polygon && targetGroup.polygon.length >= 3) {
           setVertices(targetGroup.polygon);
         } else {
-          const lat = targetGroup.latitude;
-          const lng = targetGroup.longitude;
+          const lat = targetGroup.centerLatitude ?? DEFAULT_CENTER.lat;
+          const lng = targetGroup.centerLongitude ?? DEFAULT_CENTER.lng;
           const offset = 0.001;
           setVertices([
             { latitude: lat + offset, longitude: lng - offset },
@@ -142,7 +142,10 @@ function RedrawGroupPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error ?? 'Failed to save shape.');
+        const msg = data.error
+          ?? (Array.isArray(data.errors) ? data.errors.join('; ') : null)
+          ?? 'Failed to save shape.';
+        setError(msg);
         return;
       }
 
@@ -160,8 +163,8 @@ function RedrawGroupPage() {
     return <div className="redraw-loading">Loading group data...</div>;
   }
 
-  const mapCenter = group
-    ? { lat: group.latitude, lng: group.longitude }
+  const mapCenter = group && group.centerLatitude != null && group.centerLongitude != null
+    ? { lat: group.centerLatitude, lng: group.centerLongitude }
     : DEFAULT_CENTER;
 
   return (

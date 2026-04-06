@@ -66,8 +66,8 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
           bVal = b.userId;
           break;
         case 'userOccupancyWF':
-          aVal = a.userOccupancyWF;
-          bVal = b.userOccupancyWF;
+          aVal = a.trustScore ?? a.userOccupancyWF ?? 0;
+          bVal = b.trustScore ?? b.userOccupancyWF ?? 0;
           break;
         case 'role':
           aVal = a.role || 'user';
@@ -283,12 +283,12 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
                   >
                     {copiedId === user.userId
                       ? 'Copied!'
-                      : user.userId.length > 8
+                      : (user.userId?.length ?? 0) > 8
                         ? user.userId.slice(0, 8) + '...'
-                        : user.userId}
+                        : user.userId ?? '—'}
                   </span>
                 </td>
-                <td>{user.userOccupancyWF}</td>
+                <td>{user.trustScore ?? user.userOccupancyWF}</td>
                 <td>
                   <span className={`role-badge ${user.role || 'user'}`}>
                     {user.role || 'user'}

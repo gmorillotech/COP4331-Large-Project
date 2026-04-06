@@ -11,6 +11,7 @@ type AdminUser = {
   displayName: string;
   userNoiseWF: number;
   userOccupancyWF: number;
+  trustScore: number;
   role: string;
   accountStatus: string;
   emailVerifiedAt: string | null;
@@ -25,7 +26,7 @@ type EditUserDialogProps = {
 
 function EditUserDialog({ user, onSave, onClose }: EditUserDialogProps) {
   const [email, setEmail] = useState(user.email);
-  const [trustScore, setTrustScore] = useState(user.userOccupancyWF);
+  const [trustScore, setTrustScore] = useState(user.trustScore ?? user.userOccupancyWF ?? 1);
   const [role, setRole] = useState(user.role || 'user');
   const [accountStatus, setAccountStatus] = useState(user.accountStatus || 'active');
   const [saving, setSaving] = useState(false);
@@ -36,7 +37,8 @@ function EditUserDialog({ user, onSave, onClose }: EditUserDialogProps) {
     // Build changed fields only
     const changes: Record<string, unknown> = {};
     if (email !== user.email) changes.email = email;
-    if (trustScore !== user.userOccupancyWF) changes.userOccupancyWF = trustScore;
+    const originalTrust = user.trustScore ?? user.userOccupancyWF ?? 1;
+    if (trustScore !== originalTrust) changes.userOccupancyWF = trustScore;
     if (role !== (user.role || 'user')) changes.role = role;
     if (accountStatus !== (user.accountStatus || 'active')) changes.accountStatus = accountStatus;
 

@@ -18,6 +18,8 @@ type LoginResponse = {
     favorites: string[];
     userNoiseWF: number;
     userOccupancyWF: number;
+    role?: string;
+    accountStatus?: string;
   };
   error?: string;
 };
@@ -113,7 +115,7 @@ function Login() {
       localStorage.setItem('user_data', JSON.stringify(res.user));
       localStorage.setItem('token', res.accessToken);
       setMessage('');
-      navigate('/home');
+      navigate(res.user.role === 'admin' ? '/admin' : '/home');
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }

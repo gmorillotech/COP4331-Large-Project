@@ -33,6 +33,13 @@ const userSchema = new Schema(
       type: String,
       enum: ["user", "admin"],
       default: "user",
+      index: true,
+    },
+    accountStatus: {
+      type: String,
+      enum: ["active", "forced_reset", "suspended"],
+      default: "active",
+      index: true,
     },
     firstName: {
       type: String,
@@ -96,18 +103,6 @@ const userSchema = new Schema(
     passwordChangedAt: {
       type: Date,
       default: Date.now,
-    },
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-      index: true,
-    },
-    accountStatus: {
-      type: String,
-      enum: ["active", "forced_reset", "suspended"],
-      default: "active",
-      index: true,
     },
   },
   {

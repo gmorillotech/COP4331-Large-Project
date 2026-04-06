@@ -5,7 +5,7 @@ type Report = {
   studyLocationId: string;
   locationName: string;
   userId: string;
-  reporterName: string;
+  reporterDisplayName: string;
   createdAt: string;
   avgNoise: number;
   maxNoise: number;
@@ -162,7 +162,7 @@ function AdminReportTable({ groupId, locationId, searchQuery, refreshKey }: Admi
                 <td title={r.studyLocationId}>{r.studyLocationId.slice(0, 8)}...</td>
                 <td>{r.locationName}</td>
                 <td title={r.userId}>{r.userId.slice(0, 8)}...</td>
-                <td>{r.reporterName}</td>
+                <td>{r.reporterDisplayName}</td>
                 <td>{formatDate(r.createdAt)}</td>
                 <td>{r.avgNoise.toFixed(1)}</td>
                 <td>{r.maxNoise.toFixed(1)}</td>

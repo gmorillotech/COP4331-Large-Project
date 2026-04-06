@@ -31,7 +31,33 @@ async function searchLocations(q) {
     }).lean(),
   ]);
 
-  return { groups, studyLocations };
+  const mappedGroups = groups.map((g) => ({
+    locationGroupId: g.locationGroupId,
+    name: g.name,
+    center: g.centerLatitude != null && g.centerLongitude != null
+      ? { lat: g.centerLatitude, lng: g.centerLongitude }
+      : undefined,
+    radius: g.radiusMeters,
+  }));
+
+  const groupMap = new Map();
+  const groupIds = [...new Set(studyLocations.map((l) => l.locationGroupId))];
+  if (groupIds.length > 0) {
+    const parentGroups = await LocationGroup.find({ locationGroupId: { $in: groupIds } }).select("locationGroupId name").lean();
+    parentGroups.forEach((pg) => groupMap.set(pg.locationGroupId, pg.name));
+  }
+
+  const mappedLocations = studyLocations.map((l) => ({
+    studyLocationId: l.studyLocationId,
+    name: l.name,
+    groupName: groupMap.get(l.locationGroupId) || null,
+    lat: l.latitude,
+    lng: l.longitude,
+    floorLabel: l.floorLabel,
+    sublocationLabel: l.sublocationLabel,
+  }));
+
+  return { groups: mappedGroups, studyLocations: mappedLocations };
 }
 
 async function getActiveReports({ groupId, locationId, q, page = 1, limit = 50 }) {
