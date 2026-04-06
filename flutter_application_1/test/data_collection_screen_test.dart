@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/data_collection/data_collection_backend.dart';
@@ -9,12 +11,14 @@ import 'package:permission_handler/permission_handler.dart';
 class FakeBackendClient implements DataCollectionBackendClient {
   FakeBackendClient({
     this.failSubmission = false,
-    this.locations = seededStudyLocations,
-  });
+    List<DataCollectionStudyLocation> locations = seededStudyLocations,
+  }) : locations = List<DataCollectionStudyLocation>.from(locations);
 
   final bool failSubmission;
-  final List<DataCollectionStudyLocation> locations;
+  List<DataCollectionStudyLocation> locations;
   final List<CapturedReportDraft> submittedReports = <CapturedReportDraft>[];
+  final List<DataCollectionLocationGroup> createdGroups =
+      <DataCollectionLocationGroup>[];
 
   @override
   Future<List<DataCollectionStudyLocation>> fetchStudyLocations() async {
@@ -29,6 +33,67 @@ class FakeBackendClient implements DataCollectionBackendClient {
 
     submittedReports.add(draft);
   }
+
+  @override
+  Future<DataCollectionLocationGroup> createLocationGroup({
+    required String name,
+    required double centerLatitude,
+    required double centerLongitude,
+    required double creatorLatitude,
+    required double creatorLongitude,
+  }) async {
+    final group = DataCollectionLocationGroup(
+      locationGroupId:
+          'group-${name.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-').toLowerCase()}',
+      buildingName: name,
+      centerLatitude: centerLatitude,
+      centerLongitude: centerLongitude,
+      radiusMeters: 60,
+      studyLocations: const <DataCollectionStudyLocation>[],
+    );
+    createdGroups.add(group);
+    return group;
+  }
+
+  @override
+  Future<DataCollectionStudyLocation> createStudyLocation({
+    required String locationGroupId,
+    required String name,
+    String floorLabel = '',
+    String sublocationLabel = '',
+    required double latitude,
+    required double longitude,
+  }) async {
+    final groupBuildingName = locations
+        .where((location) => location.locationGroupId == locationGroupId)
+        .map((location) => location.buildingName)
+        .cast<String?>()
+        .firstWhere(
+          (buildingName) => buildingName != null && buildingName.isNotEmpty,
+          orElse: () => createdGroups
+              .where((group) => group.locationGroupId == locationGroupId)
+              .map((group) => group.buildingName)
+              .cast<String?>()
+              .firstWhere(
+                (buildingName) => buildingName != null && buildingName.isNotEmpty,
+                orElse: () => 'Study Location Group',
+              ),
+        )!;
+
+    final created = DataCollectionStudyLocation(
+      studyLocationId:
+          '${locationGroupId.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-')}-${name.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-').toLowerCase()}',
+      locationGroupId: locationGroupId,
+      locationName: name,
+      buildingName: groupBuildingName,
+      floorLabel: floorLabel,
+      sublocationLabel: sublocationLabel,
+      latitude: latitude,
+      longitude: longitude,
+    );
+    locations = <DataCollectionStudyLocation>[...locations, created];
+    return created;
+  }
 }
 
 Future<PermissionStatus> grantedMicrophonePermission() async {
@@ -39,12 +104,55 @@ Future<PermissionStatus> deniedMicrophonePermission() async {
   return PermissionStatus.denied;
 }
 
+Future<PermissionStatus> grantedLocationPermission() async {
+  return PermissionStatus.granted;
+}
+
+Future<PermissionStatus> deniedLocationPermission() async {
+  return PermissionStatus.denied;
+}
+
+Future<SessionCoordinates?> libraryCoordinatesProvider() async {
+  return const SessionCoordinates(latitude: 28.60024, longitude: -81.20182);
+}
+
+Stream<SessionCoordinates> emptyCoordinatesStream() {
+  return const Stream<SessionCoordinates>.empty();
+}
+
+Future<void> scrollToAndTap(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pump();
+  await tester.tap(finder, warnIfMissed: false);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 10));
+}
+
+Future<void> waitForLocationLockReady(WidgetTester tester) async {
+  for (int i = 0; i < 20; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (find.textContaining('Currently inside').evaluate().isNotEmpty) {
+      return;
+    }
+  }
+}
+
 Widget buildScreen({
   SignalSampler signalSampler = demoSignalLevel,
   ReportDraftRepository? draftRepository,
   DataCollectionBackendClient? backendClient,
   MicrophonePermissionRequest microphonePermissionRequest =
       grantedMicrophonePermission,
+  LocationPermissionRequest locationPermissionRequest =
+      grantedLocationPermission,
+  CurrentSessionCoordinatesProvider currentCoordinatesProvider =
+      libraryCoordinatesProvider,
+  SessionCoordinatesStreamFactory coordinatesStreamFactory =
+      emptyCoordinatesStream,
 }) {
   return MaterialApp(
     home: DataCollectionScreen(
@@ -52,6 +160,9 @@ Widget buildScreen({
       draftRepository: draftRepository,
       backendClient: backendClient,
       microphonePermissionRequest: microphonePermissionRequest,
+      locationPermissionRequest: locationPermissionRequest,
+      currentCoordinatesProvider: currentCoordinatesProvider,
+      coordinatesStreamFactory: coordinatesStreamFactory,
       allowSyntheticAudioInput: true,
     ),
   );
@@ -79,9 +190,10 @@ void main() {
     expect(find.byKey(const Key('stable-mic')), findsOneWidget);
     expect(find.byKey(const Key('location-dropdown')), findsOneWidget);
     expect(find.byKey(const Key('start-capture-button')), findsOneWidget);
-    expect(find.byKey(const Key('save-draft-button')), findsOneWidget);
+    expect(find.byKey(const Key('stop-capture-button')), findsOneWidget);
     expect(find.byKey(const Key('signal-history-chart')), findsOneWidget);
     expect(find.byKey(const Key('capture-progress-bar')), findsOneWidget);
+    expect(find.text('A1 INPUT PREP'), findsNothing);
   });
 
   testWidgets('occupancy slider exposes exactly five levels', (tester) async {
@@ -165,11 +277,6 @@ void main() {
     );
     expect(startButton.onPressed, isNull);
     expect(find.text('Microphone access required'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const Key('retry-microphone-permission-button')),
-    );
-    await tester.pump();
     expect(find.byKey(const Key('microphone-permission-gate')), findsOneWidget);
   });
 
@@ -186,32 +293,132 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('capture controls toggle start and pause states', (tester) async {
+  testWidgets('capture controls toggle start and stop states', (tester) async {
     await tester.pumpWidget(
       buildScreen(draftRepository: repository, backendClient: backendClient),
     );
-    await tester.pump();
+    await waitForLocationLockReady(tester);
 
     expect(find.text('Ready to capture'), findsOneWidget);
+    expect(
+      find.textContaining('Currently inside John C. Hitt Library'),
+      findsOneWidget,
+    );
 
-    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('start-capture-button')),
+    );
 
     expect(find.text('Collecting live samples'), findsOneWidget);
     expect(find.text('Capturing'), findsOneWidget);
+    expect(
+      find.textContaining('Session locked to John C. Hitt Library'),
+      findsOneWidget,
+    );
 
-    await tester.ensureVisible(find.byKey(const Key('pause-capture-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('pause-capture-button')));
-    await tester.pump();
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('stop-capture-button')),
+    );
 
     expect(find.text('Ready to capture'), findsOneWidget);
-    expect(find.text('Paused'), findsOneWidget);
+    expect(find.text('Stopped'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Currently inside John C. Hitt Library',
+      ),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('capture history submits to backend when available', (
+  testWidgets(
+    'location choices are limited to the detected group before capture starts',
+    (tester) async {
+      await tester.pumpWidget(
+        buildScreen(draftRepository: repository, backendClient: backendClient),
+      );
+      await waitForLocationLockReady(tester);
+
+      expect(
+        find.textContaining(
+          'Currently inside John C. Hitt Library. Choose one of 4 study areas before recording.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Floor 1, North Reading Room'), findsOneWidget);
+      expect(
+        find.text('This studyLocationId is sent directly with each backend report submission.'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('leaving the locked location group cuts off the active session', (
+    tester,
+  ) async {
+    final coordinatesController =
+        StreamController<SessionCoordinates>.broadcast();
+    addTearDown(coordinatesController.close);
+
+    await tester.pumpWidget(
+      buildScreen(
+        draftRepository: repository,
+        backendClient: backendClient,
+        coordinatesStreamFactory: () => coordinatesController.stream,
+      ),
+    );
+    await waitForLocationLockReady(tester);
+
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('start-capture-button')),
+    );
+
+    coordinatesController.add(
+      const SessionCoordinates(latitude: 28.60192, longitude: -81.19994),
+    );
+    await tester.pump();
+
+    expect(find.text('Stopped'), findsOneWidget);
+    expect(
+      find.textContaining(
+        'Recording stopped because you left the John C. Hitt Library',
+      ),
+      findsOneWidget,
+    );
+
+    expect(
+      find.textContaining('Currently inside Student Union'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('screen explains when location permission is denied', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildScreen(
+        draftRepository: repository,
+        backendClient: backendClient,
+        locationPermissionRequest: deniedLocationPermission,
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining(
+        'Location access is required to lock a recording session',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('retry-location-permission-button')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('15-second auto window submits to backend when available', (
     tester,
   ) async {
     double scriptedSignal(Duration elapsed) {
@@ -226,39 +433,33 @@ void main() {
         backendClient: backendClient,
       ),
     );
+    await waitForLocationLockReady(tester);
 
-    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-    // Pump individual frames at the sample interval so samples accumulate
-    for (int i = 0; i < 12; i++) {
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('start-capture-button')),
+    );
+    for (int i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }
-
-    final saveButton = tester.widget<FilledButton>(
-      find.byKey(const Key('save-draft-button')),
-    );
-    expect(saveButton.onPressed, isNotNull);
-
-    await tester.ensureVisible(find.byKey(const Key('save-draft-button')));
     await tester.pump();
-    await tester.tap(find.byKey(const Key('save-draft-button')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
     expect(repository.drafts, isEmpty);
     expect(backendClient.submittedReports, isNotEmpty);
-    expect(find.textContaining('Enough samples collected'), findsOneWidget);
-    expect(find.textContaining('Submitted to backend'), findsOneWidget);
+    expect(
+      find.textContaining('Uploaded queued report to backend'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('failed submission queues the report in memory', (tester) async {
-    backendClient = FakeBackendClient(failSubmission: true);
-
+  testWidgets('stop ends the active session without needing a pause button', (
+    tester,
+  ) async {
     double scriptedSignal(Duration elapsed) {
       final bucket = elapsed.inMilliseconds ~/ 250;
-      return 0.25 + ((bucket % 4) * 0.14);
+      return 0.2 + ((bucket % 5) * 0.15);
     }
 
     await tester.pumpWidget(
@@ -268,31 +469,25 @@ void main() {
         backendClient: backendClient,
       ),
     );
+    await waitForLocationLockReady(tester);
 
-    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-
-    for (int i = 0; i < 12; i++) {
-      await tester.pump(const Duration(milliseconds: 250));
-    }
-
-    await tester.ensureVisible(find.byKey(const Key('save-draft-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('save-draft-button')));
-    await tester.pump();
-
-    expect(repository.drafts, isNotEmpty);
-    expect(backendClient.submittedReports, isEmpty);
-    expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
-    expect(
-      find.textContaining('Queued offline for this session'),
-      findsOneWidget,
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('start-capture-button')),
     );
+
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('stop-capture-button')),
+    );
+
+    expect(find.text('Ready to capture'), findsOneWidget);
+    expect(find.text('Stopped'), findsOneWidget);
+    expect(find.byKey(const Key('pause-capture-button')), findsNothing);
+    expect(find.byKey(const Key('save-draft-button')), findsNothing);
   });
 
-  testWidgets('15-second auto window queues the report in memory when backend is unavailable', (
+  testWidgets('failed automatic submission queues the report in memory', (
     tester,
   ) async {
     backendClient = FakeBackendClient(failSubmission: true);
@@ -309,19 +504,62 @@ void main() {
         backendClient: backendClient,
       ),
     );
+    await waitForLocationLockReady(tester);
 
-    await tester.ensureVisible(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('start-capture-button')));
-    await tester.pump();
+    await scrollToAndTap(
+      tester,
+      find.byKey(const Key('start-capture-button')),
+    );
 
     for (int i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }
+    await tester.pump();
 
     expect(repository.drafts, isNotEmpty);
     expect(backendClient.submittedReports, isEmpty);
     expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
-    expect(find.textContaining('Queued a 15-second report window'), findsOneWidget);
+    expect(
+      find.textContaining('Queued a 15-second report window'),
+      findsOneWidget,
+    );
   });
+
+  testWidgets(
+    '15-second auto window queues the report in memory when backend is unavailable',
+    (tester) async {
+      backendClient = FakeBackendClient(failSubmission: true);
+
+      double scriptedSignal(Duration elapsed) {
+        final bucket = elapsed.inMilliseconds ~/ 250;
+        return 0.25 + ((bucket % 4) * 0.14);
+      }
+
+      await tester.pumpWidget(
+        buildScreen(
+          signalSampler: scriptedSignal,
+          draftRepository: repository,
+          backendClient: backendClient,
+        ),
+      );
+      await waitForLocationLockReady(tester);
+
+      await scrollToAndTap(
+        tester,
+        find.byKey(const Key('start-capture-button')),
+      );
+
+      for (int i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 250));
+      }
+
+      expect(repository.drafts, isNotEmpty);
+      expect(backendClient.submittedReports, isEmpty);
+      expect(find.byKey(const Key('draft-review-card')), findsOneWidget);
+      expect(
+        find.textContaining('Queued a 15-second report window'),
+        findsOneWidget,
+      );
+    },
+  );
 }

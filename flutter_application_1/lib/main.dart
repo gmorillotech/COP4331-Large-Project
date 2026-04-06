@@ -376,6 +376,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   final _occupancyMaxController = TextEditingController();
   final _mapViewportKey = GlobalKey();
   GoogleMapController? _mapController;
+  AuthService? _authService;
   Timer? _debounce;
   Timer? _filterDebounce;
   int _searchRequestId = 0;
@@ -383,6 +384,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   List<MapNode> _records = const [];
   List<MapNode> _groups = const [];
   Map<String, Offset> _screenPoints = const {};
+  List<String> _favoriteIds = const [];
   String _status = 'Loading map data...';
   String _query = '';
   String? _selectedId;
@@ -401,6 +403,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   bool _showBuildings = true;
   bool _showSpots = true;
   bool _showUsers = false;
+  bool _savingFavorites = false;
 
   String get _baseUrl {
     if (_configuredMapApiBaseUrl.isNotEmpty) {
@@ -421,6 +424,14 @@ class _MapSearchPageState extends State<MapSearchPage> {
   bool get _showGroups => _zoom < _groupZoomThreshold;
   List<MapNode> get _locations => _records.where((n) => !n.isGroup).toList(growable: false);
   List<MapNode> get _visibleNodes => _filtered(_showGroups ? _groups : _locations);
+  List<_FavoriteSheetEntry> get _favoriteEntries => _favoriteIds
+      .map(
+        (favoriteId) => _FavoriteSheetEntry(
+          id: favoriteId,
+          node: _findLocationById(favoriteId),
+        ),
+      )
+      .toList(growable: false);
   List<MapNode> get _results {
     if (_query.isEmpty) return _visibleNodes;
     return _filtered([..._groups, ..._locations].where((n) => n.searchTerms.contains(_query)).toList());
@@ -440,7 +451,22 @@ class _MapSearchPageState extends State<MapSearchPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextAuthService = Provider.of<AuthService>(context, listen: false);
+    if (!identical(_authService, nextAuthService)) {
+      _authService?.removeListener(_syncFavoritesFromAuth);
+      _authService = nextAuthService;
+      _authService?.addListener(_syncFavoritesFromAuth);
+      _favoriteIds = List<String>.from(
+        nextAuthService.user?.favorites ?? const <String>[],
+      );
+    }
+  }
+
+  @override
   void dispose() {
+    _authService?.removeListener(_syncFavoritesFromAuth);
     _debounce?.cancel();
     _filterDebounce?.cancel();
     _searchController.dispose();
@@ -449,6 +475,310 @@ class _MapSearchPageState extends State<MapSearchPage> {
     _occupancyMaxController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  void _syncFavoritesFromAuth() {
+    final nextFavoriteIds = List<String>.from(
+      _authService?.user?.favorites ?? const <String>[],
+    );
+    if (!mounted || listEquals(_favoriteIds, nextFavoriteIds)) {
+      return;
+    }
+
+    setState(() {
+      _favoriteIds = nextFavoriteIds;
+    });
+  }
+
+  bool _isFavoriteId(String id) => _favoriteIds.contains(id);
+
+  MapNode? _findLocationById(String id) {
+    for (final location in _locations) {
+      if (location.id == id) {
+        return location;
+      }
+    }
+    return null;
+  }
+
+  bool _isFavoriteNode(MapNode node) {
+    if (!node.isGroup) {
+      return _isFavoriteId(node.id);
+    }
+
+    return _locations.any(
+      (location) =>
+          location.groupId == node.id && _isFavoriteId(location.id),
+    );
+  }
+
+  int _favoriteCountForNode(MapNode node) {
+    if (!node.isGroup) {
+      return _isFavoriteNode(node) ? 1 : 0;
+    }
+
+    return _locations
+        .where(
+          (location) =>
+              location.groupId == node.id && _isFavoriteId(location.id),
+        )
+        .length;
+  }
+
+  Future<void> _toggleFavorite(MapNode node) async {
+    if (node.isGroup) {
+      return;
+    }
+
+    await _toggleFavoriteById(node.id);
+  }
+
+  Future<void> _toggleFavoriteById(String locationId) async {
+    if (_savingFavorites) {
+      return;
+    }
+
+    final wasFavorite = _isFavoriteId(locationId);
+    final nextFavorites = wasFavorite
+        ? _favoriteIds
+            .where((entry) => entry != locationId)
+            .toList(growable: false)
+        : <String>[..._favoriteIds, locationId];
+    final previousFavorites = List<String>.from(_favoriteIds);
+
+    setState(() {
+      _favoriteIds = nextFavorites;
+      _savingFavorites = true;
+    });
+
+    try {
+      await (_authService?.saveFavorites(nextFavorites) ??
+          Future<void>.value());
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _favoriteIds = previousFavorites;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Unable to ${wasFavorite ? 'remove' : 'save'} favorite right now.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingFavorites = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openFavoritesView() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final favoriteEntries = _favoriteEntries;
+        final maxSheetHeight = MediaQuery.of(sheetContext).size.height * 0.72;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxSheetHeight),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDFDFD),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 26,
+                      offset: Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'My Favorites',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF102A43),
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Close favorites',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        favoriteEntries.isEmpty
+                            ? 'Save study spots from the map to keep them here.'
+                            : '${favoriteEntries.length} saved study spot${favoriteEntries.length == 1 ? '' : 's'}.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF486581),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (favoriteEntries.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: const Color(0xFFD8E1EB)),
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.favorite_border_rounded,
+                                size: 28,
+                                color: Color(0xFFB45309),
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'No favorites yet.',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF102A43),
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Tap the heart on any study spot to save it.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Color(0xFF486581)),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Flexible(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: favoriteEntries.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final entry = favoriteEntries[index];
+                              final node = entry.node;
+
+                              return Material(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(22),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(22),
+                                  onTap: node == null
+                                      ? null
+                                      : () async {
+                                          Navigator.of(sheetContext).pop();
+                                          await _focusNode(node);
+                                        },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Row(
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor:
+                                              node?.color ??
+                                              const Color(0xFF0F766E),
+                                          foregroundColor: Colors.white,
+                                          child: Text(
+                                            node?.badge ??
+                                                entry.id.substring(0, 1)
+                                                    .toUpperCase(),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                node == null
+                                                    ? entry.id
+                                                    : _title(node),
+                                                maxLines: 2,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF102A43),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                node == null
+                                                    ? 'Move the map or change filters to load this favorite.'
+                                                    : (node.sublocationLabel ??
+                                                        node.buildingName),
+                                                maxLines: 2,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Color(0xFF486581),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Remove favorite',
+                                          onPressed: _savingFavorites
+                                              ? null
+                                              : () {
+                                                  Navigator.of(
+                                                    sheetContext,
+                                                  ).pop();
+                                                  unawaited(
+                                                    _toggleFavoriteById(
+                                                      entry.id,
+                                                    ),
+                                                  );
+                                                },
+                                          icon: const Icon(
+                                            Icons.favorite_rounded,
+                                            color: Color(0xFFB91C1C),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _runSearch({bool showLoading = false}) async {
@@ -825,6 +1155,36 @@ class _MapSearchPageState extends State<MapSearchPage> {
     await Navigator.of(context).pushNamed(_accountCenterRoute);
   }
 
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Log out?'),
+          content: const Text(
+            'This will clear the saved session on this device and return to the login screen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Log out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true || !mounted) {
+      return;
+    }
+
+    await Provider.of<AuthService>(context, listen: false).logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final selected = _selected;
@@ -834,6 +1194,42 @@ class _MapSearchPageState extends State<MapSearchPage> {
         title: const Text('Study Space Search'),
         backgroundColor: Colors.transparent,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  tooltip: 'Open favorites',
+                  onPressed: _openFavoritesView,
+                  icon: const Icon(Icons.favorite_border_rounded),
+                ),
+                if (_favoriteIds.isNotEmpty)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFB91C1C),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${_favoriteIds.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
             tooltip: 'Open account center',
             onPressed: _openAccountCenter,
@@ -843,6 +1239,11 @@ class _MapSearchPageState extends State<MapSearchPage> {
             tooltip: 'Open data collection',
             onPressed: _openDataCollection,
             icon: const Icon(Icons.mic_rounded),
+          ),
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
@@ -993,7 +1394,12 @@ class _MapSearchPageState extends State<MapSearchPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      Text(_status, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF64748B))),
+                      Text(
+                        '$_status ${_favoriteIds.isEmpty ? '' : '| ${_favoriteIds.length} favorite${_favoriteIds.length == 1 ? '' : 's'} saved'}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
                     ]),
                   ),
                 ),
@@ -1100,34 +1506,133 @@ class _MapSearchPageState extends State<MapSearchPage> {
                       itemBuilder: (context, index) {
                         final node = _results[index];
                         final selectedNode = node.id == _selectedId;
+                        final favoriteCount = _favoriteCountForNode(node);
+                        final isFavorite = _isFavoriteNode(node);
                         return SizedBox(
                           width: 300,
-                          child: FilledButton.tonal(
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.all(16),
-                              backgroundColor: selectedNode ? node.color.withValues(alpha: 0.14) : Colors.white,
-                              side: BorderSide(color: selectedNode ? node.color : const Color(0xFFD5DEEA)),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                          child: Material(
+                            color: selectedNode
+                                ? node.color.withValues(alpha: 0.14)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(22),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(22),
+                              onTap: () => _focusNode(node),
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: selectedNode
+                                        ? node.color
+                                        : const Color(0xFFD5DEEA),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CircleAvatar(
+                                          backgroundColor: node.color,
+                                          foregroundColor: Colors.white,
+                                          child: Text(node.badge),
+                                        ),
+                                        if (isFavorite) ...[
+                                          const SizedBox(height: 8),
+                                          const Icon(
+                                            Icons.favorite_rounded,
+                                            size: 18,
+                                            color: Color(0xFFB45309),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  _title(node),
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Color(0xFF102A43),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              _pill(
+                                                node.isGroup
+                                                    ? 'Building'
+                                                    : 'Spot',
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            node.isGroup
+                                                ? '${node.locationCount} study areas'
+                                                : (node.sublocationLabel ?? ''),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF0F766E),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            node.summary,
+                                            maxLines: 3,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Color(0xFF486581),
+                                            ),
+                                          ),
+                                          if (node.isGroup &&
+                                              favoriteCount > 0) ...[
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              '$favoriteCount saved spot${favoriteCount == 1 ? '' : 's'} in this building',
+                                              style: const TextStyle(
+                                                color: Color(0xFFB45309),
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    if (!node.isGroup)
+                                      IconButton(
+                                        tooltip: isFavorite
+                                            ? 'Remove from favorites'
+                                            : 'Add to favorites',
+                                        onPressed: _savingFavorites
+                                            ? null
+                                            : () => _toggleFavorite(node),
+                                        icon: Icon(
+                                          isFavorite
+                                              ? Icons.favorite_rounded
+                                              : Icons.favorite_border_rounded,
+                                          color: isFavorite
+                                              ? const Color(0xFFB91C1C)
+                                              : const Color(0xFF64748B),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            onPressed: () => _focusNode(node),
-                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                                CircleAvatar(backgroundColor: node.color, foregroundColor: Colors.white, child: Text(node.badge)),
-                                if (node.isFavorite) ...[const SizedBox(height: 8), const Icon(Icons.favorite_border, size: 18, color: Color(0xFFB45309))],
-                              ]),
-                              const SizedBox(width: 12),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Row(children: [
-                                  Expanded(child: Text(_title(node), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF102A43)))),
-                                  const SizedBox(width: 8),
-                                  _pill(node.isGroup ? 'Building' : 'Spot'),
-                                ]),
-                                const SizedBox(height: 6),
-                                Text(node.isGroup ? '${node.locationCount} study areas' : (node.sublocationLabel ?? ''), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F766E))),
-                                const SizedBox(height: 6),
-                                Text(node.summary, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF486581))),
-                              ])),
-                            ]),
                           ),
                         );
                       },
@@ -1384,12 +1889,14 @@ class _MapSearchPageState extends State<MapSearchPage> {
   }
 
   Widget _detailCard(BuildContext context, MapNode node) {
-    final maxHeight = node.isGroup ? 268.0 : 300.0;
+    final isFavorite = _isFavoriteNode(node);
+    final favoriteCount = _favoriteCountForNode(node);
+    final maxHeight = node.isGroup ? 336.0 : 352.0;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       constraints: BoxConstraints(
         maxWidth: 440,
-        maxHeight: _detailsExpanded ? maxHeight : 124,
+        maxHeight: _detailsExpanded ? maxHeight : 188,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1459,6 +1966,32 @@ class _MapSearchPageState extends State<MapSearchPage> {
                       color: const Color(0xFF486581),
                     ),
               ),
+              const SizedBox(height: 14),
+              if (node.isGroup)
+                FilledButton.tonalIcon(
+                  onPressed: favoriteCount == 0 ? null : _openFavoritesView,
+                  icon: const Icon(Icons.favorite_border_rounded),
+                  label: Text(
+                    favoriteCount == 0
+                        ? 'Favorite individual study spots from the list'
+                        : 'View $favoriteCount saved spot${favoriteCount == 1 ? '' : 's'}',
+                  ),
+                )
+              else
+                FilledButton.tonalIcon(
+                  onPressed: _savingFavorites ? null : () => _toggleFavorite(node),
+                  icon: Icon(
+                    isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isFavorite
+                        ? const Color(0xFFB91C1C)
+                        : const Color(0xFFB45309),
+                  ),
+                  label: Text(
+                    isFavorite ? 'Saved to favorites' : 'Save to favorites',
+                  ),
+                ),
               if (_detailsExpanded) ...[
                 const SizedBox(height: 14),
                 Wrap(
@@ -1505,6 +2038,16 @@ class _MapSearchPageState extends State<MapSearchPage> {
       ),
     );
   }
+}
+
+class _FavoriteSheetEntry {
+  const _FavoriteSheetEntry({
+    required this.id,
+    required this.node,
+  });
+
+  final String id;
+  final MapNode? node;
 }
 
 String _title(MapNode node) => node.isGroup ? node.buildingName : '${node.buildingName} - ${node.title}';
