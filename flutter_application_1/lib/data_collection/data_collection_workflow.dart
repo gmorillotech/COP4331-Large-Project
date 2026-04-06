@@ -6,10 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'data_collection_model.dart';
 
-enum ReportDeliveryStatus {
-  submittedToApi,
-  queuedOffline,
-}
+enum ReportDeliveryStatus { submittedToApi, queuedOffline }
 
 @immutable
 class DataCollectionStudyLocation {
@@ -35,6 +32,58 @@ class DataCollectionStudyLocation {
 
   String get displayLabel => '$buildingName - $locationName';
   String get detailLabel => '$floorLabel, $sublocationLabel';
+}
+
+@immutable
+class DataCollectionLocationGroup {
+  const DataCollectionLocationGroup({
+    required this.locationGroupId,
+    required this.buildingName,
+    required this.centerLatitude,
+    required this.centerLongitude,
+    required this.radiusMeters,
+    required this.studyLocations,
+  });
+
+  final String locationGroupId;
+  final String buildingName;
+  final double centerLatitude;
+  final double centerLongitude;
+  final double radiusMeters;
+  final List<DataCollectionStudyLocation> studyLocations;
+
+  bool contains(SessionCoordinates coords) {
+    return _haversineDistanceMeters(
+          latitudeA: centerLatitude,
+          longitudeA: centerLongitude,
+          latitudeB: coords.latitude,
+          longitudeB: coords.longitude,
+        ) <=
+        radiusMeters;
+  }
+
+  DataCollectionStudyLocation resolveNearestLocation(
+    SessionCoordinates coords,
+  ) {
+    var nearestLocation = studyLocations.first;
+    var nearestDistanceMeters = double.infinity;
+
+    for (final location in studyLocations) {
+      final distanceMeters = _haversineDistanceMeters(
+        latitudeA: coords.latitude,
+        longitudeA: coords.longitude,
+        latitudeB: location.latitude,
+        longitudeB: location.longitude,
+      );
+
+      if (distanceMeters < nearestDistanceMeters) {
+        nearestDistanceMeters = distanceMeters;
+        nearestLocation = location;
+      }
+    }
+
+    return nearestLocation;
+  }
 }
 
 const List<DataCollectionStudyLocation> seededStudyLocations = [
@@ -104,10 +153,14 @@ class LocalStudyLocationResolver {
   const LocalStudyLocationResolver({
     this.studyLocations = seededStudyLocations,
     this.maxResolutionDistanceMeters = 150,
+    this.locationGroupPaddingMeters = 45,
+    this.minimumLocationGroupRadiusMeters = 40,
   });
 
   final List<DataCollectionStudyLocation> studyLocations;
   final double maxResolutionDistanceMeters;
+  final double locationGroupPaddingMeters;
+  final double minimumLocationGroupRadiusMeters;
 
   DataCollectionStudyLocation? findById(String? studyLocationId) {
     if (studyLocationId == null || studyLocationId.isEmpty) {
@@ -149,6 +202,114 @@ class LocalStudyLocationResolver {
     }
 
     return nearestLocation;
+  }
+
+  List<DataCollectionStudyLocation> locationsForGroup(String locationGroupId) {
+    return studyLocations
+        .where((location) => location.locationGroupId == locationGroupId)
+        .toList(growable: false);
+  }
+
+  List<DataCollectionLocationGroup> get locationGroups {
+    final groupedLocations = <String, List<DataCollectionStudyLocation>>{};
+
+    for (final location in studyLocations) {
+      groupedLocations.putIfAbsent(
+        location.locationGroupId,
+        () => <DataCollectionStudyLocation>[],
+      );
+      groupedLocations[location.locationGroupId]!.add(location);
+    }
+
+    return groupedLocations.entries
+        .map((entry) => _buildLocationGroup(entry.key, entry.value))
+        .toList(growable: false);
+  }
+
+  DataCollectionLocationGroup? findGroupById(String? locationGroupId) {
+    if (locationGroupId == null || locationGroupId.isEmpty) {
+      return null;
+    }
+
+    final groupedLocations = locationsForGroup(locationGroupId);
+    if (groupedLocations.isEmpty) {
+      return null;
+    }
+
+    return _buildLocationGroup(locationGroupId, groupedLocations);
+  }
+
+  DataCollectionLocationGroup? resolveNearestGroup({
+    required double latitude,
+    required double longitude,
+  }) {
+    final nearestLocation = resolveNearest(
+      latitude: latitude,
+      longitude: longitude,
+    );
+    if (nearestLocation == null) {
+      return null;
+    }
+
+    return findGroupById(nearestLocation.locationGroupId);
+  }
+
+  bool isWithinLocationGroup({
+    required String locationGroupId,
+    required double latitude,
+    required double longitude,
+  }) {
+    final group = findGroupById(locationGroupId);
+    if (group == null) {
+      return false;
+    }
+
+    return group.contains(
+      SessionCoordinates(latitude: latitude, longitude: longitude),
+    );
+  }
+
+  DataCollectionLocationGroup _buildLocationGroup(
+    String locationGroupId,
+    List<DataCollectionStudyLocation> groupedLocations,
+  ) {
+    final centerLatitude =
+        groupedLocations
+            .map((location) => location.latitude)
+            .reduce((a, b) => a + b) /
+        groupedLocations.length;
+    final centerLongitude =
+        groupedLocations
+            .map((location) => location.longitude)
+            .reduce((a, b) => a + b) /
+        groupedLocations.length;
+
+    var maxDistanceMeters = 0.0;
+    for (final location in groupedLocations) {
+      final distanceMeters = _haversineDistanceMeters(
+        latitudeA: centerLatitude,
+        longitudeA: centerLongitude,
+        latitudeB: location.latitude,
+        longitudeB: location.longitude,
+      );
+      if (distanceMeters > maxDistanceMeters) {
+        maxDistanceMeters = distanceMeters;
+      }
+    }
+
+    return DataCollectionLocationGroup(
+      locationGroupId: locationGroupId,
+      buildingName: groupedLocations.first.buildingName,
+      centerLatitude: centerLatitude,
+      centerLongitude: centerLongitude,
+      radiusMeters: math.max(
+        minimumLocationGroupRadiusMeters,
+        maxDistanceMeters + locationGroupPaddingMeters,
+      ),
+      studyLocations: List<DataCollectionStudyLocation>.unmodifiable(
+        groupedLocations,
+      ),
+    );
   }
 }
 
@@ -260,8 +421,7 @@ class SessionState {
 
   int? get occupancyReportValue => occupancyLevel?.reportValue;
 
-  Duration get elapsed =>
-      (lastSampleTime ?? startedAt).difference(startedAt);
+  Duration get elapsed => (lastSampleTime ?? startedAt).difference(startedAt);
 
   SessionState copyWith({
     String? userId,
@@ -290,14 +450,9 @@ class SessionState {
     );
   }
 
-  SessionState addNoiseReading(
-    double reading, {
-    DateTime? sampledAt,
-  }) {
+  SessionState addNoiseReading(double reading, {DateTime? sampledAt}) {
     if (!reading.isFinite || reading < 0) {
-      throw StateError(
-        'Decibel reading must be a non-negative finite number.',
-      );
+      throw StateError('Decibel reading must be a non-negative finite number.');
     }
 
     return copyWith(
@@ -306,10 +461,7 @@ class SessionState {
     );
   }
 
-  SessionState updateOccupancy(
-    OccupancyLevel level, {
-    DateTime? timestamp,
-  }) {
+  SessionState updateOccupancy(OccupancyLevel level, {DateTime? timestamp}) {
     return copyWith(
       occupancyLevel: level,
       lastSampleTime: timestamp ?? lastSampleTime,
@@ -323,10 +475,7 @@ class SessionState {
 
 @immutable
 class SessionCoordinates {
-  const SessionCoordinates({
-    required this.latitude,
-    required this.longitude,
-  });
+  const SessionCoordinates({required this.latitude, required this.longitude});
 
   final double latitude;
   final double longitude;
@@ -334,10 +483,7 @@ class SessionCoordinates {
 
 @immutable
 class SessionUser {
-  const SessionUser({
-    required this.userId,
-    this.displayName,
-  });
+  const SessionUser({required this.userId, this.displayName});
 
   final String userId;
   final String? displayName;
@@ -348,9 +494,7 @@ abstract class SessionUserRepository {
 }
 
 class InMemorySessionUserRepository implements SessionUserRepository {
-  const InMemorySessionUserRepository({
-    this.users = const <SessionUser>[],
-  });
+  const InMemorySessionUserRepository({this.users = const <SessionUser>[]});
 
   final List<SessionUser> users;
 
@@ -383,7 +527,8 @@ class SessionService {
 
   SessionState? get sessionState => _sessionState;
 
-  DataCollectionStudyLocation? get activeStudyLocation => _resolvedStudyLocation;
+  DataCollectionStudyLocation? get activeStudyLocation =>
+      _resolvedStudyLocation;
 
   SessionUser? get currentUser => _currentUser;
 
@@ -433,31 +578,17 @@ class SessionService {
     return user;
   }
 
-  void getDecibelReading(
-    double reading, {
-    DateTime? timestamp,
-  }) {
+  void getDecibelReading(double reading, {DateTime? timestamp}) {
     final sessionState = _requireSessionState();
-    _sessionState = sessionState.addNoiseReading(
-      reading,
-      sampledAt: timestamp,
-    );
+    _sessionState = sessionState.addNoiseReading(reading, sampledAt: timestamp);
   }
 
-  void updateOccupancy(
-    OccupancyLevel level, [
-    DateTime? timestamp,
-  ]) {
+  void updateOccupancy(OccupancyLevel level, [DateTime? timestamp]) {
     final sessionState = _requireSessionState();
-    _sessionState = sessionState.updateOccupancy(
-      level,
-      timestamp: timestamp,
-    );
+    _sessionState = sessionState.updateOccupancy(level, timestamp: timestamp);
   }
 
-  CapturedReportDraft buildReport({
-    DateTime? createdAt,
-  }) {
+  CapturedReportDraft buildReport({DateTime? createdAt}) {
     final sessionState = _requireSessionState();
     final occupancyLevel = sessionState.occupancyLevel;
     if (occupancyLevel == null) {
@@ -539,7 +670,8 @@ class CapturedReportDraft {
   final ReportDeliveryStatus deliveryStatus;
   final String? deliveryDetail;
 
-  bool get isQueuedOffline => deliveryStatus == ReportDeliveryStatus.queuedOffline;
+  bool get isQueuedOffline =>
+      deliveryStatus == ReportDeliveryStatus.queuedOffline;
 
   CapturedReportDraft copyWith({
     String? reportId,
@@ -608,7 +740,10 @@ class CapturedReportDraftBuilder {
   }
 
   String _buildDraftId(String studyLocationId, DateTime timestamp) {
-    final normalizedLocation = studyLocationId.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-');
+    final normalizedLocation = studyLocationId.replaceAll(
+      RegExp(r'[^a-zA-Z0-9]+'),
+      '-',
+    );
     return 'draft-$normalizedLocation-${timestamp.millisecondsSinceEpoch}';
   }
 }
@@ -652,7 +787,9 @@ class DataCollectionApiConfig {
       return baseUrl!.trim();
     }
 
-    const configuredBaseUrl = String.fromEnvironment('DATA_COLLECTION_API_BASE_URL');
+    const configuredBaseUrl = String.fromEnvironment(
+      'DATA_COLLECTION_API_BASE_URL',
+    );
     if (configuredBaseUrl.isNotEmpty) {
       return configuredBaseUrl;
     }
@@ -690,7 +827,8 @@ class ApiReportDraftRepository implements ReportDraftRepository {
   final List<CapturedReportDraft> _drafts = <CapturedReportDraft>[];
 
   @override
-  List<CapturedReportDraft> get drafts => List<CapturedReportDraft>.unmodifiable(_drafts);
+  List<CapturedReportDraft> get drafts =>
+      List<CapturedReportDraft>.unmodifiable(_drafts);
 
   @override
   int get pendingDraftCount => 0;
@@ -705,12 +843,17 @@ class ApiReportDraftRepository implements ReportDraftRepository {
           .timeout(const Duration(seconds: 8));
       request.headers.contentType = ContentType.json;
       if (apiConfig.resolvedAuthToken.isNotEmpty) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${apiConfig.resolvedAuthToken}');
+        request.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer ${apiConfig.resolvedAuthToken}',
+        );
       }
 
       request.write(
         jsonEncode({
-          'userId': draft.userId.isEmpty ? apiConfig.resolvedUserId : draft.userId,
+          'userId': draft.userId.isEmpty
+              ? apiConfig.resolvedUserId
+              : draft.userId,
           'studyLocationId': draft.studyLocationId,
           'createdAt': draft.createdAt.toIso8601String(),
           'avgNoise': draft.avgNoise,
@@ -720,11 +863,16 @@ class ApiReportDraftRepository implements ReportDraftRepository {
         }),
       );
 
-      final response = await request.close().timeout(const Duration(seconds: 8));
-      final body = await response.transform(utf8.decoder).join().timeout(
-            const Duration(seconds: 8),
-          );
-      final payload = body.isEmpty ? const <String, dynamic>{} : jsonDecode(body) as Map<String, dynamic>;
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 8));
+      final payload = body.isEmpty
+          ? const <String, dynamic>{}
+          : jsonDecode(body) as Map<String, dynamic>;
 
       if (response.statusCode == 401) {
         onUnauthorized?.call();
@@ -732,7 +880,8 @@ class ApiReportDraftRepository implements ReportDraftRepository {
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        final message = (payload['error'] as String?) ??
+        final message =
+            (payload['error'] as String?) ??
             (payload['details'] as String?) ??
             'Report submission failed with status ${response.statusCode}.';
         throw StateError(message);
@@ -744,12 +893,19 @@ class ApiReportDraftRepository implements ReportDraftRepository {
       final savedDraft = draft.copyWith(
         reportId: reportJson['reportId'] as String? ?? draft.reportId,
         userId: reportJson['userId'] as String? ?? draft.userId,
-        studyLocationId: reportJson['studyLocationId'] as String? ?? draft.studyLocationId,
-        createdAt: DateTime.tryParse(reportJson['createdAt'] as String? ?? '') ?? draft.createdAt,
-        avgNoise: (reportJson['avgNoise'] as num?)?.toDouble() ?? draft.avgNoise,
-        maxNoise: (reportJson['maxNoise'] as num?)?.toDouble() ?? draft.maxNoise,
-        variance: (reportJson['variance'] as num?)?.toDouble() ?? draft.variance,
-        occupancy: (reportJson['occupancy'] as num?)?.toInt() ?? draft.occupancy,
+        studyLocationId:
+            reportJson['studyLocationId'] as String? ?? draft.studyLocationId,
+        createdAt:
+            DateTime.tryParse(reportJson['createdAt'] as String? ?? '') ??
+            draft.createdAt,
+        avgNoise:
+            (reportJson['avgNoise'] as num?)?.toDouble() ?? draft.avgNoise,
+        maxNoise:
+            (reportJson['maxNoise'] as num?)?.toDouble() ?? draft.maxNoise,
+        variance:
+            (reportJson['variance'] as num?)?.toDouble() ?? draft.variance,
+        occupancy:
+            (reportJson['occupancy'] as num?)?.toInt() ?? draft.occupancy,
         deliveryStatus: ReportDeliveryStatus.submittedToApi,
         deliveryDetail: 'Submitted to ${apiConfig.resolvedBaseUrl}/api/reports',
       );
@@ -782,7 +938,8 @@ class InMemoryReportDraftRepository implements ReportDraftRepository {
   final List<CapturedReportDraft> _drafts = <CapturedReportDraft>[];
 
   @override
-  List<CapturedReportDraft> get drafts => List<CapturedReportDraft>.unmodifiable(_drafts);
+  List<CapturedReportDraft> get drafts =>
+      List<CapturedReportDraft>.unmodifiable(_drafts);
 
   @override
   int get pendingDraftCount => _drafts.length;
@@ -812,8 +969,7 @@ class FallbackReportDraftRepository implements ReportDraftRepository {
   FallbackReportDraftRepository({
     ReportDraftRepository? primaryRepository,
     ReportDraftRepository? offlineRepository,
-  }) : _primaryRepository =
-           primaryRepository ?? ApiReportDraftRepository(),
+  }) : _primaryRepository = primaryRepository ?? ApiReportDraftRepository(),
        _offlineRepository =
            offlineRepository ?? InMemoryReportDraftRepository.instance;
 
@@ -821,7 +977,8 @@ class FallbackReportDraftRepository implements ReportDraftRepository {
   final ReportDraftRepository _offlineRepository;
 
   @override
-  List<CapturedReportDraft> get drafts => List<CapturedReportDraft>.unmodifiable([
+  List<CapturedReportDraft> get drafts =>
+      List<CapturedReportDraft>.unmodifiable([
         ..._offlineRepository.drafts,
         ..._primaryRepository.drafts,
       ]);
@@ -945,12 +1102,13 @@ double _haversineDistanceMeters({
 
   final haversineComponent =
       math.sin(latitudeDeltaRadians / 2) * math.sin(latitudeDeltaRadians / 2) +
-          math.cos(aLatitudeRadians) *
-              math.cos(bLatitudeRadians) *
-              math.sin(longitudeDeltaRadians / 2) *
-              math.sin(longitudeDeltaRadians / 2);
+      math.cos(aLatitudeRadians) *
+          math.cos(bLatitudeRadians) *
+          math.sin(longitudeDeltaRadians / 2) *
+          math.sin(longitudeDeltaRadians / 2);
 
-  final angularDistance = 2 *
+  final angularDistance =
+      2 *
       math.atan2(
         math.sqrt(haversineComponent),
         math.sqrt(1 - haversineComponent),
