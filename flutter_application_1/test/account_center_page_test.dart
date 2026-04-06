@@ -1,8 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/account_center/account_center_backend.dart';
 import 'package:flutter_application_1/account_center/account_center_models.dart';
 import 'package:flutter_application_1/account_center/account_center_page.dart';
+import 'package:flutter_application_1/auth/auth_models.dart';
+import 'package:flutter_application_1/auth/auth_service.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('renders account center sections and saves profile edits',
@@ -89,6 +95,55 @@ void main() {
     expect(backend.passwordChanges.single.currentPassword, 'current-pass');
     expect(backend.passwordChanges.single.newPassword, 'new-password-1');
     expect(find.text('Password updated on the fake backend.'), findsOneWidget);
+  });
+
+  testWidgets('syncs saved favorites back into the authenticated app session',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'token': 'session-token',
+      'user_data': jsonEncode(
+        const AuthUser(
+          userId: 'test-user',
+          login: 'test-user',
+          email: 'test@example.com',
+          favorites: <String>['library-floor-2-moderate'],
+        ).toJson(),
+      ),
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final authService = AuthService(prefs: prefs);
+    await authService.initialize();
+    final backend = _FakeAccountCenterBackendClient();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: authService,
+        child: MaterialApp(
+          home: AccountCenterPage(backendClient: backend),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(authService.user?.favorites, <String>['library-floor-1-quiet']);
+
+    await tester.enterText(
+      find.byKey(const Key('favorite-input')),
+      'student-union-food-court',
+    );
+    await tester.ensureVisible(find.byKey(const Key('add-favorite-button')));
+    await tester.tap(find.byKey(const Key('add-favorite-button')));
+    await tester.ensureVisible(find.byKey(const Key('general-save-button')));
+    await tester.tap(find.byKey(const Key('general-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      authService.user?.favorites,
+      containsAll(<String>[
+        'library-floor-1-quiet',
+        'student-union-food-court',
+      ]),
+    );
   });
 }
 
