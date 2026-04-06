@@ -1,0 +1,507 @@
+/* ── REDRAW GROUP PAGE — full-screen map layout ──────── */
+.redraw-page {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.redraw-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.redraw-topbar__title {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #222;
+  margin: 0;
+}
+
+.redraw-topbar__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.redraw-map-container {
+  width: 100%;
+  height: 100%;
+}
+
+.redraw-error {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: #ffebee;
+  color: #c62828;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.redraw-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  font-size: 1.1em;
+  color: #555;
+}
+
+/* ── LOCATION EDIT PAGE — split panel layout ─────────── */
+.location-edit-page {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.location-edit-sidebar {
+  width: 380px;
+  min-width: 320px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid #e0e0e0;
+  z-index: 5;
+}
+
+.location-edit-sidebar__header {
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.location-edit-sidebar__header h2 {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: #222;
+  margin: 0 0 6px;
+}
+
+.location-edit-sidebar__selection-count {
+  font-size: 0.85em;
+  color: #666;
+  margin: 0 0 12px;
+}
+
+.location-edit-sidebar__body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.location-edit-sidebar__footer {
+  padding: 16px 20px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.location-edit-sidebar__selected-names {
+  font-size: 0.85em;
+  color: #333;
+  line-height: 1.5;
+}
+
+.location-edit-map {
+  flex: 1;
+  height: 100%;
+}
+
+/* ── GROUP SELECTOR — scrollable list ────────────────── */
+.group-selector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.group-selector__search {
+  padding: 12px 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.group-selector__search-input {
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.9em;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.group-selector__search-input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.12);
+}
+
+.group-selector__list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.group-selector__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #f5f5f5;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.group-selector__item:hover {
+  background-color: #f8f9fa;
+}
+
+.group-selector__item.is-selected {
+  background-color: #e3f0ff;
+  border-left: 3px solid #007bff;
+  padding-left: 17px;
+}
+
+.group-selector__checkbox {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #aaa;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.group-selector__item.is-selected .group-selector__checkbox {
+  border-color: #007bff;
+  background-color: #007bff;
+}
+
+.group-selector__checkmark {
+  color: white;
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.group-selector__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-selector__name {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-selector__id {
+  font-size: 0.75em;
+  color: #999;
+  margin-top: 2px;
+}
+
+.group-selector__redraw-btn {
+  background: none;
+  border: 1px solid #007bff;
+  color: #007bff;
+  font-size: 0.78em;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.group-selector__redraw-btn:hover {
+  background-color: #007bff;
+  color: white;
+}
+
+/* ── MERGE DIALOG — modal overlay ────────────────────── */
+.merge-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: mergeDialogFadeIn 0.2s ease;
+}
+
+@keyframes mergeDialogFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.merge-dialog {
+  background: #fff;
+  border-radius: 14px;
+  width: 460px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  animation: mergeDialogSlideUp 0.25s ease;
+}
+
+@keyframes mergeDialogSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.merge-dialog__header {
+  padding: 20px 24px 0;
+}
+
+.merge-dialog__header h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: #222;
+  margin: 0;
+}
+
+.merge-dialog__body {
+  padding: 20px 24px;
+}
+
+.merge-dialog__group-info {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.merge-dialog__group-label {
+  font-size: 0.75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+  margin: 0 0 4px;
+}
+
+.merge-dialog__group-name {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 2px;
+}
+
+.merge-dialog__group-id {
+  font-size: 0.75em;
+  color: #999;
+  margin: 0;
+}
+
+.merge-dialog__name-section {
+  margin-top: 20px;
+}
+
+.merge-dialog__name-section h4 {
+  font-size: 0.9em;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 12px;
+}
+
+.merge-dialog__radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.merge-dialog__radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.merge-dialog__radio-option input[type="radio"] {
+  margin: 0;
+  accent-color: #007bff;
+}
+
+.merge-dialog__radio-option label {
+  font-size: 0.9em;
+  color: #333;
+  cursor: pointer;
+}
+
+.merge-dialog__custom-name-input {
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.9em;
+  outline: none;
+  box-sizing: border-box;
+  margin-top: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.merge-dialog__custom-name-input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.12);
+}
+
+.merge-dialog__error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  margin-top: 16px;
+}
+
+.merge-dialog__footer {
+  padding: 16px 24px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── SHARED BUTTON STYLES ────────────────────────────── */
+.btn-primary {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  background-color: #007bff;
+  color: white;
+  font-weight: 600;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn-primary:hover {
+  background-color: #0056b3;
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background-color: #fff;
+  color: #333;
+  font-weight: 600;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary:hover {
+  background-color: #f5f5f5;
+  border-color: #aaa;
+}
+
+.btn-danger {
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  background-color: #dc3545;
+  color: white;
+  font-weight: 600;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+  transform: translateY(-1px);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── POLYGON VALIDATION ──────────────────────────────── */
+.polygon-invalid-hint {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(220, 53, 69, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.85em;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* ── CHILD LOCATION REFERENCE MARKERS ────────────────── */
+.child-marker {
+  width: 12px;
+  height: 12px;
+  background: #ff9800;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── MAP PIN FOR GROUP ON LOCATION EDIT ───────────────── */
+.group-map-pin {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #007bff;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.group-map-pin:hover {
+  transform: scale(1.15);
+}
+
+.group-map-pin.is-selected {
+  background: #0056b3;
+  border-color: #ffd600;
+  transform: scale(1.2);
+}
+
+.group-map-pin__letter {
+  color: white;
+  font-size: 0.75em;
+  font-weight: 700;
+}
