@@ -48,6 +48,24 @@ const locationGroupSchema = new Schema(
       type: Date,
       default: null,
     },
+    shapeType: {
+      type: String,
+      enum: ["circle", "polygon"],
+      default: "circle",
+    },
+    polygon: {
+      type: [
+        {
+          latitude: { type: Number },
+          longitude: { type: Number },
+        },
+      ],
+      default: [],
+    },
+    shapeUpdatedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },

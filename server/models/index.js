@@ -4,4 +4,5 @@ module.exports = {
   ReportTagMetadata: require("./ReportTagMetadata"),
   StudyLocation: require("./StudyLocation"),
   LocationGroup: require("./LocationGroup"),
+  AuditLog: require("./AuditLog"),
 };
