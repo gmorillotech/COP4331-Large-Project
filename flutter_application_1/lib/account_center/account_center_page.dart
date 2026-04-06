@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -153,6 +155,13 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
       _message = message;
       _messageIsError = isError;
     });
+
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      unawaited(authService.setCachedFavorites(profile.favorites));
+    } on ProviderNotFoundException {
+      // Some isolated tests mount this page without the app-level auth provider.
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -309,6 +318,36 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
     });
   }
 
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Log out?'),
+          content: const Text(
+            'This will clear the saved session on this device and return to the login screen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Log out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true || !mounted) {
+      return;
+    }
+
+    await Provider.of<AuthService>(context, listen: false).logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -324,6 +363,11 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
             tooltip: 'Refresh account data',
             onPressed: _loading ? null : _loadProfile,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),

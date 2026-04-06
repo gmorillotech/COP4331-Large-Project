@@ -117,6 +117,86 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setCachedFavorites(List<String> favorites) async {
+    final user = _user;
+    if (user == null) {
+      return;
+    }
+
+    final normalized = favorites
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (listEquals(user.favorites, normalized)) {
+      return;
+    }
+
+    _user = AuthUser(
+      userId: user.userId,
+      login: user.login,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: user.displayName,
+      favorites: normalized,
+      userNoiseWF: user.userNoiseWF,
+      userOccupancyWF: user.userOccupancyWF,
+    );
+    await _persistSession();
+    notifyListeners();
+  }
+
+  Future<void> saveFavorites(List<String> favorites) async {
+    final user = _user;
+    final token = _token;
+
+    if (user == null) {
+      return;
+    }
+
+    final normalized = favorites
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    if (token == null || token.isEmpty) {
+      await setCachedFavorites(normalized);
+      return;
+    }
+
+    final response = await _sendJson(
+      path: '/api/auth/profile',
+      method: 'PUT',
+      body: <String, dynamic>{
+        'favorites': normalized,
+      },
+      token: token,
+    );
+
+    if (!response.ok) {
+      if (response.statusCode == 401) {
+        handleUnauthorized();
+        throw LoginFailure(
+          reason: LoginFailureReason.serverError,
+          message: 'Session expired. Please log in again.',
+        );
+      }
+      throw LoginFailure(
+        reason: LoginFailureReason.serverError,
+        message:
+            response.body['error'] as String? ??
+            'Unable to save favorites right now.',
+      );
+    }
+
+    _user = AuthUser.fromJson(response.body);
+    await _persistSession();
+    notifyListeners();
+  }
+
   // ── Forgot Password (mirrors doForgotPassword in Login.tsx) ──
 
   Future<String> forgotPassword({required String email}) async {
@@ -158,15 +238,27 @@ class AuthService extends ChangeNotifier {
     String path,
     Map<String, dynamic> body,
   ) async {
+    return _sendJson(path: path, method: 'POST', body: body);
+  }
+
+  Future<_HttpResponse> _sendJson({
+    required String path,
+    required String method,
+    required Map<String, dynamic> body,
+    String? token,
+  }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {
       final uri = Uri.parse('$_baseUrl$path');
-      final request = await client.postUrl(uri).timeout(
+      final request = await client.openUrl(method, uri).timeout(
             const Duration(seconds: 6),
           );
       request.persistentConnection = false;
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.contentType = ContentType.json;
+      if (token != null && token.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      }
       request.write(jsonEncode(body));
 
       final response = await request.close();
@@ -190,6 +282,18 @@ class AuthService extends ChangeNotifier {
       );
     } finally {
       client.close(force: true);
+    }
+  }
+
+  Future<void> _persistSession() async {
+    final token = _token;
+    final user = _user;
+
+    if (token != null && token.isNotEmpty) {
+      await _prefs?.setString('token', token);
+    }
+    if (user != null) {
+      await _prefs?.setString('user_data', jsonEncode(user.toJson()));
     }
   }
 }
