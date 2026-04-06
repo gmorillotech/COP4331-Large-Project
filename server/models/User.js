@@ -92,12 +92,25 @@ const userSchema = new Schema(
       type: Date,
       default: Date.now,
     },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
+    accountStatus: {
+      type: String,
+      enum: ["active", "forced_reset", "suspended"],
+      default: "active",
+    },
   },
   {
     timestamps: true,
     versionKey: false,
   },
 );
+
+userSchema.index({ role: 1 });
+userSchema.index({ accountStatus: 1 });
 
 userSchema.methods.getProfile = function () {
   return {
