@@ -8,10 +8,10 @@ import '../../components/admin/RedrawMerge.css';
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
 type LocationGroup = {
-  _id: string;
+  locationGroupId: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  centerLatitude: number;
+  centerLongitude: number;
 };
 
 function LocationEditPage() {
@@ -63,7 +63,6 @@ function LocationEditPage() {
         return prev.filter((x) => x !== id);
       }
       if (prev.length >= 2) {
-        // Replace the oldest selection
         return [prev[1], id];
       }
       return [...prev, id];
@@ -71,7 +70,7 @@ function LocationEditPage() {
   }
 
   const selectedGroups = selectedIds
-    .map((id) => groups.find((g) => g._id === id))
+    .map((id) => groups.find((g) => g.locationGroupId === id))
     .filter((g): g is LocationGroup => g != null);
 
   return (
@@ -128,15 +127,15 @@ function LocationEditPage() {
             disableDefaultUI={true}
             style={{ width: '100%', height: '100%' }}
           >
-            {groups.map((group) => {
-              const isSelected = selectedIds.includes(group._id);
+            {groups.filter((g) => g.centerLatitude != null && g.centerLongitude != null).map((group) => {
+              const isSelected = selectedIds.includes(group.locationGroupId);
               return (
                 <AdvancedMarker
-                  key={group._id}
-                  position={{ lat: group.latitude, lng: group.longitude }}
+                  key={group.locationGroupId}
+                  position={{ lat: group.centerLatitude, lng: group.centerLongitude }}
                   title={group.name}
                   zIndex={isSelected ? 100 : 10}
-                  onClick={() => handleToggle(group._id)}
+                  onClick={() => handleToggle(group.locationGroupId)}
                 >
                   <div
                     className={`group-map-pin${isSelected ? ' is-selected' : ''}`}

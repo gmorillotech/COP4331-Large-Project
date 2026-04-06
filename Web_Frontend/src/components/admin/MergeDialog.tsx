@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './RedrawMerge.css';
 
 type GroupInfo = {
-  _id: string;
+  locationGroupId: string;
   name: string;
 };
 
@@ -45,7 +45,7 @@ function MergeDialog({ group1, group2, onConfirm, onCancel }: MergeDialogProps) 
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          sourceGroupIds: [group1._id, group2._id],
+          sourceGroupIds: [group1.locationGroupId, group2.locationGroupId],
           destinationName,
         }),
       });
@@ -83,13 +83,13 @@ function MergeDialog({ group1, group2, onConfirm, onCancel }: MergeDialogProps) 
           <div className="merge-dialog__group-info">
             <p className="merge-dialog__group-label">Source Group 1</p>
             <p className="merge-dialog__group-name">{group1.name}</p>
-            <p className="merge-dialog__group-id">{group1._id}</p>
+            <p className="merge-dialog__group-id">{group1.locationGroupId}</p>
           </div>
 
           <div className="merge-dialog__group-info">
             <p className="merge-dialog__group-label">Source Group 2</p>
             <p className="merge-dialog__group-name">{group2.name}</p>
-            <p className="merge-dialog__group-id">{group2._id}</p>
+            <p className="merge-dialog__group-id">{group2.locationGroupId}</p>
           </div>
 
           <div className="merge-dialog__name-section">

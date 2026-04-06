@@ -35,6 +35,8 @@ function serializeUser(user) {
     favorites: user.favorites,
     userNoiseWF: user.userNoiseWF,
     userOccupancyWF: user.userOccupancyWF,
+    role: user.role,
+    accountStatus: user.accountStatus,
     passwordChangedAt: user.passwordChangedAt,
     createdAt: user.createdAt,
   };

@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import './RedrawMerge.css';
 
 type LocationGroup = {
-  _id: string;
+  locationGroupId: string;
   name: string;
-  latitude: number;
-  longitude: number;
+  centerLatitude: number;
+  centerLongitude: number;
 };
 
 type GroupSelectorProps = {
@@ -37,26 +37,26 @@ function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
       </div>
       <ul className="group-selector__list">
         {filtered.map((group) => {
-          const isSelected = selectedIds.includes(group._id);
+          const isSelected = selectedIds.includes(group.locationGroupId);
           return (
             <li
-              key={group._id}
+              key={group.locationGroupId}
               className={`group-selector__item${isSelected ? ' is-selected' : ''}`}
-              onClick={() => onToggle(group._id)}
+              onClick={() => onToggle(group.locationGroupId)}
             >
               <div className="group-selector__checkbox">
                 {isSelected && <span className="group-selector__checkmark">&#10003;</span>}
               </div>
               <div className="group-selector__info">
                 <div className="group-selector__name">{group.name}</div>
-                <div className="group-selector__id">{group._id}</div>
+                <div className="group-selector__id">{group.locationGroupId}</div>
               </div>
               <button
                 type="button"
                 className="group-selector__redraw-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/admin/redraw/${group._id}`);
+                  navigate(`/admin/redraw/${group.locationGroupId}`);
                 }}
               >
                 Redraw
