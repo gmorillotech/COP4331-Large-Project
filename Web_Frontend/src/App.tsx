@@ -4,6 +4,8 @@ import HomePage from './pages/HomePage.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import VerifyEmail from './VerifyEmail';
 import ResetPassword from './ResetPassword';
+import LocationEditPage from './pages/admin/LocationEditPage.tsx';
+import RedrawGroupPage from './pages/admin/RedrawGroupPage.tsx';
 
 function App() {
   return (
@@ -13,6 +15,8 @@ function App() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/admin/locations" element={<LocationEditPage />} />
+        <Route path="/admin/redraw/:groupId" element={<RedrawGroupPage />} />
       </Routes>
     </BrowserRouter>
   );
