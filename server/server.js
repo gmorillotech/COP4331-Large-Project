@@ -13,6 +13,7 @@ const studyLocationRoutes = require("./routes/studyLocationRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const adminSearchRoutes = require("./routes/adminSearchRoutes");
 const adminLocationRoutes = require("./routes/adminLocationRoutes");
+const adminUserRoutes = require("./routes/adminUserRoutes");
 const { ReportProcessingService } = require("./services/reportProcessingService");
 const {
   baseLocationAnnotations,
@@ -102,6 +103,7 @@ app.use("/api", studyLocationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminSearchRoutes);
 app.use("/api/admin", adminLocationRoutes);
+app.use("/api/admin/users", adminUserRoutes);
 
 
 const PORT = process.env.PORT || 5050;
