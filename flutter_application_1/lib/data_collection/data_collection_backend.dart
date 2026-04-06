@@ -1,28 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-
+import '../config/api_config.dart';
 import 'data_collection_workflow.dart';
-
-const String _configuredReportsApiBaseUrl =
-    String.fromEnvironment('REPORTS_API_BASE_URL');
-
-String defaultDataCollectionApiBaseUrl() {
-  if (_configuredReportsApiBaseUrl.isNotEmpty) {
-    return _configuredReportsApiBaseUrl;
-  }
-
-  if (kIsWeb) {
-    return 'http://localhost:5050';
-  }
-
-  if (Platform.isAndroid) {
-    return 'http://10.0.2.2:5050';
-  }
-
-  return 'http://localhost:5050';
-}
 
 abstract class DataCollectionBackendClient {
   Future<void> submitReport(CapturedReportDraft draft);
@@ -50,7 +30,7 @@ abstract class DataCollectionBackendClient {
 class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
   HttpDataCollectionBackendClient({
     String? baseUrl,
-  }) : _baseUrl = (baseUrl ?? defaultDataCollectionApiBaseUrl()).trim();
+  }) : _baseUrl = (baseUrl ?? apiBaseUrl()).trim();
 
   final String _baseUrl;
 

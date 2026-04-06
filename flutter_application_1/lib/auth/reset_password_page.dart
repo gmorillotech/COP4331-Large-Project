@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../config/api_config.dart';
 
 /// Mirrors Web_Frontend/src/ResetPassword.tsx
 class ResetPasswordPage extends StatefulWidget {
@@ -107,15 +108,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
     }
   }
 
-  String _resolveBaseUrl() {
-    const configured = String.fromEnvironment('ACCOUNT_CENTER_API_BASE_URL');
-    if (configured.isNotEmpty) return configured;
-    const configured2 = String.fromEnvironment('DATA_COLLECTION_API_BASE_URL');
-    if (configured2.isNotEmpty) return configured2;
-    if (kIsWeb) return 'http://localhost:5050';
-    if (Platform.isAndroid) return 'http://10.0.2.2:5050';
-    return 'http://localhost:5050';
-  }
+  String _resolveBaseUrl() => apiBaseUrl();
 
   @override
   Widget build(BuildContext context) {

@@ -3,42 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../config/api_config.dart';
 import 'account_center_models.dart';
 
-const String _configuredAccountCenterApiBaseUrl =
-    String.fromEnvironment('ACCOUNT_CENTER_API_BASE_URL');
-const String _configuredDataCollectionApiBaseUrl =
-    String.fromEnvironment('DATA_COLLECTION_API_BASE_URL');
-const String _configuredReportsApiBaseUrl =
-    String.fromEnvironment('REPORTS_API_BASE_URL');
 const String _configuredAccountCenterAuthToken =
     String.fromEnvironment('ACCOUNT_CENTER_AUTH_TOKEN');
 const String _configuredDataCollectionAuthToken =
     String.fromEnvironment('DATA_COLLECTION_AUTH_TOKEN');
-
-String defaultAccountCenterApiBaseUrl() {
-  if (_configuredAccountCenterApiBaseUrl.isNotEmpty) {
-    return _configuredAccountCenterApiBaseUrl;
-  }
-
-  if (_configuredDataCollectionApiBaseUrl.isNotEmpty) {
-    return _configuredDataCollectionApiBaseUrl;
-  }
-
-  if (_configuredReportsApiBaseUrl.isNotEmpty) {
-    return _configuredReportsApiBaseUrl;
-  }
-
-  if (kIsWeb) {
-    return 'http://localhost:5050';
-  }
-
-  if (Platform.isAndroid) {
-    return 'http://10.0.2.2:5050';
-  }
-
-  return 'http://localhost:5050';
-}
 
 String defaultAccountCenterAuthToken() {
   if (_configuredAccountCenterAuthToken.isNotEmpty) {
@@ -246,7 +217,7 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
     String? authToken,
     this.authTokenProvider,
     this.onUnauthorized,
-  })  : _baseUrl = (baseUrl ?? defaultAccountCenterApiBaseUrl()).trim(),
+  })  : _baseUrl = (baseUrl ?? apiBaseUrl()).trim(),
         _explicitAuthToken = (authToken ?? defaultAccountCenterAuthToken()).trim();
 
   final String _baseUrl;

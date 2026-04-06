@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/api_config.dart';
 import 'auth_models.dart';
 import 'auth_service.dart';
 
@@ -243,7 +244,7 @@ class _LoginPageState extends State<LoginPage> {
       TextButton(
         onPressed: () {
           // Opens the web registration page in the browser
-          launchUrl(Uri.parse('http://localhost:5173'));
+          launchUrl(Uri.parse(webFrontendUrl()));
         },
         child: const Text('Create an account on the web'),
       ),
