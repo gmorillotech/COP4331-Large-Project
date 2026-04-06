@@ -22,8 +22,11 @@ class StudyLocationRepository {
       { studyLocationId: location.studyLocationId },
       {
         $set: {
+          studyLocationId: location.studyLocationId,
           locationGroupId: location.locationGroupId,
           name: location.name,
+          floorLabel: location.floorLabel ?? "",
+          sublocationLabel: location.sublocationLabel ?? "",
           latitude: location.latitude,
           longitude: location.longitude,
           currentNoiseLevel: location.currentNoiseLevel,

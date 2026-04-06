@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app records short sound samples so study space noise reports can be submitted.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app uses your location to lock each recording session to the correct study location group.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -62,8 +62,8 @@ function buildLocationSearchText(location, groupName, base) {
   return [
     location.name,
     groupName,
-    base?.floorLabel,
-    base?.sublocationLabel,
+    location.floorLabel ?? base?.floorLabel,
+    location.sublocationLabel ?? base?.sublocationLabel,
     base?.summary,
   ]
     .filter(Boolean)
@@ -103,8 +103,8 @@ function buildLocationNode(location, group, anchor) {
     kind: "location",
     title: location.name ?? base?.title ?? "Study Location",
     buildingName,
-    floorLabel: base?.floorLabel ?? "",
-    sublocationLabel: base?.sublocationLabel ?? "",
+    floorLabel: location.floorLabel ?? base?.floorLabel ?? "",
+    sublocationLabel: location.sublocationLabel ?? base?.sublocationLabel ?? "",
     summary: buildSummary(base, occupancyValue, noiseValue),
     statusText:
       isFiniteNumber(location.currentNoiseLevel) && isFiniteNumber(location.currentOccupancyLevel)
@@ -294,7 +294,11 @@ function createLocationRouter({
 
   router.get("/groups", locationController.getAllGroups.bind(locationController));
 
+  router.post("/groups", locationController.createGroup.bind(locationController));
+
   router.get("/groups/:groupId/locations", locationController.getLocationByGroup.bind(locationController));
+
+  router.post("/groups/:groupId/locations", locationController.createLocationInGroup.bind(locationController));
 
   router.get("/search", async (req, res) => {
     const query = String(req.query.q ?? "").trim().toLowerCase();

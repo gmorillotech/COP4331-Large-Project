@@ -54,8 +54,8 @@ function buildMapAnnotation(location, group) {
     lng: location.longitude,
     title: baseAnnotation?.title ?? location.name,
     buildingName: group?.name ?? baseAnnotation?.buildingName ?? location.name,
-    floorLabel: baseAnnotation?.floorLabel,
-    sublocationLabel: baseAnnotation?.sublocationLabel ?? location.name,
+    floorLabel: location.floorLabel ?? baseAnnotation?.floorLabel,
+    sublocationLabel: location.sublocationLabel ?? baseAnnotation?.sublocationLabel ?? location.name,
     summary:
       baseAnnotation?.summary ??
       `Live study-space reading for ${location.name}.`,

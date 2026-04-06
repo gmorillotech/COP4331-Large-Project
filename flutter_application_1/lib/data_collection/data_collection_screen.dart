@@ -1,24 +1,68 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 
+import '../auth/auth_service.dart';
 import 'data_collection_backend.dart';
 import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
 import 'data_collection_workflow.dart';
 
 typedef MicrophonePermissionRequest = Future<PermissionStatus> Function();
+typedef LocationPermissionRequest = Future<PermissionStatus> Function();
+typedef CurrentSessionCoordinatesProvider =
+    Future<SessionCoordinates?> Function();
+typedef SessionCoordinatesStreamFactory = Stream<SessionCoordinates> Function();
 
 Future<PermissionStatus> _requestMicrophonePermission() {
   return Permission.microphone.request();
 }
 
+Future<PermissionStatus> _requestLocationPermission() {
+  return Permission.locationWhenInUse.request();
+}
+
+Future<SessionCoordinates?> _loadCurrentCoordinates() async {
+  final servicesEnabled = await Geolocator.isLocationServiceEnabled();
+  if (!servicesEnabled) {
+    return null;
+  }
+
+  final position = await Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
+  );
+
+  return SessionCoordinates(
+    latitude: position.latitude,
+    longitude: position.longitude,
+  );
+}
+
+Stream<SessionCoordinates> _watchCoordinates() {
+  return Geolocator.getPositionStream(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 15,
+    ),
+  ).map(
+    (position) => SessionCoordinates(
+      latitude: position.latitude,
+      longitude: position.longitude,
+    ),
+  );
+}
+
 enum _MicrophonePermissionState { requesting, granted, denied, unavailable }
+
+enum _LocationPermissionState { requesting, granted, denied, unavailable }
 
 class DataCollectionScreen extends StatefulWidget {
   const DataCollectionScreen({
@@ -33,6 +77,9 @@ class DataCollectionScreen extends StatefulWidget {
     this.backendClient,
     this.apiBaseUrl,
     this.microphonePermissionRequest = _requestMicrophonePermission,
+    this.locationPermissionRequest = _requestLocationPermission,
+    this.currentCoordinatesProvider = _loadCurrentCoordinates,
+    this.coordinatesStreamFactory = _watchCoordinates,
     this.allowSyntheticAudioInput = false,
   });
 
@@ -46,6 +93,9 @@ class DataCollectionScreen extends StatefulWidget {
   final DataCollectionBackendClient? backendClient;
   final String? apiBaseUrl;
   final MicrophonePermissionRequest microphonePermissionRequest;
+  final LocationPermissionRequest locationPermissionRequest;
+  final CurrentSessionCoordinatesProvider currentCoordinatesProvider;
+  final SessionCoordinatesStreamFactory coordinatesStreamFactory;
   final bool allowSyntheticAudioInput;
 
   @override
@@ -69,8 +119,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   final List<double> _capturedSamples = <double>[];
 
   bool _isCapturing = false;
-  bool _isSubmitting = false;
   bool _isSyncingQueue = false;
+  bool _isCreatingLocation = false;
+  bool _isCreatingGroup = false;
   int _lastRecordedSampleMs = -1;
   int? _windowStartedMs;
   Timer? _queueRetryTimer;
@@ -81,11 +132,19 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   // Microphone state
   NoiseMeter? _noiseMeter;
   StreamSubscription<NoiseReading>? _noiseSubscription;
+  StreamSubscription<SessionCoordinates>? _coordinatesSubscription;
   double _liveAudioLevel = 0.0;
   bool _micActive = false;
   _MicrophonePermissionState _microphonePermissionState =
       _MicrophonePermissionState.requesting;
   bool _microphonePermanentlyDenied = false;
+  _LocationPermissionState _locationPermissionState =
+      _LocationPermissionState.requesting;
+  bool _locationPermanentlyDenied = false;
+  SessionCoordinates? _lastKnownCoordinates;
+  String? _availableLocationGroupId;
+  String? _sessionLockedLocationGroupId;
+  String? _locationStatusMessage;
 
   int get _minimumSamplesRequired =>
       widget.draftBuilder.summaryService.config.minimumSampleCount;
@@ -96,6 +155,44 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
   bool get _isDataCollectionEnabled =>
       _microphonePermissionState == _MicrophonePermissionState.granted;
+
+  bool get _hasLockedSession => _sessionLockedLocationGroupId != null;
+
+  LocalStudyLocationResolver get _activeLocationResolver =>
+      LocalStudyLocationResolver(
+        studyLocations: _studyLocations,
+        maxResolutionDistanceMeters:
+            widget.locationResolver.maxResolutionDistanceMeters,
+        locationGroupPaddingMeters:
+            widget.locationResolver.locationGroupPaddingMeters,
+        minimumLocationGroupRadiusMeters:
+            widget.locationResolver.minimumLocationGroupRadiusMeters,
+      );
+
+  List<DataCollectionStudyLocation> get _availableLocations {
+    final groupId = _sessionLockedLocationGroupId ?? _availableLocationGroupId;
+    if (groupId == null || groupId.isEmpty) {
+      return const <DataCollectionStudyLocation>[];
+    }
+
+    final filteredLocations = _studyLocations
+        .where((location) => location.locationGroupId == groupId)
+        .toList(growable: false);
+    if (filteredLocations.isEmpty && !_hasLockedSession) {
+      return _studyLocations;
+    }
+
+    return filteredLocations;
+  }
+
+  DataCollectionLocationGroup? get _currentLocationGroup {
+    final groupId = _sessionLockedLocationGroupId ?? _availableLocationGroupId;
+    if (groupId == null || groupId.isEmpty) {
+      return null;
+    }
+
+    return _activeLocationResolver.findGroupById(groupId);
+  }
 
   double _audioInputLevel(Duration elapsed) {
     if (_micActive) {
@@ -134,13 +231,236 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     }
   }
 
+  Future<void> _initLocationAccess() async {
+    await _coordinatesSubscription?.cancel();
+    _coordinatesSubscription = null;
+
+    if (mounted) {
+      setState(() {
+        _locationPermissionState = _LocationPermissionState.requesting;
+        _locationPermanentlyDenied = false;
+        _locationStatusMessage =
+            'Checking location permission for session locking.';
+      });
+    }
+
+    try {
+      final status = await widget.locationPermissionRequest();
+      if (!mounted) {
+        return;
+      }
+
+      if (status.isGranted) {
+        final subscription = widget.coordinatesStreamFactory().listen(
+          _handleCoordinatesChanged,
+          onError: (_) {
+            if (!mounted) {
+              return;
+            }
+
+            setState(() {
+              _locationPermissionState = _LocationPermissionState.unavailable;
+              _locationStatusMessage =
+                  'Live location is unavailable, so recording cannot be locked to a location group yet.';
+            });
+          },
+        );
+
+        setState(() {
+          _coordinatesSubscription = subscription;
+          _locationPermissionState = _LocationPermissionState.granted;
+        });
+
+        await _refreshCurrentCoordinates();
+        return;
+      }
+
+      setState(() {
+        _locationPermissionState = _LocationPermissionState.denied;
+        _locationPermanentlyDenied =
+            status.isPermanentlyDenied || status.isRestricted;
+        _locationStatusMessage =
+            'Location access is required to lock a recording session to the correct study location group.';
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _locationPermissionState = _LocationPermissionState.unavailable;
+        _locationStatusMessage =
+            'Location services are unavailable, so session locking is paused.';
+      });
+    }
+  }
+
+  Future<SessionCoordinates?> _refreshCurrentCoordinates() async {
+    try {
+      final coords = await widget.currentCoordinatesProvider();
+      if (coords == null) {
+        if (!mounted) {
+          return null;
+        }
+
+        setState(() {
+          if (!_hasLockedSession) {
+            _availableLocationGroupId = null;
+            _selectedLocation = null;
+          }
+          _locationStatusMessage =
+              'Move into a supported study location group to begin recording.';
+        });
+        return null;
+      }
+
+      _handleCoordinatesChanged(coords);
+      return coords;
+    } catch (_) {
+      if (!mounted) {
+        return null;
+      }
+
+      setState(() {
+        _locationStatusMessage =
+            'Location services are unavailable, so session locking cannot be verified.';
+      });
+      return null;
+    }
+  }
+
+  void _handleCoordinatesChanged(SessionCoordinates coords) {
+    if (!mounted) {
+      return;
+    }
+
+    _lastKnownCoordinates = coords;
+    final lockedGroupId = _sessionLockedLocationGroupId;
+    if (lockedGroupId != null) {
+      final lockedGroup = _activeLocationResolver.findGroupById(lockedGroupId);
+      if (lockedGroup != null && !lockedGroup.contains(coords)) {
+        _cutOffSessionForLeavingGroup(lockedGroup);
+      }
+      return;
+    }
+
+    _applyAvailableGroupForCoordinates(coords);
+  }
+
+  void _applyAvailableGroupForCoordinates(
+    SessionCoordinates coords, {
+    String? preferredLocationId,
+  }) {
+    setState(() {
+      _updateAvailableGroupForCoordinates(
+        coords,
+        preferredLocationId: preferredLocationId,
+      );
+    });
+  }
+
+  void _updateAvailableGroupForCoordinates(
+    SessionCoordinates coords, {
+    String? preferredLocationId,
+  }) {
+    final resolvedGroup = _activeLocationResolver.resolveNearestGroup(
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    );
+
+    if (resolvedGroup == null) {
+      _availableLocationGroupId = null;
+      _selectedLocation = null;
+      _locationStatusMessage =
+          'Move into a supported study location group to begin recording.';
+      return;
+    }
+
+    _availableLocationGroupId = resolvedGroup.locationGroupId;
+    _selectedLocation = _selectLocationForGroup(
+      resolvedGroup,
+      preferredLocationId: preferredLocationId,
+    );
+    _locationStatusMessage =
+        'Currently inside ${resolvedGroup.buildingName}. Choose one of ${resolvedGroup.studyLocations.length} study areas before recording.';
+  }
+
+  DataCollectionStudyLocation _selectLocationForGroup(
+    DataCollectionLocationGroup group, {
+    String? preferredLocationId,
+  }) {
+    final currentSelection = _selectedLocation;
+    if (currentSelection != null &&
+        currentSelection.locationGroupId == group.locationGroupId) {
+      return currentSelection;
+    }
+
+    if (preferredLocationId != null && preferredLocationId.isNotEmpty) {
+      for (final location in group.studyLocations) {
+        if (location.studyLocationId == preferredLocationId) {
+          return location;
+        }
+      }
+    }
+
+    final coords = _lastKnownCoordinates;
+    if (coords != null) {
+      return group.resolveNearestLocation(coords);
+    }
+
+    return group.studyLocations.first;
+  }
+
+  void _lockSessionToGroup(DataCollectionLocationGroup group) {
+    _sessionLockedLocationGroupId = group.locationGroupId;
+    _availableLocationGroupId = group.locationGroupId;
+    _selectedLocation = _selectLocationForGroup(group);
+    _locationStatusMessage =
+        'Session locked to ${group.buildingName}. Stop recording to choose a different location.';
+  }
+
+  void _releaseSessionLock() {
+    _sessionLockedLocationGroupId = null;
+    final coords = _lastKnownCoordinates;
+    if (coords != null) {
+      _updateAvailableGroupForCoordinates(
+        coords,
+        preferredLocationId: _selectedLocation?.studyLocationId,
+      );
+      return;
+    }
+
+    _availableLocationGroupId = null;
+    _selectedLocation = null;
+    _locationStatusMessage =
+        'Location lock cleared. Move into a supported study location group to begin recording.';
+  }
+
+  void _cutOffSessionForLeavingGroup(DataCollectionLocationGroup lockedGroup) {
+    setState(() {
+      _isCapturing = false;
+      _capturedSamples.clear();
+      _lastRecordedSampleMs = -1;
+      _windowStartedMs = null;
+      _lastProcessedDraft = null;
+      _lastSubmissionSummary = null;
+      _lastSubmissionQueued = false;
+      _releaseSessionLock();
+    });
+
+    _showMessage(
+      'Recording stopped because you left the ${lockedGroup.buildingName} location group boundary.',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _engine = ProceduralSurfaceEngine(config: widget.config);
     _draftRepository =
         widget.draftRepository ?? InMemoryReportDraftRepository.instance;
-    _backendClient = widget.backendClient ??
+    _backendClient =
+        widget.backendClient ??
         HttpDataCollectionBackendClient(baseUrl: widget.apiBaseUrl);
     _occupancy = widget.initialOccupancy;
     _studyLocations = List<DataCollectionStudyLocation>.from(
@@ -156,6 +476,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     );
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
+    unawaited(_initLocationAccess());
     unawaited(_hydrateStudyLocations());
     if (_draftRepository.drafts.isNotEmpty) {
       _lastSubmissionQueued = true;
@@ -168,6 +489,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   @override
   void dispose() {
     _noiseSubscription?.cancel();
+    _coordinatesSubscription?.cancel();
     _queueRetryTimer?.cancel();
     _ticker.dispose();
     super.dispose();
@@ -275,12 +597,55 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _lastRecordedSampleMs = elapsedMs;
   }
 
-  void _startCapture() {
+  Future<void> _startCapture() async {
     if (!_isDataCollectionEnabled) {
       _showMessage(
         'Microphone access is required before data collection can begin.',
       );
       return;
+    }
+
+    if (_locationPermissionState != _LocationPermissionState.granted) {
+      _showMessage(
+        'Location access is required before recording can be locked to a study location group.',
+      );
+      return;
+    }
+
+    if (_hasLockedSession) {
+      final lockedGroup = _currentLocationGroup;
+      final coords = await _refreshCurrentCoordinates();
+      if (lockedGroup != null &&
+          coords != null &&
+          !lockedGroup.contains(coords)) {
+        _showMessage(
+          'You moved outside the locked location group. Start a new session before recording again.',
+        );
+        return;
+      }
+    } else {
+      final coords = await _refreshCurrentCoordinates();
+      if (coords == null) {
+        _showMessage(
+          'Move into a supported study location group before recording.',
+        );
+        return;
+      }
+
+      final lockedGroup = _activeLocationResolver.resolveNearestGroup(
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      );
+      if (lockedGroup == null) {
+        _showMessage(
+          'No study location group was found near your current position.',
+        );
+        return;
+      }
+
+      setState(() {
+        _lockSessionToGroup(lockedGroup);
+      });
     }
 
     setState(() {
@@ -299,25 +664,18 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     unawaited(_flushQueuedDrafts());
   }
 
-  void _pauseCapture() {
+  void _stopCapture() {
     setState(() {
       _isCapturing = false;
-      _capturedSamples.clear();
-      _lastRecordedSampleMs = -1;
-      _windowStartedMs = null;
+      _clearCaptureBuffers();
+      _releaseSessionLock();
     });
   }
 
-  void _resetCapture() {
-    setState(() {
-      _isCapturing = false;
-      _capturedSamples.clear();
-      _lastRecordedSampleMs = -1;
-      _windowStartedMs = null;
-      _lastProcessedDraft = null;
-      _lastSubmissionSummary = null;
-      _lastSubmissionQueued = false;
-    });
+  void _clearCaptureBuffers() {
+    _capturedSamples.clear();
+    _lastRecordedSampleMs = -1;
+    _windowStartedMs = null;
   }
 
   CapturedReportDraft _buildDraft({
@@ -326,7 +684,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }) {
     final location = _selectedLocation;
     if (location == null) {
-      throw StateError('Select a study location before submitting a report.');
+      throw StateError('Select a study location before recording.');
     }
 
     return widget.draftBuilder.build(
@@ -386,64 +744,153 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     }
   }
 
-  Future<void> _saveDraft() async {
-    if (_isSubmitting) {
+  Future<void> _promptToAddStudyLocation() async {
+    if (_isCapturing || _isCreatingLocation) {
       return;
     }
 
-    if (!_isDataCollectionEnabled) {
+    final currentGroup = _currentLocationGroup;
+    final coords = _lastKnownCoordinates;
+    if (currentGroup == null || coords == null) {
       _showMessage(
-        'Microphone access is required before reports can be submitted.',
+        'Move into a supported location group before adding a new study area.',
       );
       return;
     }
 
+    final result = await showDialog<_NewStudyLocationInput>(
+      context: context,
+      builder: (context) => _NewStudyLocationDialog(
+        buildingName: currentGroup.buildingName,
+      ),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() => _isCreatingLocation = true);
+
     try {
-      final draft = _buildDraft(rawSamples: List<double>.from(_capturedSamples));
-      setState(() => _isSubmitting = true);
-
-      try {
-        await _backendClient.submitReport(draft);
-        if (!mounted) {
-          return;
-        }
-
-        setState(() {
-          _lastProcessedDraft = draft;
-          _lastSubmissionSummary = 'Submitted to backend';
-          _lastSubmissionQueued = false;
-          _isCapturing = false;
-          _capturedSamples.clear();
-          _lastRecordedSampleMs = -1;
-          _windowStartedMs = null;
-        });
-        _showMessage('Report submitted to the backend.');
-        unawaited(_flushQueuedDrafts(announceSuccess: true));
-      } catch (_) {
-        final queuedDraft = await _draftRepository.saveDraft(draft);
-        if (!mounted) {
-          return;
-        }
-
-        setState(() {
-          _lastProcessedDraft = queuedDraft;
-          _lastSubmissionSummary = 'Queued offline for this session';
-          _lastSubmissionQueued = true;
-          _isCapturing = false;
-          _capturedSamples.clear();
-          _lastRecordedSampleMs = -1;
-          _windowStartedMs = null;
-        });
-        _showMessage(
-          'Backend unavailable. Report queued in memory for retry this session.',
-        );
-      } finally {
-        if (mounted) {
-          setState(() => _isSubmitting = false);
-        }
+      final createdLocation = await _backendClient.createStudyLocation(
+        locationGroupId: currentGroup.locationGroupId,
+        name: result.name,
+        floorLabel: result.floorLabel,
+        sublocationLabel: result.description,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      );
+      if (!mounted) {
+        return;
       }
-    } on StateError catch (error) {
-      _showMessage(error.message);
+
+      setState(() {
+        _studyLocations = <DataCollectionStudyLocation>[
+          ..._studyLocations.where(
+            (location) =>
+                location.studyLocationId != createdLocation.studyLocationId,
+          ),
+          createdLocation,
+        ]..sort((left, right) => left.displayLabel.compareTo(right.displayLabel));
+        _selectedLocation = createdLocation;
+        _lastProcessedDraft = null;
+        _lastSubmissionSummary = null;
+      });
+      _showMessage(
+        'Added ${createdLocation.locationName} to ${currentGroup.buildingName}.',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final message = error is HttpException
+          ? error.message
+          : error.toString().replaceFirst('Exception: ', '');
+      _showMessage(message);
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingLocation = false);
+      }
+    }
+  }
+
+  Future<void> _promptToCreateGroupAndLocation() async {
+    if (_isCapturing || _isCreatingGroup || _isCreatingLocation) {
+      return;
+    }
+
+    final coords = _lastKnownCoordinates;
+    if (coords == null) {
+      _showMessage(
+        'Current coordinates are required before creating a location group.',
+      );
+      return;
+    }
+
+    final result = await showDialog<_NewLocationGroupInput>(
+      context: context,
+      builder: (context) => _NewLocationGroupDialog(
+        initialCenterLatitude: coords.latitude,
+        initialCenterLongitude: coords.longitude,
+      ),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+
+    setState(() => _isCreatingGroup = true);
+
+    try {
+      final createdGroup = await _backendClient.createLocationGroup(
+        name: result.groupName,
+        centerLatitude: result.centerLatitude,
+        centerLongitude: result.centerLongitude,
+        creatorLatitude: coords.latitude,
+        creatorLongitude: coords.longitude,
+      );
+      final createdLocation = await _backendClient.createStudyLocation(
+        locationGroupId: createdGroup.locationGroupId,
+        name: result.studyAreaName,
+        floorLabel: result.floorLabel,
+        sublocationLabel: result.description,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _studyLocations = <DataCollectionStudyLocation>[
+          ..._studyLocations.where(
+            (location) =>
+                location.studyLocationId != createdLocation.studyLocationId,
+          ),
+          createdLocation,
+        ]..sort((left, right) => left.displayLabel.compareTo(right.displayLabel));
+        _availableLocationGroupId = createdGroup.locationGroupId;
+        _selectedLocation = createdLocation;
+        _lastProcessedDraft = null;
+        _lastSubmissionSummary = null;
+        _locationStatusMessage =
+            'Currently inside ${createdGroup.buildingName}. Choose one of 1 study areas before recording.';
+      });
+      _showMessage(
+        'Created ${createdGroup.buildingName} and added ${createdLocation.locationName}.',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final message = error is HttpException
+          ? error.message
+          : error.toString().replaceFirst('Exception: ', '');
+      _showMessage(message);
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingGroup = false);
+      }
     }
   }
 
@@ -477,10 +924,27 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _studyLocations = backendLocations;
-        _selectedLocation = _findLocationById(
-          _selectedLocation?.studyLocationId ?? widget.initialStudyLocationId,
-          _studyLocations,
-        );
+        if (_hasLockedSession) {
+          final lockedGroup = _currentLocationGroup;
+          if (lockedGroup != null) {
+            _selectedLocation = _selectLocationForGroup(
+              lockedGroup,
+              preferredLocationId: _selectedLocation?.studyLocationId,
+            );
+          }
+        } else if (_lastKnownCoordinates != null) {
+          _updateAvailableGroupForCoordinates(
+            _lastKnownCoordinates!,
+            preferredLocationId:
+                _selectedLocation?.studyLocationId ??
+                widget.initialStudyLocationId,
+          );
+        } else {
+          _selectedLocation = _findLocationById(
+            _selectedLocation?.studyLocationId ?? widget.initialStudyLocationId,
+            _studyLocations,
+          );
+        }
       });
     } catch (_) {
       // Seeded locations remain available as a fallback for local capture flows.
@@ -544,6 +1008,36 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Log out?'),
+          content: const Text(
+            'This will clear the saved session on this device and return to the login screen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Log out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true || !mounted) {
+      return;
+    }
+
+    await Provider.of<AuthService>(context, listen: false).logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final signal = _frame.signal;
@@ -572,6 +1066,11 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
               icon: const Icon(Icons.map_rounded),
               label: const Text('Map'),
             ),
+          ),
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
@@ -609,69 +1108,35 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _GlassCard(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'A1 INPUT PREP',
-                              style: TextStyle(
-                                color: const Color(0xFFBDEBFF),
-                                fontSize: 12,
-                                letterSpacing: 1.5,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Backend-linked 15s report capture',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.96),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _GlassCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
-                      _GlassCard(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                color: _captureAvailabilityColor,
-                                shape: BoxShape.circle,
-                              ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: _captureAvailabilityColor,
+                              shape: BoxShape.circle,
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _captureAvailabilityLabel,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.92),
-                                fontWeight: FontWeight.w600,
-                              ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _captureAvailabilityLabel,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontWeight: FontWeight.w600,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 14),
                   _DecibelReadoutCard(decibels: signal.decibels),
@@ -769,7 +1234,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _CaptureStatusCard(
             sampleCount: _capturedSamples.length,
             queueCount: _draftRepository.drafts.length,
-            captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
+            captureStateLabel: _isCapturing ? 'Capturing' : 'Stopped',
             lastReadingDb: signal.decibels,
             minSamples: _minimumSamplesRequired,
             capturedDuration: _capturedDuration,
@@ -790,7 +1255,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         _CaptureStatusCard(
           sampleCount: _capturedSamples.length,
           queueCount: _draftRepository.drafts.length,
-          captureStateLabel: _isCapturing ? 'Capturing' : 'Paused',
+          captureStateLabel: _isCapturing ? 'Capturing' : 'Stopped',
           lastReadingDb: signal.decibels,
           minSamples: _minimumSamplesRequired,
           capturedDuration: _capturedDuration,
@@ -810,8 +1275,34 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _LocationCard(
-          locations: _studyLocations,
+          locations: _availableLocations,
           selectedLocation: _selectedLocation,
+          isLocked: _hasLockedSession,
+          isCreatingLocation: _isCreatingLocation,
+          isCreatingGroup: _isCreatingGroup,
+          canAddLocation:
+              !_hasLockedSession &&
+              !_isCapturing &&
+              _locationPermissionState == _LocationPermissionState.granted &&
+              _currentLocationGroup != null,
+          canCreateGroup:
+              !_hasLockedSession &&
+              !_isCapturing &&
+              !_isCreatingLocation &&
+              _locationPermissionState == _LocationPermissionState.granted &&
+              _currentLocationGroup == null &&
+              _lastKnownCoordinates != null,
+          locationPermissionState: _locationPermissionState,
+          locationPermanentlyDenied: _locationPermanentlyDenied,
+          statusMessage: _locationStatusMessage,
+          locationGroup: _currentLocationGroup,
+          onRetryLocationAccess: _initLocationAccess,
+          onAddLocation: () {
+            unawaited(_promptToAddStudyLocation());
+          },
+          onCreateGroup: () {
+            unawaited(_promptToCreateGroupAndLocation());
+          },
           onChanged: (location) {
             setState(() {
               _selectedLocation = location;
@@ -831,16 +1322,11 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         const SizedBox(height: 12),
         _CaptureControlsCard(
           enabled: _isDataCollectionEnabled,
-          canSaveDraft:
-              _capturedSamples.length >= _minimumSamplesRequired &&
-              _selectedLocation != null &&
-              !_isSubmitting,
           isCapturing: _isCapturing,
-          isSubmitting: _isSubmitting,
-          onStart: _startCapture,
-          onPause: _pauseCapture,
-          onReset: _resetCapture,
-          onSaveDraft: _saveDraft,
+          onStart: () {
+            unawaited(_startCapture());
+          },
+          onStop: _stopCapture,
         ),
         if (_lastProcessedDraft != null) ...[
           const SizedBox(height: 12),
@@ -912,7 +1398,7 @@ class _DecibelReadoutCard extends StatelessWidget {
               border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: Text(
-              'A1-ready numeric input',
+              'Live microphone input',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.84),
                 fontWeight: FontWeight.w600,
@@ -1050,8 +1536,8 @@ class _CaptureStatusCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             sampleCount >= minSamples
-                ? 'Enough samples collected to submit a report.'
-                : 'Collect ${minSamples - sampleCount} more samples to enable submission.',
+                ? 'Current 15-second window is ready for automatic upload.'
+                : 'Collect ${minSamples - sampleCount} more samples to complete the current upload window.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.76),
               fontWeight: FontWeight.w600,
@@ -1116,15 +1602,51 @@ class _LocationCard extends StatelessWidget {
   const _LocationCard({
     required this.locations,
     required this.selectedLocation,
+    required this.isLocked,
+    required this.isCreatingLocation,
+    required this.isCreatingGroup,
+    required this.canAddLocation,
+    required this.canCreateGroup,
+    required this.locationPermissionState,
+    required this.locationPermanentlyDenied,
+    required this.statusMessage,
+    required this.locationGroup,
+    required this.onRetryLocationAccess,
+    required this.onAddLocation,
+    required this.onCreateGroup,
     required this.onChanged,
   });
 
   final List<DataCollectionStudyLocation> locations;
   final DataCollectionStudyLocation? selectedLocation;
+  final bool isLocked;
+  final bool isCreatingLocation;
+  final bool isCreatingGroup;
+  final bool canAddLocation;
+  final bool canCreateGroup;
+  final _LocationPermissionState locationPermissionState;
+  final bool locationPermanentlyDenied;
+  final String? statusMessage;
+  final DataCollectionLocationGroup? locationGroup;
+  final Future<void> Function() onRetryLocationAccess;
+  final VoidCallback onAddLocation;
+  final VoidCallback onCreateGroup;
   final ValueChanged<DataCollectionStudyLocation?> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final canChangeLocation =
+        !isLocked &&
+        locationPermissionState == _LocationPermissionState.granted &&
+        locations.isNotEmpty;
+    final effectiveSelectedLocation =
+        locations.any(
+          (location) =>
+              location.studyLocationId == selectedLocation?.studyLocationId,
+        )
+        ? selectedLocation
+        : null;
+
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1142,8 +1664,14 @@ class _LocationCard extends StatelessWidget {
           DropdownButtonFormField<DataCollectionStudyLocation>(
             key: const Key('location-dropdown'),
             isExpanded: true,
-            initialValue: selectedLocation,
+            initialValue: effectiveSelectedLocation,
             dropdownColor: const Color(0xFF102235),
+            hint: Text(
+              locations.isEmpty
+                  ? 'Waiting for a nearby location group'
+                  : 'Choose a study location',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
+            ),
             decoration: InputDecoration(
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.08),
@@ -1164,12 +1692,104 @@ class _LocationCard extends StatelessWidget {
                   ),
                 )
                 .toList(growable: false),
-            onChanged: onChanged,
+            onChanged: canChangeLocation ? onChanged : null,
           ),
-          if (selectedLocation != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            statusMessage ??
+                'Location access is required before the app can lock a recording session to a study location group.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          if (locationGroup != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _MetricChip(
+                  label: isLocked ? 'Locked group' : 'Detected group',
+                  value: locationGroup!.buildingName,
+                ),
+                _MetricChip(
+                  label: 'Selectable spots',
+                  value: locationGroup!.studyLocations.length.toString(),
+                ),
+                _MetricChip(
+                  label: 'Boundary radius',
+                  value: '${locationGroup!.radiusMeters.round()} m',
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          FilledButton.tonalIcon(
+            key: const Key('add-study-location-button'),
+            onPressed: canAddLocation && !isCreatingLocation
+                ? onAddLocation
+                : null,
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: Text(
+              isCreatingLocation ? 'Adding...' : 'Add Study Area Here',
+            ),
+          ),
+          if (canCreateGroup || isCreatingGroup) ...[
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              key: const Key('create-location-group-button'),
+              onPressed: canCreateGroup && !isCreatingGroup
+                  ? onCreateGroup
+                  : null,
+              icon: const Icon(Icons.add_home_work_outlined),
+              label: Text(
+                isCreatingGroup
+                    ? 'Creating Group...'
+                    : 'Create Group + First Study Area',
+              ),
+            ),
+          ],
+          if (locationPermissionState != _LocationPermissionState.granted) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.tonalIcon(
+                  key: const Key('retry-location-permission-button'),
+                  onPressed:
+                      locationPermissionState ==
+                          _LocationPermissionState.requesting
+                      ? null
+                      : () {
+                          unawaited(onRetryLocationAccess());
+                        },
+                  icon: const Icon(Icons.my_location_rounded),
+                  label: Text(
+                    locationPermissionState ==
+                            _LocationPermissionState.requesting
+                        ? 'Checking...'
+                        : 'Retry location',
+                  ),
+                ),
+                if (locationPermanentlyDenied)
+                  FilledButton.icon(
+                    key: const Key('open-location-settings-button'),
+                    onPressed: () {
+                      unawaited(openAppSettings());
+                    },
+                    icon: const Icon(Icons.settings_outlined),
+                    label: const Text('Open Settings'),
+                  ),
+              ],
+            ),
+          ],
+          if (effectiveSelectedLocation != null) ...[
             const SizedBox(height: 12),
             Text(
-              selectedLocation!.detailLabel,
+              effectiveSelectedLocation.detailLabel,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.92),
                 fontWeight: FontWeight.w700,
@@ -1190,12 +1810,12 @@ class _LocationCard extends StatelessWidget {
               children: [
                 _MetricChip(
                   label: 'Study location ID',
-                  value: selectedLocation!.studyLocationId,
+                  value: effectiveSelectedLocation.studyLocationId,
                 ),
                 _MetricChip(
                   label: 'Coordinates',
                   value:
-                      '${selectedLocation!.latitude.toStringAsFixed(4)}, ${selectedLocation!.longitude.toStringAsFixed(4)}',
+                      '${effectiveSelectedLocation.latitude.toStringAsFixed(4)}, ${effectiveSelectedLocation.longitude.toStringAsFixed(4)}',
                 ),
               ],
             ),
@@ -1247,6 +1867,350 @@ class _SignalHistoryCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NewStudyLocationInput {
+  const _NewStudyLocationInput({
+    required this.name,
+    required this.floorLabel,
+    required this.description,
+  });
+
+  final String name;
+  final String floorLabel;
+  final String description;
+}
+
+class _NewLocationGroupInput {
+  const _NewLocationGroupInput({
+    required this.groupName,
+    required this.centerLatitude,
+    required this.centerLongitude,
+    required this.studyAreaName,
+    required this.floorLabel,
+    required this.description,
+  });
+
+  final String groupName;
+  final double centerLatitude;
+  final double centerLongitude;
+  final String studyAreaName;
+  final String floorLabel;
+  final String description;
+}
+
+class _NewStudyLocationDialog extends StatefulWidget {
+  const _NewStudyLocationDialog({
+    required this.buildingName,
+  });
+
+  final String buildingName;
+
+  @override
+  State<_NewStudyLocationDialog> createState() => _NewStudyLocationDialogState();
+}
+
+class _NewStudyLocationDialogState extends State<_NewStudyLocationDialog> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _floorController = TextEditingController();
+  final TextEditingController _sublocationController = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _floorController.dispose();
+    _sublocationController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    final floorLabel = _floorController.text.trim();
+    final description = _sublocationController.text.trim();
+
+    if (name.isEmpty) {
+      setState(() {
+        _errorText = 'Study area name is required.';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _NewStudyLocationInput(
+        name: name,
+        floorLabel: floorLabel,
+        description: description,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF0D1E2E),
+      title: const Text(
+        'Add Study Area',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This new study area will be added inside ${widget.buildingName} using your current location.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.76),
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _DialogTextField(
+              controller: _nameController,
+              label: 'Study area name',
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _floorController,
+              label: 'Floor / level (optional)',
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _sublocationController,
+              label: 'Description (optional)',
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: const TextStyle(
+                  color: Color(0xFFFB7185),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+}
+
+class _NewLocationGroupDialog extends StatefulWidget {
+  const _NewLocationGroupDialog({
+    required this.initialCenterLatitude,
+    required this.initialCenterLongitude,
+  });
+
+  final double initialCenterLatitude;
+  final double initialCenterLongitude;
+
+  @override
+  State<_NewLocationGroupDialog> createState() => _NewLocationGroupDialogState();
+}
+
+class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
+  late final TextEditingController _groupNameController;
+  late final TextEditingController _centerLatitudeController;
+  late final TextEditingController _centerLongitudeController;
+  final TextEditingController _studyAreaNameController = TextEditingController();
+  final TextEditingController _floorController = TextEditingController();
+  final TextEditingController _sublocationController = TextEditingController();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _groupNameController = TextEditingController();
+    _centerLatitudeController = TextEditingController(
+      text: widget.initialCenterLatitude.toStringAsFixed(6),
+    );
+    _centerLongitudeController = TextEditingController(
+      text: widget.initialCenterLongitude.toStringAsFixed(6),
+    );
+  }
+
+  @override
+  void dispose() {
+    _groupNameController.dispose();
+    _centerLatitudeController.dispose();
+    _centerLongitudeController.dispose();
+    _studyAreaNameController.dispose();
+    _floorController.dispose();
+    _sublocationController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final groupName = _groupNameController.text.trim();
+    final studyAreaName = _studyAreaNameController.text.trim();
+    final floorLabel = _floorController.text.trim();
+    final description = _sublocationController.text.trim();
+    final centerLatitude = double.tryParse(_centerLatitudeController.text.trim());
+    final centerLongitude = double.tryParse(_centerLongitudeController.text.trim());
+
+    if (groupName.isEmpty || studyAreaName.isEmpty) {
+      setState(() {
+        _errorText = 'Group name and study area name are required.';
+      });
+      return;
+    }
+
+    if (centerLatitude == null || centerLongitude == null) {
+      setState(() {
+        _errorText = 'Center latitude and longitude must be valid numbers.';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _NewLocationGroupInput(
+        groupName: groupName,
+        centerLatitude: centerLatitude,
+        centerLongitude: centerLongitude,
+        studyAreaName: studyAreaName,
+        floorLabel: floorLabel,
+        description: description,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF0D1E2E),
+      title: const Text(
+        'Create Location Group',
+        style: TextStyle(color: Colors.white),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This creates a new 60 meter radius group and the first study area inside it. You can adjust the group center, but your current position must still be inside the new boundary.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.76),
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _DialogTextField(
+              controller: _groupNameController,
+              label: 'Group / building name',
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _centerLatitudeController,
+              label: 'Group center latitude',
+              textInputAction: TextInputAction.next,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _centerLongitudeController,
+              label: 'Group center longitude',
+              textInputAction: TextInputAction.next,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _studyAreaNameController,
+              label: 'First study area name',
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _floorController,
+              label: 'Floor / level (optional)',
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            _DialogTextField(
+              controller: _sublocationController,
+              label: 'Description (optional)',
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: const TextStyle(
+                  color: Color(0xFFFB7185),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DialogTextField extends StatelessWidget {
+  const _DialogTextField({
+    required this.controller,
+    required this.label,
+    this.textInputAction,
+    this.onSubmitted,
+    this.keyboardType,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onSubmitted;
+  final TextInputType? keyboardType;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      onSubmitted: onSubmitted,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.08),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
       ),
     );
   }
@@ -1494,23 +2458,15 @@ class _OccupancyCard extends StatelessWidget {
 class _CaptureControlsCard extends StatelessWidget {
   const _CaptureControlsCard({
     required this.enabled,
-    required this.canSaveDraft,
     required this.isCapturing,
-    required this.isSubmitting,
     required this.onStart,
-    required this.onPause,
-    required this.onReset,
-    required this.onSaveDraft,
+    required this.onStop,
   });
 
   final bool enabled;
-  final bool canSaveDraft;
   final bool isCapturing;
-  final bool isSubmitting;
   final VoidCallback onStart;
-  final VoidCallback onPause;
-  final VoidCallback onReset;
-  final VoidCallback onSaveDraft;
+  final VoidCallback onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -1529,7 +2485,7 @@ class _CaptureControlsCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Collect samples, bind a location, and submit a canonical report to the backend. If the backend is unavailable, the report stays queued in memory for this app session.',
+            'Collect samples in 15-second windows. Completed windows upload automatically, and failed uploads stay queued in memory while this app session remains open.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
               fontWeight: FontWeight.w500,
@@ -1547,22 +2503,10 @@ class _CaptureControlsCard extends StatelessWidget {
                 label: const Text('Start'),
               ),
               FilledButton.tonalIcon(
-                key: const Key('pause-capture-button'),
-                onPressed: enabled && isCapturing ? onPause : null,
-                icon: const Icon(Icons.pause_rounded),
-                label: const Text('Pause'),
-              ),
-              FilledButton.tonalIcon(
-                key: const Key('reset-capture-button'),
-                onPressed: enabled ? onReset : null,
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: const Text('Reset'),
-              ),
-              FilledButton.tonalIcon(
-                key: const Key('save-draft-button'),
-                onPressed: enabled && canSaveDraft ? onSaveDraft : null,
-                icon: const Icon(Icons.cloud_upload_outlined),
-                label: Text(isSubmitting ? 'Submitting...' : 'Submit Report'),
+                key: const Key('stop-capture-button'),
+                onPressed: enabled && isCapturing ? onStop : null,
+                icon: const Icon(Icons.stop_rounded),
+                label: const Text('Stop'),
               ),
             ],
           ),
@@ -1698,55 +2642,55 @@ class _MicrophonePermissionGateCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Text(
-            _headline,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _body,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.82),
-              fontWeight: FontWeight.w600,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.tonalIcon(
-                key: const Key('retry-microphone-permission-button'),
-                onPressed:
-                    permissionState == _MicrophonePermissionState.requesting
-                    ? null
-                    : () {
-                        unawaited(onRetry());
-                      },
-                icon: const Icon(Icons.mic_rounded),
-                label: Text(
-                  permissionState == _MicrophonePermissionState.requesting
-                      ? 'Checking...'
-                      : 'Retry access',
-                ),
+            Text(
+              _headline,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
               ),
-              if (permanentlyDenied)
-                FilledButton.icon(
-                  key: const Key('open-app-settings-button'),
-                  onPressed: () {
-                    unawaited(openAppSettings());
-                  },
-                  icon: const Icon(Icons.settings_outlined),
-                  label: const Text('Open Settings'),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _body,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.82),
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.tonalIcon(
+                  key: const Key('retry-microphone-permission-button'),
+                  onPressed:
+                      permissionState == _MicrophonePermissionState.requesting
+                      ? null
+                      : () {
+                          unawaited(onRetry());
+                        },
+                  icon: const Icon(Icons.mic_rounded),
+                  label: Text(
+                    permissionState == _MicrophonePermissionState.requesting
+                        ? 'Checking...'
+                        : 'Retry access',
+                  ),
                 ),
-            ],
-          ),
-        ],
+                if (permanentlyDenied)
+                  FilledButton.icon(
+                    key: const Key('open-app-settings-button'),
+                    onPressed: () {
+                      unawaited(openAppSettings());
+                    },
+                    icon: const Icon(Icons.settings_outlined),
+                    label: const Text('Open Settings'),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );

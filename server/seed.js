@@ -35,6 +35,8 @@ const seedData = async () => {
                 studyLocationId: location.studyLocationId,
                 name: location.name,
                 locationGroupId: location.locationGroupId,
+                floorLabel: location.floorLabel,
+                sublocationLabel: location.sublocationLabel,
                 latitude: location.latitude,
                 longitude: location.longitude,
                 currentNoiseLevel: null,

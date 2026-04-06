@@ -3,6 +3,9 @@ class LocationService {
     this.studyLocationRepository = studyLocationRepository;
     this.locationGroupRepository = locationGroupRepository;
     this.maxResolutionDistanceMeters = maxResolutionDistanceMeters;
+    this.locationGroupPaddingMeters = 45;
+    this.minimumLocationGroupRadiusMeters = 40;
+    this.userCreatedLocationGroupRadiusMeters = 60;
   }
 
   async getAllGroups() {
@@ -66,6 +69,224 @@ class LocationService {
 
     return closestLocation;
   }
+
+  async createLocationInGroup(groupId, input) {
+    const group = await this.locationGroupRepository.getLocationGroupById(groupId);
+    if (!group) {
+      throw new Error(`LocationGroup not found for id ${groupId}`);
+    }
+
+    const name = String(input.name ?? "").trim();
+    const floorLabel = String(input.floorLabel ?? "").trim();
+    const sublocationLabel = String(input.sublocationLabel ?? "").trim();
+    const latitude = Number(input.latitude);
+    const longitude = Number(input.longitude);
+
+    if (!name) {
+      throw new Error("Study location name is required.");
+    }
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error("Latitude and longitude must be valid numbers.");
+    }
+
+    const boundary = await this.getGroupBoundary(groupId);
+    if (!isWithinBoundary(boundary, { latitude, longitude })) {
+      throw new Error("New study locations must be created from inside the selected location group boundary.");
+    }
+
+    const existingLocations = await this.listLocationsByGroup(groupId);
+    const normalizedName = normalizeIdComponent(name);
+    const duplicate = existingLocations.find((location) =>
+      normalizeIdComponent(location.name) === normalizedName &&
+      haversineDistanceMeters(
+        { latitude, longitude },
+        { latitude: location.latitude, longitude: location.longitude },
+      ) <= 20,
+    );
+
+    if (duplicate) {
+      throw new Error("A nearby study location with the same name already exists in this group.");
+    }
+
+    const studyLocationId = await this._buildUniqueStudyLocationId(
+      group,
+      name,
+      existingLocations,
+    );
+
+    return this.studyLocationRepository.updateStudyLocation({
+      studyLocationId,
+      locationGroupId: groupId,
+      name,
+      floorLabel,
+      sublocationLabel,
+      latitude,
+      longitude,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    });
+  }
+
+  async createLocationGroup(input) {
+    const name = String(input.name ?? "").trim();
+    const centerLatitude = Number(input.centerLatitude);
+    const centerLongitude = Number(input.centerLongitude);
+    const creatorLatitude = Number(input.creatorLatitude);
+    const creatorLongitude = Number(input.creatorLongitude);
+
+    if (!name) {
+      throw new Error("Location group name is required.");
+    }
+
+    if (!Number.isFinite(centerLatitude) || !Number.isFinite(centerLongitude)) {
+      throw new Error("Group center latitude and longitude must be valid numbers.");
+    }
+
+    if (!Number.isFinite(creatorLatitude) || !Number.isFinite(creatorLongitude)) {
+      throw new Error("Creator latitude and longitude must be valid numbers.");
+    }
+
+    const existingGroups = await this.locationGroupRepository.getAllLocationGroups();
+    const containingGroups = [];
+    for (const group of existingGroups) {
+      const boundary = await this._tryGetGroupBoundary(group.locationGroupId);
+      if (!boundary) {
+        continue;
+      }
+
+      if (isWithinBoundary(boundary, { latitude: creatorLatitude, longitude: creatorLongitude })) {
+        containingGroups.push(group);
+      }
+    }
+
+    if (containingGroups.length > 0) {
+      throw new Error("You are already inside an existing location group. Choose that group instead of creating a new one.");
+    }
+
+    const proposedBoundary = {
+      centerLatitude,
+      centerLongitude,
+      radiusMeters: this.userCreatedLocationGroupRadiusMeters,
+    };
+    if (!isWithinBoundary(proposedBoundary, { latitude: creatorLatitude, longitude: creatorLongitude })) {
+      throw new Error("You must be standing inside the new location group boundary to create it.");
+    }
+
+    const locationGroupId = await this._buildUniqueLocationGroupId(
+      name,
+      existingGroups,
+    );
+
+    return this.locationGroupRepository.updateLocationGroup({
+      locationGroupId,
+      name,
+      centerLatitude,
+      centerLongitude,
+      radiusMeters: this.userCreatedLocationGroupRadiusMeters,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    });
+  }
+
+  async getGroupBoundary(groupId) {
+    const group = await this.locationGroupRepository.getLocationGroupById(groupId);
+    if (!group) {
+      throw new Error(`LocationGroup not found for id ${groupId}`);
+    }
+
+    if (
+      Number.isFinite(group.centerLatitude) &&
+      Number.isFinite(group.centerLongitude) &&
+      Number.isFinite(group.radiusMeters)
+    ) {
+      return {
+        locationGroupId: group.locationGroupId,
+        name: group.name,
+        centerLatitude: group.centerLatitude,
+        centerLongitude: group.centerLongitude,
+        radiusMeters: group.radiusMeters,
+      };
+    }
+
+    const locations = await this.listLocationsByGroup(groupId);
+    if (locations.length === 0) {
+      throw new Error(`No study locations are configured for group ${groupId}`);
+    }
+
+    const centerLatitude =
+      locations.reduce((sum, location) => sum + location.latitude, 0) / locations.length;
+    const centerLongitude =
+      locations.reduce((sum, location) => sum + location.longitude, 0) / locations.length;
+
+    let maxDistanceMeters = 0;
+    for (const location of locations) {
+      const distanceMeters = haversineDistanceMeters(
+        { latitude: centerLatitude, longitude: centerLongitude },
+        { latitude: location.latitude, longitude: location.longitude },
+      );
+      if (distanceMeters > maxDistanceMeters) {
+        maxDistanceMeters = distanceMeters;
+      }
+    }
+
+    return {
+      locationGroupId: group.locationGroupId,
+      name: group.name,
+      centerLatitude,
+      centerLongitude,
+      radiusMeters: Math.max(
+        this.minimumLocationGroupRadiusMeters,
+        maxDistanceMeters + this.locationGroupPaddingMeters,
+      ),
+    };
+  }
+
+  async _buildUniqueStudyLocationId(group, name, existingLocations) {
+    const baseId = `${normalizeIdComponent(group.name)}-${normalizeIdComponent(name)}`;
+    let suffix = 0;
+    let nextId = baseId;
+    const existingIds = new Set(existingLocations.map((location) => location.studyLocationId));
+
+    while (existingIds.has(nextId)) {
+      suffix += 1;
+      nextId = `${baseId}-${suffix + 1}`;
+    }
+
+    return nextId;
+  }
+
+  async _buildUniqueLocationGroupId(name, existingGroups) {
+    const baseId = `group-${normalizeIdComponent(name)}`;
+    let suffix = 0;
+    let nextId = baseId;
+    const existingIds = new Set(existingGroups.map((group) => group.locationGroupId));
+
+    while (existingIds.has(nextId)) {
+      suffix += 1;
+      nextId = `${baseId}-${suffix + 1}`;
+    }
+
+    return nextId;
+  }
+
+  async _tryGetGroupBoundary(groupId) {
+    try {
+      return await this.getGroupBoundary(groupId);
+    } catch (error) {
+      if (
+        error &&
+        typeof error.message === "string" &&
+        error.message.includes("No study locations are configured")
+      ) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
 }
 
 function haversineDistanceMeters(a, b) {
@@ -89,6 +310,21 @@ function haversineDistanceMeters(a, b) {
 
 function toRadians(value) {
   return (value * Math.PI) / 180;
+}
+
+function isWithinBoundary(boundary, coords) {
+  return haversineDistanceMeters(
+    { latitude: boundary.centerLatitude, longitude: boundary.centerLongitude },
+    coords,
+  ) <= boundary.radiusMeters;
+}
+
+function normalizeIdComponent(value) {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "study-location";
 }
 
 module.exports = {
