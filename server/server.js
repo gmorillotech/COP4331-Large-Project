@@ -10,6 +10,7 @@ const { createReportRouter } = require("./routes/reportRoutes");
 const StudyLocation = require("./models/StudyLocation");
 const LocationGroup = require("./models/LocationGroup");
 const studyLocationRoutes = require("./routes/studyLocationRoutes");
+const adminLocationRoutes = require("./routes/adminLocationRoutes");
 const { ReportProcessingService } = require("./services/reportProcessingService");
 const {
   baseLocationAnnotations,
@@ -34,7 +35,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET, POST, PATCH, DELETE, OPTIONS"
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
   );
   next();
 });
@@ -96,6 +97,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/reports", createReportRouter({ reportProcessingService }));
 app.use("/api", studyLocationRoutes);
+app.use("/api/admin", adminLocationRoutes);
 
 
 const PORT = process.env.PORT || 5050;

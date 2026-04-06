@@ -55,4 +55,12 @@ const optionalProtect = async (req, _res, next) => {
   return next();
 };
 
-module.exports = { protect, optionalProtect };
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({ error: "Forbidden: admin access required" });
+  }
+
+  return next();
+};
+
+module.exports = { protect, optionalProtect, requireAdmin };
