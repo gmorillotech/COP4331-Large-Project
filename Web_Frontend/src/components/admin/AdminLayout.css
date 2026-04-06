@@ -1,0 +1,136 @@
+/* ── Admin shell layout ── */
+
+.admin-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+/* ── Header ── */
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 0 1.5rem;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.admin-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.admin-badge {
+  background: #ef4444;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.admin-nav-links {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.admin-nav-link {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 0.875rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-nav-link:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.admin-nav-link.active {
+  background: #475569;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── Header right ── */
+
+.admin-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.admin-user-name {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.admin-back-link {
+  font-size: 0.8rem;
+}
+
+.admin-logout-btn {
+  background: transparent;
+  border: 1px solid #64748b;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.admin-logout-btn:hover {
+  background: #334155;
+  border-color: #94a3b8;
+}
+
+/* ── Content area ── */
+
+.admin-content {
+  flex: 1;
+  padding: 2rem;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 768px) {
+  .admin-header {
+    flex-direction: column;
+    height: auto;
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+
+  .admin-header-left,
+  .admin-header-right {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .admin-nav-links {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .admin-user-name {
+    display: none;
+  }
+}
