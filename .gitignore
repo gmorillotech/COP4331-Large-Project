@@ -36,3 +36,5 @@ unit_tests/dist
 .obsidian
 .claude
 .mcp.json
+flutter_application_1/macos
+.dart-tool
