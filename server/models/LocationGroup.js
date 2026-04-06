@@ -33,6 +33,24 @@ const locationGroupSchema = new Schema(
       default: null,
       min: 1,
     },
+    shapeType: {
+      type: String,
+      enum: ["circle", "polygon"],
+      default: "circle",
+    },
+    polygon: {
+      type: [
+        {
+          latitude: { type: Number, required: true },
+          longitude: { type: Number, required: true },
+        },
+      ],
+      default: [],
+    },
+    shapeUpdatedAt: {
+      type: Date,
+      default: null,
+    },
     currentNoiseLevel: {
       type: Number,
       default: null,
