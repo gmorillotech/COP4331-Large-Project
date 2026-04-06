@@ -52,6 +52,25 @@ function createQueryModel(records, { singleKey = null } = {}) {
         },
       };
     },
+    async findOneAndUpdate(filter = {}, update = {}, options = {}) {
+      const existingIndex = records.findIndex((entry) =>
+        Object.entries(filter).every(([key, value]) => entry[key] === value),
+      );
+      const nextValue = {
+        ...(existingIndex >= 0 ? records[existingIndex] : {}),
+        ...(update.$set ?? {}),
+      };
+
+      if (existingIndex >= 0) {
+        records[existingIndex] = nextValue;
+      } else if (options.upsert) {
+        records.push(nextValue);
+      } else {
+        return null;
+      }
+
+      return { ...nextValue };
+    },
     async bulkWrite(operations) {
       for (const operation of operations) {
         const update = operation.updateOne;
@@ -265,6 +284,108 @@ it("GET /api/locations/groups returns location groups sorted by name", async () 
   });
 });
 
+it("POST /api/locations/groups creates a new fixed-radius group when the user is outside existing groups", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      floorLabel: "Floor 1",
+      sublocationLabel: "North Wing",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Chemistry Building",
+        centerLatitude: 28.60230,
+        centerLongitude: -81.19780,
+        creatorLatitude: 28.60225,
+        creatorLongitude: -81.19778,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.name, "Chemistry Building");
+    assert.equal(body.radiusMeters, 60);
+    assert.ok(body.locationGroupId.startsWith("group-chemistry-building"));
+  });
+});
+
+it("POST /api/locations/groups rejects creation when the user is already inside an existing group", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      floorLabel: "Floor 1",
+      sublocationLabel: "North Wing",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Duplicate Library",
+        centerLatitude: 28.60020,
+        centerLongitude: -81.20185,
+        creatorLatitude: 28.60025,
+        creatorLongitude: -81.20180,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.match(body.error, /inside an existing location group/i);
+  });
+});
+
 it("GET /api/locations/groups/:groupId/locations returns group locations sorted by name", async () => {
   const StudyLocationModel = createQueryModel([
     {
@@ -300,6 +421,199 @@ it("GET /api/locations/groups/:groupId/locations returns group locations sorted 
     assert.equal(response.status, 200);
     assert.equal(body[0].name, "Collaboration Tables");
     assert.equal(body[1].name, "Quiet Study");
+  });
+});
+
+it("POST /api/locations/groups/:groupId/locations creates a new study location within the group boundary", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-b",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      floorLabel: "Floor 1",
+      sublocationLabel: "North Wing",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Collaboration Tables",
+      floorLabel: "Floor 2",
+      sublocationLabel: "West Commons",
+      latitude: 28.60036,
+      longitude: -81.20168,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups/group-1/locations`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Window Carrels",
+        floorLabel: "Floor 2",
+        sublocationLabel: "East Windows",
+        latitude: 28.60030,
+        longitude: -81.20174,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.locationGroupId, "group-1");
+    assert.equal(body.name, "Window Carrels");
+    assert.equal(body.floorLabel, "Floor 2");
+    assert.equal(body.sublocationLabel, "East Windows");
+    assert.equal(StudyLocationModel.records.length, 3);
+  });
+});
+
+it("POST /api/locations/groups/:groupId/locations accepts omitted floor and description fields", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-b",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      floorLabel: "Floor 1",
+      sublocationLabel: "North Wing",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Collaboration Tables",
+      floorLabel: "Floor 2",
+      sublocationLabel: "West Commons",
+      latitude: 28.60036,
+      longitude: -81.20168,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups/group-1/locations`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Window Carrels",
+        latitude: 28.60030,
+        longitude: -81.20174,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.locationGroupId, "group-1");
+    assert.equal(body.name, "Window Carrels");
+    assert.equal(body.floorLabel, "");
+    assert.equal(body.sublocationLabel, "");
+    assert.equal(StudyLocationModel.records.length, 3);
+  });
+});
+
+it("POST /api/locations/groups/:groupId/locations rejects coordinates outside the group boundary", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-b",
+      locationGroupId: "group-1",
+      name: "Quiet Study",
+      floorLabel: "Floor 1",
+      sublocationLabel: "North Wing",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Collaboration Tables",
+      floorLabel: "Floor 2",
+      sublocationLabel: "West Commons",
+      latitude: 28.60036,
+      longitude: -81.20168,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups/group-1/locations`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Too Far Away",
+        floorLabel: "Floor 9",
+        sublocationLabel: "Nowhere",
+        latitude: 28.61024,
+        longitude: -81.19182,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.match(body.error, /boundary/i);
+    assert.equal(StudyLocationModel.records.length, 2);
   });
 });
 

@@ -47,6 +47,8 @@ const canonicalModelShapes = {
     studyLocationId: "string",
     locationGroupId: "string",
     name: "string",
+    floorLabel: "string",
+    sublocationLabel: "string",
     latitude: "number",
     longitude: "number",
     currentNoiseLevel: "number | null",
@@ -56,6 +58,9 @@ const canonicalModelShapes = {
   LocationGroup: {
     locationGroupId: "string",
     name: "string",
+    centerLatitude: "number | null",
+    centerLongitude: "number | null",
+    radiusMeters: "number | null",
     currentNoiseLevel: "number | null",
     currentOccupancyLevel: "number | null",
     updatedAt: "Date | null",

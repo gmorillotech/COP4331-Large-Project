@@ -23,6 +23,16 @@ const studyLocationSchema = new Schema(
       required: true,
       trim: true,
     },
+    floorLabel: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    sublocationLabel: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     latitude: {
       type: Number,
       required: true,

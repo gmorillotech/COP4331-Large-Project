@@ -28,6 +28,23 @@ abstract class DataCollectionBackendClient {
   Future<void> submitReport(CapturedReportDraft draft);
 
   Future<List<DataCollectionStudyLocation>> fetchStudyLocations();
+
+  Future<DataCollectionLocationGroup> createLocationGroup({
+    required String name,
+    required double centerLatitude,
+    required double centerLongitude,
+    required double creatorLatitude,
+    required double creatorLongitude,
+  });
+
+  Future<DataCollectionStudyLocation> createStudyLocation({
+    required String locationGroupId,
+    required String name,
+    String floorLabel = '',
+    String sublocationLabel = '',
+    required double latitude,
+    required double longitude,
+  });
 }
 
 class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
@@ -63,18 +80,7 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
         }
 
         studyLocations.add(
-          DataCollectionStudyLocation(
-            studyLocationId: studyLocationId,
-            locationGroupId: groupId,
-            locationName:
-                (location['name'] as String? ?? 'Study Location').trim(),
-            buildingName: groupName,
-            floorLabel: (location['floorLabel'] as String? ?? '').trim(),
-            sublocationLabel:
-                (location['sublocationLabel'] as String? ?? '').trim(),
-            latitude: (location['latitude'] as num?)?.toDouble() ?? 0,
-            longitude: (location['longitude'] as num?)?.toDouble() ?? 0,
-          ),
+          _parseStudyLocation(location, groupId: groupId, groupName: groupName),
         );
       }
     }
@@ -108,6 +114,100 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
           (payload['error'] as String? ?? 'Report submission failed.').trim();
       throw HttpException(message);
     }
+  }
+
+  @override
+  Future<DataCollectionStudyLocation> createStudyLocation({
+    required String locationGroupId,
+    required String name,
+    String floorLabel = '',
+    String sublocationLabel = '',
+    required double latitude,
+    required double longitude,
+  }) async {
+    final response = await _sendJson(
+      method: 'POST',
+      path: '/api/locations/groups/${Uri.encodeComponent(locationGroupId)}/locations',
+      body: <String, dynamic>{
+        'name': name,
+        'floorLabel': floorLabel,
+        'sublocationLabel': sublocationLabel,
+        'latitude': latitude,
+        'longitude': longitude,
+      },
+    );
+
+    final payload = await _decodeJson(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message = (payload['error'] as String? ?? 'Study location creation failed.').trim();
+      throw HttpException(message);
+    }
+
+    final location = Map<String, dynamic>.from(payload as Map);
+    final groupResponse = await _send(
+      path: '/api/locations/groups',
+      method: 'GET',
+    );
+    if (groupResponse.statusCode < 200 || groupResponse.statusCode >= 300) {
+      throw HttpException('Unable to refresh location groups after creating a study location.');
+    }
+
+    final groupsPayload = await _decodeJson(groupResponse);
+    final matchingGroup = (groupsPayload as List<dynamic>)
+        .cast<Map<dynamic, dynamic>>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .firstWhere(
+          (entry) => (entry['locationGroupId'] as String? ?? '').trim() == locationGroupId,
+          orElse: () => <String, dynamic>{'name': 'Study Location Group'},
+        );
+
+    return _parseStudyLocation(
+      location,
+      groupId: locationGroupId,
+      groupName: (matchingGroup['name'] as String? ?? 'Study Location Group').trim(),
+    );
+  }
+
+  @override
+  Future<DataCollectionLocationGroup> createLocationGroup({
+    required String name,
+    required double centerLatitude,
+    required double centerLongitude,
+    required double creatorLatitude,
+    required double creatorLongitude,
+  }) async {
+    final response = await _sendJson(
+      method: 'POST',
+      path: '/api/locations/groups',
+      body: <String, dynamic>{
+        'name': name,
+        'centerLatitude': centerLatitude,
+        'centerLongitude': centerLongitude,
+        'creatorLatitude': creatorLatitude,
+        'creatorLongitude': creatorLongitude,
+      },
+    );
+
+    final payload = await _decodeJson(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message =
+          (payload['error'] as String? ?? 'Location group creation failed.')
+              .trim();
+      throw HttpException(message);
+    }
+
+    final group = Map<String, dynamic>.from(payload as Map);
+    return DataCollectionLocationGroup(
+      locationGroupId: (group['locationGroupId'] as String? ?? '').trim(),
+      buildingName: (group['name'] as String? ?? 'Study Location Group').trim(),
+      centerLatitude: (group['centerLatitude'] as num?)?.toDouble() ??
+          centerLatitude,
+      centerLongitude: (group['centerLongitude'] as num?)?.toDouble() ??
+          centerLongitude,
+      radiusMeters:
+          (group['radiusMeters'] as num?)?.toDouble() ?? 60,
+      studyLocations: const <DataCollectionStudyLocation>[],
+    );
   }
 
   Future<List<dynamic>> _getJsonList(String path) async {
@@ -166,5 +266,22 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
     }
 
     return jsonDecode(text);
+  }
+
+  DataCollectionStudyLocation _parseStudyLocation(
+    Map<String, dynamic> location, {
+    required String groupId,
+    required String groupName,
+  }) {
+    return DataCollectionStudyLocation(
+      studyLocationId: (location['studyLocationId'] as String? ?? '').trim(),
+      locationGroupId: groupId,
+      locationName: (location['name'] as String? ?? 'Study Location').trim(),
+      buildingName: groupName,
+      floorLabel: (location['floorLabel'] as String? ?? '').trim(),
+      sublocationLabel: (location['sublocationLabel'] as String? ?? '').trim(),
+      latitude: (location['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (location['longitude'] as num?)?.toDouble() ?? 0,
+    );
   }
 }

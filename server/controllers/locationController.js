@@ -67,6 +67,39 @@ class LocationController {
       return res.status(500).json({ error: "Server error finding closest locations." });
     }
   }
+
+  async createLocationInGroup(req, res) {
+    try {
+      const location = await this.locationService.createLocationInGroup(
+        req.params.groupId,
+        req.body ?? {},
+      );
+      return res.status(201).json(location);
+    } catch (error) {
+      if (isValidationError(error)) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      if (isNotFoundError(error)) {
+        return res.status(404).json({ error: error.message });
+      }
+
+      return res.status(500).json({ error: "Server error creating study location." });
+    }
+  }
+
+  async createGroup(req, res) {
+    try {
+      const group = await this.locationService.createLocationGroup(req.body ?? {});
+      return res.status(201).json(group);
+    } catch (error) {
+      if (isValidationError(error)) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      return res.status(500).json({ error: "Server error creating location group." });
+    }
+  }
 }
 
 function isNotFoundError(error) {
@@ -76,6 +109,20 @@ function isNotFoundError(error) {
       (error.message.includes("not found") ||
         error.message.includes("No study location") ||
         error.message.includes("No study locations")),
+  );
+}
+
+function isValidationError(error) {
+  return Boolean(
+    error &&
+      typeof error.message === "string" &&
+      (
+        error.message.includes("required") ||
+        error.message.includes("must be") ||
+        error.message.includes("already exists") ||
+        error.message.includes("boundary") ||
+        error.message.includes("inside an existing location group")
+      ),
   );
 }
 

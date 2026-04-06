@@ -16,6 +16,23 @@ const locationGroupSchema = new Schema(
       required: true,
       trim: true,
     },
+    centerLatitude: {
+      type: Number,
+      default: null,
+      min: -90,
+      max: 90,
+    },
+    centerLongitude: {
+      type: Number,
+      default: null,
+      min: -180,
+      max: 180,
+    },
+    radiusMeters: {
+      type: Number,
+      default: null,
+      min: 1,
+    },
     currentNoiseLevel: {
       type: Number,
       default: null,
