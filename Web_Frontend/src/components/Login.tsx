@@ -1,6 +1,7 @@
 import type { ChangeEvent, MouseEvent } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiUrl } from '../config';
 import './Login.css';
 
 type Tab = 'login' | 'register';
@@ -92,7 +93,7 @@ function Login() {
     event.preventDefault();
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         body: JSON.stringify({ login: loginName, password: loginPassword }),
         headers: { 'Content-Type': 'application/json' },
@@ -131,7 +132,7 @@ function Login() {
     }
 
     try {
-      const response = await fetch('/api/auth/register', {
+      const response = await fetch(apiUrl('/api/auth/register'), {
         method: 'POST',
         body: JSON.stringify({
           firstName: regFirstName,
@@ -175,7 +176,7 @@ function Login() {
     }
 
     try {
-      const response = await fetch('/api/auth/forgot-password', {
+      const response = await fetch(apiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         body: JSON.stringify({ email: forgotEmail }),
         headers: { 'Content-Type': 'application/json' },
@@ -200,7 +201,7 @@ function Login() {
     }
 
     try {
-      const response = await fetch('/api/auth/resend-verification', {
+      const response = await fetch(apiUrl('/api/auth/resend-verification'), {
         method: 'POST',
         body: JSON.stringify({ email: resendEmail.trim().toLowerCase() }),
         headers: { 'Content-Type': 'application/json' },

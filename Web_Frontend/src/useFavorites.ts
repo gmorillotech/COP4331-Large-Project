@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { API_BASE_URL } from './config';
+import { apiUrl } from './config';
 
 function getFavoritesFromStorage(): string[] {
   try {
@@ -16,7 +16,7 @@ async function saveFavoritesToServer(favorites: string[]): Promise<void> {
   const token = localStorage.getItem('token');
   if (!token) return;
 
-  await fetch(`${API_BASE_URL}/api/auth/profile`, {
+  await fetch(apiUrl('/api/auth/profile'), {
     method: 'PUT',
     body: JSON.stringify({ favorites }),
     headers: {

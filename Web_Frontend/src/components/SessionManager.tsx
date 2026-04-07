@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { apiUrl } from '../config';
 import './SessionManager.css';
 
 type PermissionStatus = 'pending' | 'granted' | 'denied' | 'requesting';
@@ -130,7 +131,7 @@ function SessionManager() {
   async function findNearestLocation(coords: GeolocationCoordinates): Promise<StudyLocation | null> {
     try {
       const response = await fetch(
-        `http://localhost:5050/api/locations/closest?latitude=${coords.latitude}&longitude=${coords.longitude}`,
+        apiUrl(`/api/locations/closest?latitude=${coords.latitude}&longitude=${coords.longitude}`),
       );
       if (!response.ok) return null;
       return await response.json();
@@ -188,9 +189,6 @@ function SessionManager() {
 
     // Calculate stats from samples
     const avg = samplesRef.current.reduce((a, b) => a + b, 0) / samplesRef.current.length;
-    const max = Math.max(...samplesRef.current);
-    const variance = samplesRef.current.reduce((sum, val) => sum + (val - avg) ** 2, 0) / samplesRef.current.length;
-
     setSessionState((prev) => ({ ...prev, avgNoise: avg }));
     setShowOccupancyPicker(true);
     setMessage('How busy was it? Select an occupancy level to submit your report.');
@@ -209,7 +207,7 @@ function SessionManager() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5050/api/reports', {
+      const response = await fetch(apiUrl('/api/reports'), {
         method: 'POST',
         body: JSON.stringify({
           studyLocationId: sessionState.studyLocationId,

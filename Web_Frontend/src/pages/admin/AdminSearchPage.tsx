@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { apiUrl } from '../../config';
 import AdminSearchResults from '../../components/admin/AdminSearchResults.tsx';
 import AdminSearchMap from '../../components/admin/AdminSearchMap.tsx';
 import AdminLocationDetail from '../../components/admin/AdminLocationDetail.tsx';
@@ -64,7 +65,7 @@ function AdminSearchPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/admin/search?q=${encodeURIComponent(query)}`, {
+      const res = await fetch(apiUrl(`/api/admin/search?q=${encodeURIComponent(query)}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data: SearchApiResponse = await res.json();

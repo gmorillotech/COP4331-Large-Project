@@ -1,2 +1,8 @@
 // API base URL — empty in dev (Vite proxy handles /api), set via VITE_API_BASE_URL in production.
-export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL || '';
+import { API_BASE_URL } from './config/active';
+
+export { API_BASE_URL };
+
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
+}

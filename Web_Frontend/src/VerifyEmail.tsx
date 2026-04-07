@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from './config';
+import { apiUrl } from './config';
 import './components/Login.css';
 
 function VerifyEmail() {
@@ -23,7 +23,7 @@ function VerifyEmail() {
 
     async function verify() {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/verify-email`, {
+        const response = await fetch(apiUrl('/api/auth/verify-email'), {
           method: 'POST',
           body: JSON.stringify({ token }),
           headers: { 'Content-Type': 'application/json' },

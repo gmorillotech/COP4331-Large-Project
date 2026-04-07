@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiUrl } from '../../config';
 import './RedrawMerge.css';
 
 type GroupInfo = {
@@ -38,7 +39,7 @@ function MergeDialog({ group1, group2, onConfirm, onCancel }: MergeDialogProps) 
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/admin/location-groups/merge', {
+      const res = await fetch(apiUrl('/api/admin/location-groups/merge'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

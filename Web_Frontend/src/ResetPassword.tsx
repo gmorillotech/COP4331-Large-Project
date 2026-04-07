@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from './config';
+import { apiUrl } from './config';
 import './components/Login.css';
 
 type GenericResponse = {
@@ -49,7 +49,7 @@ function ResetPassword() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+      const response = await fetch(apiUrl('/api/auth/reset-password'), {
         method: 'POST',
         body: JSON.stringify({ token, newPassword }),
         headers: { 'Content-Type': 'application/json' },

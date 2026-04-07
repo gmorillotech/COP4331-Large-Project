@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { APIProvider, Map } from '@vis.gl/react-google-maps';
+import { apiUrl } from '../../config';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAP_ID } from '../../lib/googleMaps.ts';
 import PolygonEditor, { pointInPolygon } from '../../components/admin/PolygonEditor.tsx';
 import '../../components/admin/RedrawMerge.css';
@@ -46,7 +47,7 @@ function RedrawGroupPage() {
       setError(null);
 
       try {
-        const groupsRes = await fetch('/api/locations/groups', {
+        const groupsRes = await fetch(apiUrl('/api/locations/groups'), {
           headers: { Authorization: `Bearer ${token}` },
         });
         const groupsData = await groupsRes.json();
@@ -81,7 +82,7 @@ function RedrawGroupPage() {
         }
 
         const childRes = await fetch(
-          `/api/locations/groups/${groupId}/locations`,
+          apiUrl(`/api/locations/groups/${groupId}/locations`),
           { headers: { Authorization: `Bearer ${token}` } },
         );
         const childData = await childRes.json();
@@ -125,7 +126,7 @@ function RedrawGroupPage() {
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(
-        `/api/admin/location-groups/${groupId}/shape`,
+        apiUrl(`/api/admin/location-groups/${groupId}/shape`),
         {
           method: 'PUT',
           headers: {

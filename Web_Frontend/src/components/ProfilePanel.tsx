@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_BASE_URL } from '../config';
+import { apiUrl } from '../config';
 import './ProfilePanel.css';
 
 type User = {
@@ -46,7 +46,7 @@ function ProfilePanel() {
     async function fetchProfile() {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+            const response = await fetch(apiUrl('/api/auth/profile'), {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!response.ok) return;
@@ -111,7 +111,7 @@ function ProfilePanel() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+      const response = await fetch(apiUrl('/api/auth/profile'), {
         method: 'PUT',
         body: JSON.stringify({ displayName: displayName.trim() }),
         headers: {
@@ -145,7 +145,7 @@ function ProfilePanel() {
     if (!user?.email) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+      const response = await fetch(apiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         body: JSON.stringify({ email: user.email }),
         headers: { 'Content-Type': 'application/json' },
@@ -170,7 +170,7 @@ function ProfilePanel() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+      const response = await fetch(apiUrl('/api/auth/profile'), {
         method: 'PUT',
         body: JSON.stringify({ email: newEmail.trim().toLowerCase() }),
         headers: {

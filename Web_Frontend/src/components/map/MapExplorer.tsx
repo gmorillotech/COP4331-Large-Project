@@ -27,7 +27,7 @@ import MapInfoPopup from './MapInfoPopup.tsx';
 import MapLocationList from './MapLocationList.tsx';
 import { useFavorites } from '../../useFavorites.ts';
 import FavoritesDrawer from '../FavoritesDrawer.tsx';
-import { API_BASE_URL } from '../../config';
+import { apiUrl } from '../../config';
 
 // The API key is read from .env at build time (VITE_ prefix makes it browser-accessible)
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -110,7 +110,7 @@ function MapExplorer() {
       setErrorMsg(null);
 
       try {
-        const res = await fetch(`${API_BASE_URL}/api/map-annotations`);
+        const res = await fetch(apiUrl('/api/map-annotations'));
         const data: MapAnnotationsResponse = await res.json();
 
         if (!isActive) return;

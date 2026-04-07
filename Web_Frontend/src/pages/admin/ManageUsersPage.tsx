@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { apiUrl } from '../../config';
 import UserTable from '../../components/admin/UserTable';
 import type { AdminUser } from '../../components/admin/EditUserDialog';
 import '../../components/admin/ManageUsers.css';
@@ -17,7 +18,7 @@ function ManageUsersPage() {
     try {
       const token = localStorage.getItem('token');
       const params = query ? `?q=${encodeURIComponent(query)}` : '';
-      const response = await fetch(`/api/admin/users${params}`, {
+      const response = await fetch(apiUrl(`/api/admin/users${params}`), {
         headers: {
           Authorization: `Bearer ${token}`,
         },

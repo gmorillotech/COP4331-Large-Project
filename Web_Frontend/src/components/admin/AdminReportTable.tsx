@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiUrl } from '../../config';
 
 type Report = {
   reportId: string;
@@ -64,7 +65,7 @@ function AdminReportTable({ groupId, locationId, searchQuery, refreshKey }: Admi
 
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/admin/reports/active?${params.toString()}`, {
+      const res = await fetch(apiUrl(`/api/admin/reports/active?${params.toString()}`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data: ReportsResponse = await res.json();
@@ -97,7 +98,7 @@ function AdminReportTable({ groupId, locationId, searchQuery, refreshKey }: Admi
     setIsDeleting(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/admin/reports/${reportId}`, {
+      const res = await fetch(apiUrl(`/api/admin/reports/${reportId}`), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

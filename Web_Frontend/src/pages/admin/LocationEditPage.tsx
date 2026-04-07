@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
+import { apiUrl } from '../../config';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAP_ID } from '../../lib/googleMaps.ts';
 import GroupSelector from '../../components/admin/GroupSelector.tsx';
 import MergeDialog from '../../components/admin/MergeDialog.tsx';
@@ -30,7 +31,7 @@ function LocationEditPage() {
       setError(null);
 
       try {
-        const res = await fetch('/api/locations/groups', {
+        const res = await fetch(apiUrl('/api/locations/groups'), {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();

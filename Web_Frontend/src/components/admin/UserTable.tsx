@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { apiUrl } from '../../config';
 import EditUserDialog from './EditUserDialog';
 import type { AdminUser } from './EditUserDialog';
 
@@ -120,7 +121,7 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
 
   const handleEditSave = useCallback(async (userId: string, changes: Record<string, unknown>) => {
     const token = localStorage.getItem('token');
-    const response = await fetch(`/api/admin/users/${userId}`, {
+    const response = await fetch(apiUrl(`/api/admin/users/${userId}`), {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -145,7 +146,7 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
     setActionMessage(null);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/users/${user.userId}/force-password-reset`, {
+      const response = await fetch(apiUrl(`/api/admin/users/${user.userId}/force-password-reset`), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -174,7 +175,7 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
     setActionMessage(null);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/users/${user.userId}`, {
+      const response = await fetch(apiUrl(`/api/admin/users/${user.userId}`), {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,

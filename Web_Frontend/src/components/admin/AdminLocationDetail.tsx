@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiUrl } from '../../config';
 import type { SearchResultItem } from '../../pages/admin/AdminSearchPage.tsx';
 import AdminReportTable from './AdminReportTable.tsx';
 
@@ -47,7 +48,7 @@ function AdminLocationDetail({ selected, onSelectChild }: AdminLocationDetailPro
     setChildLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/locations/groups/${selected.id}/locations`, {
+      const res = await fetch(apiUrl(`/api/locations/groups/${selected.id}/locations`), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
