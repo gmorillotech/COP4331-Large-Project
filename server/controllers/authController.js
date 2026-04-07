@@ -8,6 +8,12 @@ const tokenService = require("../createJWT");
 
 const DEFAULT_PIN_COLOR = "#0F766E";
 
+function getVerifyBaseUrl(registrationSource) {
+  return registrationSource === "app"
+    ? (process.env.APP_VERIFY_URL || process.env.FRONTEND_URL)
+    : process.env.FRONTEND_URL;
+}
+
 function normalizeDisplayName(displayName) {
   if (displayName === null) return null;
   if (displayName === undefined) return undefined;
@@ -53,10 +59,12 @@ const transporter = nodemailer.createTransport({
 // ── REGISTER ─────────────────────────────────────────
 const register = async (req, res) => {
   try {
-    const { firstName, lastName, displayName, login, email, password } = req.body ?? {};
+    const { firstName, lastName, displayName, login, email, password, client } = req.body ?? {};
     if (!login || !email || !password) {
       return res.status(400).json({ error: "Please provide login, email, and password." });
     }
+
+    const registrationSource = client === "app" ? "app" : "web";
 
     const normalizedLogin = login.trim().toLowerCase();
     const normalizedEmail = email.trim().toLowerCase();
@@ -87,12 +95,13 @@ const register = async (req, res) => {
       emailVerificationToken,
       emailVerifiedAt: null,
       passwordChangedAt: new Date(),
+      registrationSource,
     });
 
     await newUser.save();
 
     if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${emailVerificationToken}`;
+      const verificationLink = `${getVerifyBaseUrl(registrationSource)}/verify?token=${emailVerificationToken}`;
       try {
         await transporter.sendMail({
           to: normalizedEmail,
@@ -175,7 +184,7 @@ const resendVerification = async (req, res) => {
     user.emailVerificationToken = token;
     await user.save();
 
-    const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${token}`;
+    const verificationLink = `${getVerifyBaseUrl(user.registrationSource)}/verify?token=${token}`;
     try {
       await transporter.sendMail({
         to: user.email,

@@ -104,6 +104,11 @@ const userSchema = new Schema(
       type: Date,
       default: Date.now,
     },
+    registrationSource: {
+      type: String,
+      enum: ["app", "web"],
+      default: "web",
+    },
   },
   {
     timestamps: true,
