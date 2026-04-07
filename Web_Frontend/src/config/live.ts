@@ -1,1 +1,1 @@
-export const API_BASE_URL = 'http://167.71.81.89';
+export const API_BASE_URL = 'https://studyspot.live';

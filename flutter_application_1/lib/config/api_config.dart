@@ -5,13 +5,13 @@ import 'package:flutter/foundation.dart';
 /// Single compile-time override for the backend API base URL.
 ///
 /// Local dev (default):  omit the flag → resolves to localhost.
-/// Production build:     flutter build --dart-define=API_BASE_URL=http://167.71.81.89:5050
+/// Production build:     flutter build --dart-define=API_BASE_URL=https://studyspot.live
 const String _apiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
 /// Single compile-time override for the web frontend URL.
 ///
 /// Local dev (default):  omit the flag → http://localhost:5173
-/// Production build:     flutter build --dart-define=WEB_FRONTEND_URL=http://167.71.81.89
+/// Production build:     flutter build --dart-define=WEB_FRONTEND_URL=https://studyspot.live
 const String _webFrontendUrl = String.fromEnvironment('WEB_FRONTEND_URL');
 
 /// Returns the API base URL for the current environment.
