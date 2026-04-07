@@ -109,7 +109,7 @@ function MapExplorer() {
       setErrorMsg(null);
 
       try {
-        const res = await fetch('http://localhost:5050/api/map-annotations');
+        const res = await fetch('/api/map-annotations');
         const data: MapAnnotationsResponse = await res.json();
 
         if (!isActive) return;

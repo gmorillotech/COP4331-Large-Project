@@ -22,7 +22,7 @@ function VerifyEmail() {
 
     async function verify() {
       try {
-        const response = await fetch('http://localhost:5050/api/auth/verify-email', {
+        const response = await fetch('/api/auth/verify-email', {
           method: 'POST',
           body: JSON.stringify({ token }),
           headers: { 'Content-Type': 'application/json' },

@@ -130,7 +130,7 @@ function SessionManager() {
   async function findNearestLocation(coords: GeolocationCoordinates): Promise<StudyLocation | null> {
     try {
       const response = await fetch(
-        `http://localhost:5050/api/locations/closest?latitude=${coords.latitude}&longitude=${coords.longitude}`,
+        `/api/locations/closest?latitude=${coords.latitude}&longitude=${coords.longitude}`,
       );
       if (!response.ok) return null;
       return await response.json();
@@ -209,7 +209,7 @@ function SessionManager() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5050/api/reports', {
+      const response = await fetch('/api/reports', {
         method: 'POST',
         body: JSON.stringify({
           studyLocationId: sessionState.studyLocationId,

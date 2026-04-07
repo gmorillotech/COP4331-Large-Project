@@ -15,7 +15,7 @@ async function saveFavoritesToServer(favorites: string[]): Promise<void> {
   const token = localStorage.getItem('token');
   if (!token) return;
 
-  await fetch('http://localhost:5050/api/auth/profile', {
+  await fetch('/api/auth/profile', {
     method: 'PUT',
     body: JSON.stringify({ favorites }),
     headers: {
