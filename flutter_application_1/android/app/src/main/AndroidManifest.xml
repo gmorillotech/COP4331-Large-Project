@@ -37,14 +37,16 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="studyspot.live" android:pathPrefix="/reset-password" />
+                <data android:scheme="http" android:host="localhost" android:pathPrefix="/reset-password" />
+                <data android:scheme="https" android:host="localhost" android:pathPrefix="/reset-password" />
             </intent-filter>
             <!-- Deep link for email verification -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="studyspot.live" android:pathPrefix="/verify" />
+                <data android:scheme="http" android:host="localhost" android:pathPrefix="/verify" />
+                <data android:scheme="https" android:host="localhost" android:pathPrefix="/verify" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
