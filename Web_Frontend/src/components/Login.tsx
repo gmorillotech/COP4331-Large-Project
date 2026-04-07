@@ -141,6 +141,7 @@ function Login() {
           login: regUsername,
           email: regEmail,
           password: regPassword,
+          client: 'web',
         }),
         headers: { 'Content-Type': 'application/json' },
       });
