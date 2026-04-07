@@ -16,22 +16,7 @@ Web_Frontend/dist-ssr/
 shared/dist/
 unit_tests/dist/
 flutter_application_1/coverage/
-flutter_application_1/build/*
-!flutter_application_1/build/app/
-flutter_application_1/build/app/*
-!flutter_application_1/build/app/outputs/
-flutter_application_1/build/app/outputs/*
-!flutter_application_1/build/app/outputs/apk/
-!flutter_application_1/build/app/outputs/flutter-apk/
-flutter_application_1/build/app/outputs/apk/*
-!flutter_application_1/build/app/outputs/apk/debug/
-!flutter_application_1/build/app/outputs/apk/release/
-flutter_application_1/build/app/outputs/apk/debug/*
-flutter_application_1/build/app/outputs/apk/release/*
-!flutter_application_1/build/app/outputs/apk/debug/*.apk
-!flutter_application_1/build/app/outputs/apk/release/*.apk
-flutter_application_1/build/app/outputs/flutter-apk/*
-!flutter_application_1/build/app/outputs/flutter-apk/*.apk
+flutter_application_1/build/
 
 # Logs
 logs/
