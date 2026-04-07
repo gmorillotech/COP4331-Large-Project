@@ -23,7 +23,11 @@ jobs:
                   git checkout main
                   git pull origin main
 
-                  cd server
+                  cd shared
+                  npm install
+                  npm run build
+                  
+                  cd ../server
                   npm install --production
 
                   cd ../Web_Frontend
