@@ -69,6 +69,29 @@ enum LoginFailureReason {
   networkError,
 }
 
+class RegisterResult {
+  const RegisterResult({
+    required this.userId,
+    required this.login,
+    required this.email,
+    required this.message,
+  });
+
+  final String userId;
+  final String login;
+  final String email;
+  final String message;
+
+  factory RegisterResult.fromJson(Map<String, dynamic> json) {
+    return RegisterResult(
+      userId: json['userId'] as String? ?? '',
+      login: json['login'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+    );
+  }
+}
+
 class LoginFailure implements Exception {
   const LoginFailure({required this.reason, required this.message});
 

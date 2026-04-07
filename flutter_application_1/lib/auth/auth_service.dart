@@ -181,6 +181,36 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Register (POST to /api/auth/register) ──
+
+  Future<RegisterResult> register({
+    required String firstName,
+    required String lastName,
+    required String displayName,
+    required String login,
+    required String email,
+    required String password,
+  }) async {
+    final response = await _post('/api/auth/register', {
+      'firstName': firstName,
+      'lastName': lastName,
+      'displayName': displayName,
+      'login': login,
+      'email': email,
+      'password': password,
+      'client': 'app',
+    });
+
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: LoginFailureReason.serverError,
+        message: response.body['error'] as String? ?? 'Registration failed.',
+      );
+    }
+
+    return RegisterResult.fromJson(response.body);
+  }
+
   // ── Forgot Password (mirrors doForgotPassword in Login.tsx) ──
 
   Future<String> forgotPassword({required String email}) async {
