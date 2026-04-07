@@ -10,6 +10,7 @@ import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:flutter_application_1/auth/login_page.dart';
 import 'package:flutter_application_1/auth/reset_password_page.dart';
+import 'package:flutter_application_1/auth/verify_email_page.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -64,6 +65,15 @@ class _MainAppState extends State<MainApp> {
         _navigatorKey.currentState?.push(
           MaterialPageRoute<void>(
             builder: (_) => ResetPasswordPage(token: token),
+          ),
+        );
+      }
+    } else if (uri.path == '/verify') {
+      final token = uri.queryParameters['token'];
+      if (token != null && token.isNotEmpty) {
+        _navigatorKey.currentState?.push(
+          MaterialPageRoute<void>(
+            builder: (_) => VerifyEmailPage(token: token),
           ),
         );
       }
