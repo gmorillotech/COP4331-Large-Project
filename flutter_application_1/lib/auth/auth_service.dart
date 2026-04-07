@@ -4,31 +4,15 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/api_config.dart';
 import 'auth_models.dart';
-
-// ── Base URL resolution (same pattern as account_center_backend.dart) ──
-
-const String _configuredApiBaseUrl =
-    String.fromEnvironment('ACCOUNT_CENTER_API_BASE_URL');
-const String _configuredDataCollectionApiBaseUrl =
-    String.fromEnvironment('DATA_COLLECTION_API_BASE_URL');
-
-String _defaultBaseUrl() {
-  if (_configuredApiBaseUrl.isNotEmpty) return _configuredApiBaseUrl;
-  if (_configuredDataCollectionApiBaseUrl.isNotEmpty) {
-    return _configuredDataCollectionApiBaseUrl;
-  }
-  if (kIsWeb) return 'http://localhost:5050';
-  if (Platform.isAndroid) return 'http://10.0.2.2:5050';
-  return 'http://localhost:5050';
-}
 
 // ── AuthService ── mirrors the web frontend's localStorage + fetch pattern ──
 
 class AuthService extends ChangeNotifier {
   AuthService({SharedPreferences? prefs, String? baseUrl})
       : _prefs = prefs,
-        _baseUrl = (baseUrl ?? _defaultBaseUrl()).trim();
+        _baseUrl = (baseUrl ?? apiBaseUrl()).trim();
 
   SharedPreferences? _prefs;
   final String _baseUrl;

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../config/api_config.dart';
 import 'data_collection_model.dart';
 
 enum ReportDeliveryStatus { submittedToApi, queuedOffline }
@@ -787,22 +788,7 @@ class DataCollectionApiConfig {
       return baseUrl!.trim();
     }
 
-    const configuredBaseUrl = String.fromEnvironment(
-      'DATA_COLLECTION_API_BASE_URL',
-    );
-    if (configuredBaseUrl.isNotEmpty) {
-      return configuredBaseUrl;
-    }
-
-    if (kIsWeb) {
-      return 'http://localhost:5050';
-    }
-
-    if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5050';
-    }
-
-    return 'http://localhost:5050';
+    return apiBaseUrl();
   }
 }
 

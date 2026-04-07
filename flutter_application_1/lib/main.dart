@@ -15,7 +15,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const String _configuredMapApiBaseUrl = String.fromEnvironment('MAP_API_BASE_URL');
+import 'package:flutter_application_1/config/api_config.dart';
 const String _loginRoute = '/login';
 const String _mapRoute = '/map';
 const String _dataCollectionRoute = '/data-collection';
@@ -405,21 +405,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   bool _showUsers = false;
   bool _savingFavorites = false;
 
-  String get _baseUrl {
-    if (_configuredMapApiBaseUrl.isNotEmpty) {
-      return _configuredMapApiBaseUrl;
-    }
-
-    if (kIsWeb) {
-      return 'http://localhost:5050';
-    }
-
-    if (Platform.isAndroid) {
-      return 'http://10.0.2.2:5050';
-    }
-
-    return 'http://localhost:5050';
-  }
+  String get _baseUrl => apiBaseUrl();
 
   bool get _showGroups => _zoom < _groupZoomThreshold;
   List<MapNode> get _locations => _records.where((n) => !n.isGroup).toList(growable: false);
