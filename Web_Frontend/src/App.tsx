@@ -10,6 +10,7 @@ import AdminSearchPage from './pages/admin/AdminSearchPage.tsx';
 import ManageUsersPage from './pages/admin/ManageUsersPage.tsx';
 import LocationEditPage from './pages/admin/LocationEditPage.tsx';
 import RedrawGroupPage from './pages/admin/RedrawGroupPage.tsx';
+import DataCollectionPage from './pages/DataCollectionPage.tsx';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/verify" element={<VerifyEmail />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/collect" element={<DataCollectionPage />} />
 
 
         {/* Admin routes */}
