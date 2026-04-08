@@ -67,7 +67,7 @@ class AuthService extends ChangeNotifier {
         throw LoginFailure(
           reason: LoginFailureReason.emailNotVerified,
           message:
-              'Your account is not verified. Please check your email or resend the verification link.',
+              'Your account is not verified. Please check your email for a verification code or request a new one.',
         );
       }
       throw LoginFailure(
@@ -188,7 +188,7 @@ class AuthService extends ChangeNotifier {
       'email': email,
     });
     return response.body['message'] as String? ??
-        'Password reset link sent to your email.';
+        'Password reset code sent to your email.';
   }
 
   // ── Resend Verification (mirrors doResendVerification in Login.tsx) ──
@@ -202,12 +202,12 @@ class AuthService extends ChangeNotifier {
       throw LoginFailure(
         reason: LoginFailureReason.serverError,
         message: response.body['error'] as String? ??
-            'Unable to resend verification email.',
+            'Unable to resend verification code.',
       );
     }
 
     return response.body['message'] as String? ??
-        'Verification email resent! Check your inbox.';
+        'Verification code sent! Check your inbox.';
   }
 
   // ── Handle 401 from any protected API call ──

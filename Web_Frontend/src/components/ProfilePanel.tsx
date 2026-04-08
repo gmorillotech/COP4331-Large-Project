@@ -231,7 +231,7 @@ function ProfilePanel() {
         return;
       }
 
-      showSuccess('Email updated! A verification link has been sent to your new email. Please verify it before logging in again.');
+      showSuccess('Email updated! If verification is required for this account, use the latest code sent to your new email before logging in again.');
       const updatedUser = { ...user!, email: newEmail.trim().toLowerCase() };
       setUser(updatedUser);
       localStorage.setItem('user_data', JSON.stringify(updatedUser));
@@ -372,7 +372,7 @@ function ProfilePanel() {
             </button>
             <h3 className="profile-edit-title">Update Email</h3>
             <p className="profile-edit-info">
-              You will need to verify your new email address before you can log in again.
+              If verification is enabled for your account, you will need the latest code sent to your new email before logging in again.
             </p>
             <input
               type="email"

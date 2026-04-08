@@ -271,14 +271,14 @@ class _LoginPageState extends State<LoginPage> {
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Password reset link sent! Check your inbox and click the link to reset your password.',
+                  'Password reset code sent! Check your inbox and use the code to reset your password.',
                 ),
               ),
             ],
           ),
         ),
       ] else ...[
-        const Text("Enter your email and we'll send you a reset link."),
+        const Text("Enter your email and we'll send you a reset code."),
         const SizedBox(height: 12),
         TextField(
           controller: _emailController,
@@ -299,7 +299,7 @@ class _LoginPageState extends State<LoginPage> {
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
-            child: const Text('Send Reset Link'),
+            child: const Text('Send Reset Code'),
           ),
         ),
       ],
@@ -329,11 +329,11 @@ class _LoginPageState extends State<LoginPage> {
             Icon(Icons.email, color: Colors.blue),
             SizedBox(width: 12),
             Expanded(
-              child: Text(
-                'Your account has not been verified yet. Enter your email below to receive a new verification link.',
+                child: Text(
+                  'Your account has not been verified yet. Enter your email below to receive a new verification code.',
+                ),
               ),
-            ),
-          ],
+            ],
         ),
       ),
       const SizedBox(height: 12),
@@ -356,7 +356,7 @@ class _LoginPageState extends State<LoginPage> {
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
-          child: const Text('Resend Verification Email'),
+          child: const Text('Send Verification Code'),
         ),
       ),
       const SizedBox(height: 12),
