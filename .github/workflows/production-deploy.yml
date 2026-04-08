@@ -20,18 +20,18 @@ jobs:
                 script: |
                   cd /var/www/COP4331-Large-Project
                   git fetch origin
-                  git checkout main
-                  git pull origin main
+                  git reset --hard origin/main
+                  git clean -fd
 
                   cd shared
-                  npm install
+                  npm ci
                   npm run build
                   
                   cd ../server
-                  npm install --production
+                  npm ci --production
 
                   cd ../Web_Frontend
-                  npm install
+                  npm ci
                   npm run build
 
                   cd ../server
