@@ -31,6 +31,11 @@ function ProfilePanel() {
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const [resetStep, setResetStep] = useState<'idle' | 'code' | 'newpass'>('idle');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
   function showSuccess(msg: string) { setIsError(false); setMessage(msg); }
   function showError(msg: string) { setIsError(true); setMessage(msg); }
 
@@ -81,6 +86,10 @@ function ProfilePanel() {
     setMessage('');
     setIsError(false);
     setNewEmail('');
+    setResetStep('idle');   
+    setResetCode('');       
+    setNewPassword('');   
+    setConfirmPassword('');  
   }
 
   function formatDate(dateStr: string): string {
@@ -152,8 +161,44 @@ function ProfilePanel() {
       });
 
       const res: GenericResponse = await response.json();
-      showSuccess(res.message || 'Password reset link sent to your email!');
+      if (!response.ok) {
+        showError(res.error || 'Failed to send reset code.');
+        return;
+      }
+      showSuccess('Reset code sent to your email!');
+      setResetStep('code');
       setView('forgotSent');
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Unable to contact the server');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function doSubmitResetCode() {
+    if (!resetCode.trim()) { showError('Please enter the code.'); return; }
+    setResetStep('newpass');
+    setMessage('');
+  }
+
+  async function doSubmitNewPassword() {
+    if (!newPassword || !confirmPassword) { showError('Please fill in both fields.'); return; }
+    if (newPassword !== confirmPassword) { showError('Passwords do not match.'); return; }
+    setLoading(true);
+    try {
+      const response = await fetch(apiUrl('/api/auth/reset-password'), {
+        method: 'POST',
+        body: JSON.stringify({ email: user?.email, code: resetCode, newPassword }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const res: GenericResponse = await response.json();
+      if (!response.ok) {
+        showError(res.error || 'Invalid or expired code.');
+        setResetStep('code');
+        return;
+      }
+      showSuccess('Password reset successfully!');
+      setTimeout(() => { setView('profile'); setResetStep('idle'); setMessage(''); }, 2500);
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     } finally {
@@ -348,19 +393,65 @@ function ProfilePanel() {
 
         {/* ── PASSWORD RESET SENT ── */}
         {view === 'forgotSent' && (
-          <div className="profile-panel-body">
-            <div className="profile-info-box">
-              <span className="profile-info-icon">✓</span>
-              <p>A password reset link has been sent to <strong>{user?.email}</strong>. Check your inbox and click the link to set a new password.</p>
-            </div>
-            <button
-              className="profile-save-btn"
-              onClick={() => { setView('profile'); setMessage(''); }}
-            >
-              Back to Profile
-            </button>
-          </div>
-        )}
+  <div className="profile-panel-body">
+    <button className="profile-back-btn" onClick={() => { setView('profile'); setResetStep('idle'); setMessage(''); }}>
+      ← Back
+    </button>
+
+    {/* STEP 1 — Enter code */}
+    {resetStep === 'code' && (
+      <>
+        <div className="profile-info-box">
+          <span className="profile-info-icon">✉</span>
+          <p>We sent a 6-digit reset code to <strong>{user?.email}</strong>. Enter it below.</p>
+        </div>
+        <input
+          type="text"
+          className="profile-input"
+          placeholder="Enter 6-digit code"
+          maxLength={6}
+          value={resetCode}
+          onChange={(e) => setResetCode(e.target.value)}
+        />
+        <button
+          className="profile-save-btn"
+          onClick={doSubmitResetCode}
+          disabled={loading}
+        >
+          Verify Code
+        </button>
+      </>
+    )}
+
+    {/* STEP 2 — Enter new password */}
+    {resetStep === 'newpass' && (
+      <>
+        <h3 className="profile-edit-title">Set New Password</h3>
+        <input
+          type="password"
+          className="profile-input"
+          placeholder="New Password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <input
+          type="password"
+          className="profile-input"
+          placeholder="Confirm New Password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <button
+          className="profile-save-btn"
+          onClick={doSubmitNewPassword}
+          disabled={loading}
+        >
+          {loading ? 'Saving...' : 'Reset Password'}
+        </button>
+      </>
+    )}
+  </div>
+)}
 
       </div>
     </>

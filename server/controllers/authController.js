@@ -1,7 +1,12 @@
 const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
+// const nodemailer = require("nodemailer"); // ── COMMENTED OUT: switched to SendGrid ──
+
+// ── SendGrid setup ────────────────────────────────────
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// ─────────────────────────────────────────────────────
 
 const User = require("../models/User");
 const tokenService = require("../createJWT");
@@ -42,13 +47,15 @@ function serializeUser(user) {
   };
 }
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// ── OLD nodemailer transporter — commented out ────────
+// const transporter = nodemailer.createTransport({
+//   service: "gmail",
+//   auth: {
+//     user: process.env.EMAIL_USER,
+//     pass: process.env.EMAIL_PASS,
+//   },
+// });
+// ─────────────────────────────────────────────────────
 
 // ── REGISTER ─────────────────────────────────────────
 const register = async (req, res) => {
@@ -68,7 +75,15 @@ const register = async (req, res) => {
       return res.status(409).json({ error: "An account with that login or email already exists." });
     }
 
-    const emailVerificationToken = crypto.randomBytes(32).toString("hex");
+    // ── OLD: hex token ────────────────────────────────
+    // const emailVerificationToken = crypto.randomBytes(32).toString("hex");
+    // ─────────────────────────────────────────────────
+
+    // ── NEW: 6-digit code ─────────────────────────────
+    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    // ─────────────────────────────────────────────────
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     const newUser = new User({
@@ -84,32 +99,49 @@ const register = async (req, res) => {
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
-      emailVerificationToken,
+      // emailVerificationToken,  // ── OLD: commented out
+      emailVerificationCode,       // ── NEW
+      emailVerificationExpiresAt,  // ── NEW
       emailVerifiedAt: null,
       passwordChangedAt: new Date(),
     });
 
     await newUser.save();
 
-    if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${emailVerificationToken}`;
-      try {
-        await transporter.sendMail({
-          to: normalizedEmail,
-          from: `Meta Location <${process.env.EMAIL_USER}>`,
-          subject: "Verify Your Account",
-          html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-        });
-      } catch (mailError) {
-        console.error("Failed to send verification email during registration:", mailError.message);
-      }
+    // ── OLD: nodemailer send ──────────────────────────
+    // if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    //   const verificationLink = `${getVerifyBaseUrl(registrationSource)}/verify?token=${emailVerificationToken}`;
+    //   try {
+    //     await transporter.sendMail({
+    //       to: normalizedEmail,
+    //       from: `Meta Location <${process.env.EMAIL_USER}>`,
+    //       subject: "Verify Your Account",
+    //       html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+    //     });
+    //   } catch (mailError) {
+    //     console.error("Failed to send verification email during registration:", mailError.message);
+    //   }
+    // }
+    // ─────────────────────────────────────────────────
+
+    // ── NEW: SendGrid code email ──────────────────────
+    try {
+      await sgMail.send({
+        to: normalizedEmail,
+        from: process.env.EMAIL_FROM,
+        subject: "Your StudySpot Verification Code",
+        html: `<p>Welcome to StudySpot!</p><p>Your verification code is: <strong style="font-size:24px;">${emailVerificationCode}</strong></p><p>This code expires in 15 minutes.</p>`,
+      });
+    } catch (mailError) {
+      console.error("Failed to send verification email during registration:", mailError.message);
     }
+    // ─────────────────────────────────────────────────
 
     return res.status(201).json({
       userId: newUser.userId,
       login: newUser.login,
       email: newUser.email,
-      message: "Registration successful. Please verify your email before logging in.",
+      message: "Registration successful. Please check your email for a verification code.",
     });
   } catch (error) {
     return res.status(500).json({ error: "Server error during registration.", details: error.message });
@@ -148,11 +180,33 @@ const login = async (req, res) => {
 // ── VERIFY EMAIL ──────────────────────────────────────
 const verifyEmail = async (req, res) => {
   try {
-    const { token } = req.body ?? {};
-    const user = await User.findOne({ emailVerificationToken: token });
-    if (!user) {
-      return res.status(400).json({ error: "Invalid or expired verification token." });
+    // ── OLD: token-based ──────────────────────────────
+    // const { token } = req.body ?? {};
+    // const user = await User.findOne({ emailVerificationToken: token });
+    // if (!user) {
+    //   return res.status(400).json({ error: "Invalid or expired verification token." });
+    // }
+    // ─────────────────────────────────────────────────
+
+    // ── NEW: code-based ───────────────────────────────
+    const { email, code } = req.body ?? {};
+    if (!email || !code) {
+      return res.status(400).json({ error: "Email and verification code are required." });
     }
+
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+      emailVerificationCode: code.trim(),
+      emailVerificationExpiresAt: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired verification code." });
+    }
+
+    user.emailVerificationCode = null;
+    user.emailVerificationExpiresAt = null;
+    // ─────────────────────────────────────────────────
 
     await user.verifyEmail();
     return res.status(200).json({ message: "Email verified successfully. You can now log in." });
@@ -171,24 +225,44 @@ const resendVerification = async (req, res) => {
     if (!user) return res.status(400).json({ error: "User not found." });
     if (user.emailVerifiedAt) return res.status(400).json({ error: "Account already verified." });
 
-    const token = crypto.randomBytes(32).toString("hex");
-    user.emailVerificationToken = token;
+    // ── OLD: hex token ────────────────────────────────
+    // const token = crypto.randomBytes(32).toString("hex");
+    // user.emailVerificationToken = token;
+    // await user.save();
+    // const verificationLink = `${getVerifyBaseUrl(user.registrationSource)}/verify?token=${token}`;
+    // try {
+    //   await transporter.sendMail({
+    //     to: user.email,
+    //     from: `Meta Location <${process.env.EMAIL_USER}>`,
+    //     subject: "Verify Your Account",
+    //     html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+    //   });
+    // } catch (mailError) {
+    //   console.error("Failed to send verification email:", mailError.message);
+    //   return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
+    // }
+    // ─────────────────────────────────────────────────
+
+    // ── NEW: fresh 6-digit code ───────────────────────
+    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.emailVerificationCode = emailVerificationCode;
+    user.emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await user.save();
 
-    const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${token}`;
     try {
-      await transporter.sendMail({
+      await sgMail.send({
         to: user.email,
-        from: `Meta Location <${process.env.EMAIL_USER}>`,
-        subject: "Verify Your Account",
-        html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
+        from: process.env.EMAIL_FROM,
+        subject: "Your StudySpot Verification Code",
+        html: `<p>Your new verification code is: <strong style="font-size:24px;">${emailVerificationCode}</strong></p><p>This code expires in 15 minutes.</p>`,
       });
     } catch (mailError) {
       console.error("Failed to send verification email:", mailError.message);
       return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
     }
+    // ─────────────────────────────────────────────────
 
-    return res.json({ message: "Verification email resent." });
+    return res.json({ message: "Verification code sent! Check your inbox." });
   } catch (error) {
     return res.status(500).json({ error: "Server error." });
   }
@@ -203,28 +277,36 @@ const forgotPassword = async (req, res) => {
 
     if (!user) {
       return res.status(200).json({
-        message: "If an account with that email exists, a password reset link has been sent.",
+        message: "If an account with that email exists, a reset code has been sent.",
       });
     }
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    user.passwordResetToken = resetToken;
-    user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    // ── OLD: link-based ───────────────────────────────
+    // const resetToken = crypto.randomBytes(32).toString("hex");
+    // user.passwordResetToken = resetToken;
+    // user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    // ─────────────────────────────────────────────────
+
+    // ── NEW: code-based ───────────────────────────────
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.passwordResetCode = resetCode;
+    user.passwordResetCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
     await user.save();
 
     try {
-      await transporter.sendMail({
+      await sgMail.send({
         to: user.email,
-        from: `Meta Location <${process.env.EMAIL_USER}>`,
-        subject: "Password Reset Request",
-        html: `<p>You requested a password reset. Click this link to continue: <a href="${process.env.FRONTEND_URL}/reset-password?token=${resetToken}">${process.env.FRONTEND_URL}/reset-password?token=${resetToken}</a></p><p>This link will expire in one hour.</p>`,
+        from: process.env.EMAIL_FROM,
+        subject: "Your StudySpot Password Reset Code",
+        html: `<p>Your password reset code is: <strong style="font-size:24px;">${resetCode}</strong></p><p>This code expires in 15 minutes.</p>`,
       });
     } catch (mailError) {
       console.error("Failed to send password reset email:", mailError.message);
     }
+    // ─────────────────────────────────────────────────
 
     return res.status(200).json({
-      message: "If an account with that email exists, a password reset link has been sent.",
+      message: "If an account with that email exists, a reset code has been sent.",
     });
   } catch (error) {
     return res.status(500).json({ error: "Server error.", details: error.message });
@@ -234,25 +316,45 @@ const forgotPassword = async (req, res) => {
 // ── RESET PASSWORD ────────────────────────────────────
 const resetPassword = async (req, res) => {
   try {
-    const { token, newPassword } = req.body ?? {};
+    const { token, email, code, newPassword } = req.body ?? {};
 
     const trimmedNewPassword = String(newPassword || "").trim();
     if (trimmedNewPassword.length < 8) {
       return res.status(400).json({ error: "New password must be at least 8 characters long." });
     }
 
-    const user = await User.findOne({
-      passwordResetToken: token,
-      passwordResetExpiresAt: { $gt: new Date() },
-    });
+    let user;
 
-    if (!user) {
-      return res.status(400).json({ error: "Password reset token is invalid or has expired." });
+    if (code && email) {
+      // ── NEW: code-based (web) ─────────────────────────
+      user = await User.findOne({
+        email: email.trim().toLowerCase(),
+        passwordResetCode: code.trim(),
+        passwordResetCodeExpiresAt: { $gt: new Date() },
+      });
+      if (!user) {
+        return res.status(400).json({ error: "Invalid or expired reset code." });
+      }
+      user.passwordResetCode = null;
+      user.passwordResetCodeExpiresAt = null;
+      // ─────────────────────────────────────────────────
+    } else if (token) {
+      // ── OLD: token-based (mobile/backwards compat) ────
+      user = await User.findOne({
+        passwordResetToken: token,
+        passwordResetExpiresAt: { $gt: new Date() },
+      });
+      if (!user) {
+        return res.status(400).json({ error: "Password reset token is invalid or has expired." });
+      }
+      user.passwordResetToken = null;
+      user.passwordResetExpiresAt = null;
+      // ─────────────────────────────────────────────────
+    } else {
+      return res.status(400).json({ error: "Reset code or token is required." });
     }
 
     user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
-    user.passwordResetToken = null;
-    user.passwordResetExpiresAt = null;
     user.passwordChangedAt = new Date();
     await user.save();
 
