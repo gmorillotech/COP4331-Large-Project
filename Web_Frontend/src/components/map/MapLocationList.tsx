@@ -46,14 +46,14 @@ type MapLocationListProps = {
 // Using unicode characters keeps this dependency-free.
 function HeartIcon({ filled, onClick }: { filled: boolean; onClick: (e: React.MouseEvent) => void }) {
   return (
-    <button
-      type="button"
+    <span
+      role="button"
       className={`location-card__heart-btn ${filled ? 'is-favorited' : ''}`}
       onClick={onClick}
       aria-label={filled ? 'Remove from favorites' : 'Add to favorites'}
     >
       {filled ? '♥' : '♡'}
-    </button>
+    </span>
   );
 }
 
