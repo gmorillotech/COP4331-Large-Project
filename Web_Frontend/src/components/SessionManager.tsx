@@ -38,6 +38,8 @@ function SessionManager() {
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nearbyLocations, setNearbyLocations] = useState<StudyLocation[]>([]);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -105,16 +107,15 @@ function SessionManager() {
       const buffer = new Float32Array(analyserRef.current.fftSize);
       analyserRef.current.getFloatTimeDomainData(buffer);
 
-      // Calculate RMS and convert to decibels
       const rms = Math.sqrt(buffer.reduce((sum, val) => sum + val * val, 0) / buffer.length);
-      const db = rms > 0 ? 20 * Math.log10(rms) + 90 : 0; // offset to get realistic dB range
+      const db = rms > 0 ? 20 * Math.log10(rms) + 90 : 0;
 
       if (db > 0) {
         samplesRef.current.push(db);
         setCurrentDb(Math.round(db));
         setSessionState((prev) => ({ ...prev, noisesamples: [...samplesRef.current] }));
       }
-    }, 500); // sample every 500ms
+    }, 500);
   }
 
   function stopAudioSampling() {
@@ -140,6 +141,27 @@ function SessionManager() {
     }
   }
 
+  async function findNearbyLocations(coords: GeolocationCoordinates): Promise<StudyLocation[]> {
+    try {
+      const response = await fetch(
+        apiUrl(`/api/locations/search?lat=${coords.latitude}&lng=${coords.longitude}&maxRadiusMeters=150&includeGroups=false&sortBy=distance`)
+      );
+      if (!response.ok) return [];
+      const data = await response.json();
+      return (data.results ?? [])
+        .filter((node: any) => node.kind === 'location')
+        .map((node: any) => ({
+          studyLocationId: node.id,
+          name: node.title,
+          latitude: node.lat,
+          longitude: node.lng,
+          locationGroupId: '',
+        }));
+    } catch {
+      return [];
+    }
+  }
+
   async function startSession() {
     if (micPermission !== 'granted' || locationPermission !== 'granted') {
       setIsError(true);
@@ -149,26 +171,30 @@ function SessionManager() {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const location = await findNearestLocation(position.coords);
+        const locations = await findNearbyLocations(position.coords);
 
-        if (!location) {
-          setIsError(true);
-          setMessage('No study location found nearby. Please move closer to a study space.');
+        if (locations.length === 0) {
+          // Fall back to absolute closest
+          const nearest = await findNearestLocation(position.coords);
+          if (!nearest) {
+            setIsError(true);
+            setMessage('No study location found nearby. Please move closer to a study space.');
+            return;
+          }
+          beginSessionAtLocation(nearest);
           return;
         }
 
-        setSessionState({
-          isActive: true,
-          studyLocationId: location.studyLocationId,
-          locationName: location.name,
-          noisesamples: [],
-          avgNoise: null,
-          occupancy: null,
-        });
+        if (locations.length === 1) {
+          beginSessionAtLocation(locations[0]);
+          return;
+        }
 
-        startAudioSampling();
+        // Multiple nearby — show picker
+        setNearbyLocations(locations);
+        setShowLocationPicker(true);
         setIsError(false);
-        setMessage(`Session started at ${location.name}. Recording noise levels...`);
+        setMessage('');
       },
       () => {
         setIsError(true);
@@ -177,17 +203,32 @@ function SessionManager() {
     );
   }
 
+  function beginSessionAtLocation(location: StudyLocation) {
+    setShowLocationPicker(false);
+    setNearbyLocations([]);
+    setSessionState({
+      isActive: true,
+      studyLocationId: location.studyLocationId,
+      locationName: location.name,
+      noisesamples: [],
+      avgNoise: null,
+      occupancy: null,
+    });
+    startAudioSampling();
+    setIsError(false);
+    setMessage(`Session started at ${location.name}. Recording noise levels...`);
+  }
+
   function endSession() {
     stopAudioSampling();
 
     if (samplesRef.current.length < 10) {
       setIsError(true);
       setMessage(`Not enough noise samples yet (${samplesRef.current.length}/10 minimum). Keep the session going a bit longer.`);
-      startAudioSampling(); // resume sampling
+      startAudioSampling();
       return;
     }
 
-    // Calculate stats from samples
     const avg = samplesRef.current.reduce((a, b) => a + b, 0) / samplesRef.current.length;
     setSessionState((prev) => ({ ...prev, avgNoise: avg }));
     setShowOccupancyPicker(true);
@@ -328,17 +369,54 @@ function SessionManager() {
         </div>
       )}
 
-      {/* Session Status Bar */}
+      {/* Location Picker Modal */}
+      {showLocationPicker && (
+        <div className="session-overlay">
+          <div className="session-modal">
+            <h2>Which spot are you at?</h2>
+            <p>We found {nearbyLocations.length} study spaces nearby. Pick the one you're at:</p>
+            <div className="session-location-list">
+              {nearbyLocations.map((loc) => (
+                <button
+                  key={loc.studyLocationId}
+                  type="button"
+                  className="session-location-btn"
+                  onClick={() => beginSessionAtLocation(loc)}
+                >
+                  📍 {loc.name}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="session-btn session-btn--secondary"
+              onClick={() => {
+                setShowLocationPicker(false);
+                setNearbyLocations([]);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Session Area */}
       <div className={`session-bar ${sessionState.isActive ? 'is-active' : ''}`}>
         {!sessionState.isActive ? (
-          <button
-            type="button"
-            className="session-btn session-btn--start"
-            onClick={startSession}
-            disabled={micPermission === 'denied' || locationPermission === 'denied'}
-          >
-            🎙️ Start Session
-          </button>
+          <div className="session-mic-container">
+            <p className="session-mic-hint">Tap the microphone to start a session</p>
+            <button
+              type="button"
+              className="session-mic-btn"
+              onClick={startSession}
+              disabled={micPermission === 'denied' || locationPermission === 'denied'}
+              aria-label="Start Session"
+            >
+              🎙️
+            </button>
+            <p className="session-mic-label">Start Session</p>
+          </div>
         ) : (
           <div className="session-bar__active">
             <div className="session-bar__info">

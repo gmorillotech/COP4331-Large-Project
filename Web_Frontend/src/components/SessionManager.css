@@ -182,22 +182,99 @@
 
 /* ── SESSION BAR ─────────────────────────────────────── */
 .session-bar {
-  position: fixed;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: white;
-  border-radius: 14px;
-  padding: 10px 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  z-index: 800;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-width: 280px;
-  border: 1px solid #eee;
-  transition: all 0.2s ease;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.session-bar.is-active {
+  background: white;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 24px rgba(0, 123, 255, 0.15);
+  border: 1.5px solid #007bff;
+}
+
+/* ── BIG MIC BUTTON ──────────────────────────────────── */
+.session-mic-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.session-mic-hint {
+  font-size: 15px;
+  color: #64748b;
+  margin: 0;
+}
+
+.session-mic-btn {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #0F766E, #0d9488);
+  font-size: 64px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(15, 118, 110, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.session-mic-btn:hover:not(:disabled) {
+  transform: scale(1.07);
+  box-shadow: 0 12px 40px rgba(15, 118, 110, 0.45);
+}
+
+.session-mic-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.session-mic-btn:disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.session-mic-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0;
+}
+
+/* ── LOCATION LIST ───────────────────────────────────── */
+.session-location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+  width: 100%;
+}
+
+.session-location-btn {
+  background: #f1f5f9;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 15px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.session-location-btn:hover {
+  background: #e0f2f1;
+  border-color: #0F766E;
+  color: #0F766E;
 }
 
 .session-bar.is-active {
