@@ -87,6 +87,14 @@ const userSchema = new Schema(
       default: null,
       index: true,
     },
+    emailVerificationCode: {
+      type: String,
+      default: null,
+    },
+    emailVerificationExpiresAt: {
+      type: Date,
+      default: null,
+    },
     emailVerifiedAt: {
       type: Date,
       default: null,
@@ -97,6 +105,14 @@ const userSchema = new Schema(
       index: true,
     },
     passwordResetExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    passwordResetCode: {
+      type: String,
+      default: null,
+    },
+    passwordResetCodeExpiresAt: {
       type: Date,
       default: null,
     },

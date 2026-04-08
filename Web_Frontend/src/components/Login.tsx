@@ -58,11 +58,18 @@ function Login() {
 
   // Post-register verify email
   const [showVerifyBox, setShowVerifyBox] = useState(false);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [verifiedEmail, setVerifiedEmail] = useState('');
 
   // Forgot / reset password
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
-
+  const [forgotStep, setForgotStep] = useState<'email' | 'code' | 'newpass'>('email');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Resend verification
   const [resendEmail, setResendEmail] = useState('');
@@ -86,6 +93,11 @@ function Login() {
     setIsError(false);
     setShowVerifyBox(false);
     setForgotSent(false);
+    setForgotStep('email');   // ← add
+    setResetEmail('');         // ← add
+    setResetCode('');          // ← add
+    setNewPassword('');        // ← add
+    setConfirmPassword('');    // ← add
   }
 
   // ── LOGIN ────────────────────────────────────────────
@@ -106,7 +118,7 @@ function Login() {
         if (errorMsg.toLowerCase().includes('verify')) {
           setLoginView('resend-verification');
           setResendEmail('');
-          showError('Your account is not verified. Please check your email or resend the verification link.');
+          showError('Your account is not verified. Please check your email for a 6-digit code or resend it.');
           return;
         }
         showError(errorMsg || 'User/Password combination incorrect');
@@ -156,6 +168,7 @@ function Login() {
       setRegFirstName('');
       setRegLastName('');
       setRegDisplayName('');
+      setVerifiedEmail(regEmail.trim().toLowerCase());
       setRegEmail('');
       setRegUsername('');
       setRegPassword('');
@@ -191,6 +204,52 @@ function Login() {
     }
   }
 
+  async function doVerifyResetCode(event: MouseEvent<HTMLInputElement>): Promise<void> {
+  event.preventDefault();
+  if (!resetCode.trim()) {
+    showError('Please enter the reset code.');
+    return;
+  }
+  // Code is validated on submit of new password, just advance the step
+  setForgotStep('newpass');
+  setMessage('');
+}
+
+async function doResetPassword(event: MouseEvent<HTMLInputElement>): Promise<void> {
+  event.preventDefault();
+  if (!newPassword || !confirmPassword) {
+    showError('Please fill in both password fields.');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showError('Passwords do not match.');
+    return;
+  }
+  try {
+    const response = await fetch(apiUrl('/api/auth/reset-password'), {
+      method: 'POST',
+      body: JSON.stringify({ email: resetEmail, code: resetCode, newPassword }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const res: GenericResponse = await response.json();
+    if (!response.ok) {
+      showError(res.error || 'Reset failed. Your code may have expired.');
+      setForgotStep('code'); // send them back to re-enter the code
+      return;
+    }
+    showSuccess('Password reset! You can now log in.');
+    setTimeout(() => {
+      setLoginView('form');
+      setForgotStep('email');
+      setResetEmail('');
+      setResetCode('');
+      setNewPassword('');
+      setConfirmPassword('');
+    }, 2500);
+  } catch (error) {
+    showError(error instanceof Error ? error.message : 'Unable to contact the server');
+  }
+}
 
   // ── RESEND VERIFICATION ───────────────────────────────
   async function doResendVerification(event: MouseEvent<HTMLInputElement>): Promise<void> {
@@ -215,12 +274,43 @@ function Login() {
         return;
       }
 
-      showSuccess(res.message || 'Verification email resent! Check your inbox.');
+      setVerifiedEmail(resendEmail.trim().toLowerCase());
+      showSuccess('Code sent! Check your inbox.');
+      setCodeSent(true);
       setResendEmail('');
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }
   }
+
+async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> {
+  event.preventDefault();
+  if (!verifyCode.trim()) {
+    showError('Please enter the verification code.');
+    return;
+  }
+  // const emailToVerify = showVerifyBox ? regEmail : resendEmail || '';
+  const emailToVerify = verifiedEmail;
+  try {
+    const response = await fetch(apiUrl('/api/auth/verify-email'), {
+      method: 'POST',
+      body: JSON.stringify({ email: emailToVerify, code: verifyCode.trim() }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const res: GenericResponse = await response.json();
+    if (!response.ok) {
+      showError(res.error || 'Invalid or expired code.');
+      return;
+    }
+    showSuccess('Email verified! You can now log in.');
+    setVerifyCode('');
+    setCodeSent(false);
+    handleTabSwitch('login');
+    setTimeout(() => handleTabSwitch('login'), 2500);
+  } catch (error) {
+    showError(error instanceof Error ? error.message : 'Unable to contact the server');
+  }
+}
 
   return (
     <div id="loginDiv">
@@ -290,95 +380,203 @@ function Login() {
 
         {/* FORGOT PASSWORD */}
         {loginView === 'forgot-password' && (
-          <>
-            <span id="inner-title">FORGOT PASSWORD</span>
-            <br />
-              {forgotSent ? (
-                <div className="info-box">
-                <span className="info-box-icon">✓</span>
-                <p>Password reset link sent! Check your inbox and click the link to reset your password. You will be redirected to login automatically after resetting.</p>
-              </div>
-            ) : (
-              <>
-                <p className="auth-info">Enter your email and we'll send you a reset link.</p>
-                <input
-                  type="email"
-                  id="forgotEmail"
-                  placeholder="Email Address"
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-              />
-          <br />
-          <input
-            type="submit"
-            id="forgotButton"
-            className="buttons"
-            value="Send Reset Link"
-            onClick={doForgotPassword}
-          />
-        </>
-      )}
+  <>
+    <span id="inner-title">RESET PASSWORD</span>
+    <br />
+
+    {/* STEP 1 — Enter email */}
+    {forgotStep === 'email' && (
+      <>
+        <p className="auth-info">Enter your email and we'll send you a reset code.</p>
+        <input
+          type="email"
+          id="forgotEmail"
+          placeholder="Email Address"
+          value={resetEmail}
+          onChange={(e) => setResetEmail(e.target.value)}
+        />
+        <br />
+        <input
+          type="submit"
+          className="buttons"
+          value="Send Reset Code"
+          onClick={async (e) => {
+            e.preventDefault();
+            if (!resetEmail) { showError('Please enter your email.'); return; }
+            const response = await fetch(apiUrl('/api/auth/forgot-password'), {
+              method: 'POST',
+              body: JSON.stringify({ email: resetEmail }),
+              headers: { 'Content-Type': 'application/json' },
+            });
+            const res: GenericResponse = await response.json();
+            showSuccess(res.message || 'Code sent! Check your inbox.');
+            setForgotStep('code');
+          }}
+        />
+      </>
+    )}
+
+    {/* STEP 2 — Enter code */}
+    {forgotStep === 'code' && (
+      <>
+        <div className="info-box">
+          <span className="info-box-icon">✉</span>
+          <p>We sent a 6-digit code to {resetEmail}. Enter it below.</p>
+        </div>
+        <input
+          type="text"
+          placeholder="Enter 6-digit code"
+          maxLength={6}
+          value={resetCode}
+          onChange={(e) => setResetCode(e.target.value)}
+        />
+        <br />
+        <input
+          type="submit"
+          className="buttons"
+          value="Verify Code"
+          onClick={doVerifyResetCode}
+        />
+        <span className="auth-link" onClick={() => setForgotStep('email')}>
+          ← Use a different email
+        </span>
+      </>
+    )}
+
+    {/* STEP 3 — Enter new password */}
+    {forgotStep === 'newpass' && (
+      <>
+        <p className="auth-info">Enter your new password below.</p>
+        <input
+          type="password"
+          placeholder="New Password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <br />
+        <input
+          type="password"
+          placeholder="Confirm New Password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <br />
+        <input
+          type="submit"
+          className="buttons"
+          value="Reset Password"
+          onClick={doResetPassword}
+        />
+      </>
+    )}
+
     <span
       className="auth-link"
-      onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); setForgotSent(false); }}
+      onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); setForgotStep('email'); }}
     >
       ← Back to Login
     </span>
   </>
-    )}
+)}
 
 
         {/* RESEND VERIFICATION */}
         {loginView === 'resend-verification' && (
-          <>
-            <span id="inner-title">VERIFY YOUR EMAIL</span>
-            <br />
-            <div className="info-box">
-              <span className="info-box-icon">✉</span>
-              <p>Your account has not been verified yet. Enter your email below to receive a new verification link.</p>
-            </div>
-            <input
-              type="email"
-              id="resendEmail"
-              placeholder="Email Address"
-              value={resendEmail}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setResendEmail(e.target.value)}
-            />
-            <br />
-            <input
-              type="submit"
-              id="resendButton"
-              className="buttons"
-              value="Resend Verification Email"
-              onClick={doResendVerification}
-            />
-            <span
-              className="auth-link"
-              onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); }}
-            >
-              ← Back to Login
-            </span>
-          </>
-        )}
+  <>
+    <span id="inner-title">VERIFY YOUR EMAIL</span>
+    <br />
+    {!codeSent ? (
+      <>
+        <div className="info-box">
+          <span className="info-box-icon">✉</span>
+          <p>Enter your email below to receive a 6-digit verification code.</p>
+        </div>
+        <input
+          type="email"
+          placeholder="Email Address"
+          value={resendEmail}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setResendEmail(e.target.value)}
+        />
+        <br />
+        <input
+          type="submit"
+          className="buttons"
+          value="Send Verification Code"
+          onClick={doResendVerification}
+        />
+      </>
+    ) : (
+      <>
+        <div className="info-box">
+          <span className="info-box-icon">✉</span>
+          <p>Check your email for a 6-digit code and enter it below.</p>
+        </div>
+        <input
+          type="text"
+          className="reg-input"
+          placeholder="Enter 6-digit code"
+          maxLength={6}
+          value={verifyCode}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
+        />
+        <br />
+        <input
+          type="submit"
+          className="buttons"
+          value="Verify Account"
+          onClick={doVerifyCode}
+        />
+        <span className="auth-link" onClick={() => setCodeSent(false)}>
+          ← Use a different email
+        </span>
+      </>
+    )}
+    <span
+      className="auth-link"
+      onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); setCodeSent(false); }}
+    >
+      ← Back to Login
+    </span>
+  </>
+)}
       </div>
 
       {/* ── REGISTER TAB ── */}
       <div className="tab-panel" style={{ display: activeTab === 'register' ? 'flex' : 'none' }}>
-        {showVerifyBox ? (
-          <>
-            <div className="info-box">
-              <span className="info-box-icon">✉</span>
-              <p>Account created! A verification email has been sent to your inbox. Click the link in the email to activate your account, then come back here to log in.</p>
-          </div>
-          <input
-            type="submit"
-            id="loginButton"
-            className="buttons"
-            value="Back to Login"
-            onClick={() => handleTabSwitch('login')}
-          />
-        </>
-        ) : (
+{showVerifyBox ? (
+  <>
+    <span id="inner-title">CHECK YOUR EMAIL</span>
+    <br />
+    <div className="info-box">
+      <span className="info-box-icon">✉</span>
+      {/* OLD: <p>Account created! A verification email has been sent to your inbox. Click the link in the email to activate your account, then come back here to log in.</p> */}
+      <p>Account created! We sent a 6-digit code to your email. Enter it below to verify your account.</p>
+    </div>
+    <input
+      type="text"
+      id="verifyCode"
+      className="reg-input"
+      placeholder="Enter 6-digit code"
+      maxLength={6}
+      value={verifyCode}
+      onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
+    />
+    <br />
+    <input
+      type="submit"
+      id="verifyButton"
+      className="buttons"
+      value="Verify Account"
+      onClick={doVerifyCode}
+    />
+    <span
+      className="auth-link"
+      onClick={doResendVerification.bind(null, { preventDefault: () => {} } as any)}
+    >
+      Resend code
+    </span>
+  </>
+) : (
           <>
             <span id="inner-title">REGISTER</span>
             <br />
