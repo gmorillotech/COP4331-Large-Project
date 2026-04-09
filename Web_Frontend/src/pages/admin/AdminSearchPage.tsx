@@ -17,17 +17,11 @@ export type SearchResultItem = {
   sublocationLabel?: string;
 };
 
-type SearchApiGroup = {
-  locationGroupId: string;
-  name: string;
-  center?: { lat: number; lng: number };
-  radius?: number;
-};
-
-type SearchApiLocation = {
-  studyLocationId: string;
-  name: string;
-  groupName?: string;
+type SearchApiNode = {
+  id: string;
+  kind: 'group' | 'location';
+  title: string;
+  buildingName?: string;
   lat?: number;
   lng?: number;
   floorLabel?: string;
@@ -35,9 +29,14 @@ type SearchApiLocation = {
 };
 
 type SearchApiResponse = {
-  groups: SearchApiGroup[];
-  studyLocations: SearchApiLocation[];
+  results?: SearchApiNode[];
   error?: string;
+};
+
+type GroupLookup = {
+  locationGroupId: string;
+  centerLatitude?: number | null;
+  centerLongitude?: number | null;
 };
 
 function AdminSearchPage() {
@@ -65,36 +64,57 @@ function AdminSearchPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(apiUrl(`/api/admin/search?q=${encodeURIComponent(query)}`), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data: SearchApiResponse = await res.json();
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const [res, groupsRes] = await Promise.all([
+        fetch(
+          apiUrl(
+            `/api/locations/search?q=${encodeURIComponent(query)}&includeGroups=true&includeLocations=true&sortBy=relevance`,
+          ),
+          { headers },
+        ),
+        fetch(apiUrl('/api/locations/groups'), { headers }),
+      ]);
+      const [data, groupsPayload] = await Promise.all([
+        res.json() as Promise<SearchApiResponse>,
+        groupsRes.json() as Promise<GroupLookup[] | { groups?: GroupLookup[] }>,
+      ]);
 
       if (!res.ok || data.error) {
         setResults([]);
         return;
       }
 
-      const items: SearchResultItem[] = [
-        ...data.groups.map((g): SearchResultItem => ({
-          id: g.locationGroupId,
-          kind: 'group',
-          name: g.name,
-          lat: g.center?.lat,
-          lng: g.center?.lng,
-          radius: g.radius,
-        })),
-        ...data.studyLocations.map((l): SearchResultItem => ({
-          id: l.studyLocationId,
-          kind: 'location',
-          name: l.name,
-          parentName: l.groupName,
-          lat: l.lat,
-          lng: l.lng,
-          floorLabel: l.floorLabel,
-          sublocationLabel: l.sublocationLabel,
-        })),
-      ];
+      const allGroups: GroupLookup[] = Array.isArray(groupsPayload)
+        ? groupsPayload
+        : groupsPayload.groups ?? [];
+      const groupsById = new Map(
+        allGroups.map((group) => [
+          group.locationGroupId,
+          {
+            lat: group.centerLatitude ?? undefined,
+            lng: group.centerLongitude ?? undefined,
+          },
+        ]),
+      );
+
+      const items: SearchResultItem[] = (data.results ?? [])
+        .filter((item) => item.kind === 'group' || item.kind === 'location')
+        .map((item): SearchResultItem => {
+          const fallbackGroupCoords = item.kind === 'group'
+            ? groupsById.get(item.id)
+            : undefined;
+
+          return {
+            id: item.id,
+            kind: item.kind,
+            name: item.title,
+            parentName: item.kind === 'location' ? item.buildingName : undefined,
+            lat: item.lat ?? fallbackGroupCoords?.lat,
+            lng: item.lng ?? fallbackGroupCoords?.lng,
+            floorLabel: item.floorLabel,
+            sublocationLabel: item.sublocationLabel,
+          };
+        });
 
       setResults(items);
 

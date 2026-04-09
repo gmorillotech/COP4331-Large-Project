@@ -7,6 +7,7 @@ import './Login.css';
 
 type Tab = 'login' | 'register';
 type LoginView = 'form' | 'forgot-password' | 'resend-verification';
+type VerificationFlow = 'standard' | 'forced-reset';
 
 type AuthUser = {
   userId: string;
@@ -46,6 +47,7 @@ type GenericResponse = {
   reason?: string;
   email?: string;
   maskedEmail?: string;
+  requiresPasswordReset?: boolean;
 };
 
 function Login() {
@@ -68,6 +70,7 @@ function Login() {
   const [verifyCode, setVerifyCode] = useState('');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationMaskedEmail, setVerificationMaskedEmail] = useState('');
+  const [verificationFlow, setVerificationFlow] = useState<VerificationFlow>('standard');
 
   const [forgotStep, setForgotStep] = useState<'lookup' | 'code' | 'newpass'>('lookup');
   const [resetIdentifier, setResetIdentifier] = useState('');
@@ -103,6 +106,7 @@ function Login() {
     setVerifyCode('');
     setVerificationEmail('');
     setVerificationMaskedEmail('');
+    setVerificationFlow('standard');
   }
 
   function handleTabSwitch(tab: Tab): void {
@@ -132,6 +136,20 @@ function Login() {
         const resolvedEmail = res.email?.trim().toLowerCase() || '';
         const resolvedMaskedEmail = res.maskedEmail || (resolvedEmail ? maskEmail(resolvedEmail) : '');
 
+        if (res.reason === 'forced_reset_verify') {
+          setLoginView('resend-verification');
+          setVerificationFlow('forced-reset');
+          setVerificationEmail(resolvedEmail);
+          setVerificationMaskedEmail(resolvedMaskedEmail);
+          setVerifyCode('');
+          showError(
+            resolvedMaskedEmail
+              ? `Enter the 6-digit verification code sent to ${resolvedMaskedEmail} to continue resetting your password.`
+              : errorMsg || 'Verify your email to continue resetting your password.',
+          );
+          return;
+        }
+
         if (res.reason === 'forced_reset') {
           setLoginView('forgot-password');
           setResetIdentifier(loginName.trim());
@@ -151,6 +169,7 @@ function Login() {
 
         if (res.reason === 'email_not_verified' || errorMsg.toLowerCase().includes('verify')) {
           setLoginView('resend-verification');
+          setVerificationFlow('standard');
           setVerificationEmail(resolvedEmail);
           setVerificationMaskedEmail(resolvedMaskedEmail);
           setVerifyCode('');
@@ -376,6 +395,24 @@ function Login() {
         return;
       }
 
+      const resolvedEmail = res.email?.trim().toLowerCase() || verificationEmail;
+      const resolvedMaskedEmail = res.maskedEmail || (resolvedEmail ? maskEmail(resolvedEmail) : verificationMaskedEmail);
+
+      if (res.requiresPasswordReset) {
+        setVerificationEmail(resolvedEmail);
+        setVerificationMaskedEmail(resolvedMaskedEmail);
+        setResetIdentifier(loginName.trim());
+        setResetEmail(resolvedEmail);
+        setResetMaskedEmail(resolvedMaskedEmail);
+        setResetCode(verifyCode.trim());
+        setNewPassword('');
+        setConfirmPassword('');
+        setForgotStep('newpass');
+        setLoginView('forgot-password');
+        showSuccess('Email verified. Set a new password to finish signing in.');
+        return;
+      }
+
       showSuccess('Email verified! You can now log in.');
       resetVerificationState();
       setShowVerifyBox(false);
@@ -554,6 +591,11 @@ function Login() {
           <>
             <span id="inner-title">VERIFY YOUR EMAIL</span>
             <br />
+            {verificationFlow === 'forced-reset' && (
+              <p className="auth-info">
+                Verify your email first, then you&apos;ll be prompted to set a new password.
+              </p>
+            )}
             <div className="info-box">
               <span className="info-box-icon">&#9993;</span>
               <p>
