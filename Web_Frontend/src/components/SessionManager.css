@@ -2,7 +2,7 @@
 .session-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -27,15 +27,21 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
 }
 
+.session-modal--form {
+  text-align: left;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
 .session-modal__icon {
   font-size: 2.5em;
   margin-bottom: 12px;
 }
 
 .session-modal h2 {
-  font-size: 1.3em;
+  font-size: 1.25em;
   font-weight: 700;
-  color: #222;
+  color: #1e293b;
   margin: 0 0 12px;
 }
 
@@ -46,14 +52,29 @@
   margin: 0 0 16px;
 }
 
+.session-modal__desc {
+  font-size: 0.85em !important;
+  color: #64748b !important;
+  margin-bottom: 20px !important;
+}
+
+.session-modal__error {
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.85em !important;
+  margin-bottom: 14px !important;
+  text-align: left;
+}
+
 .session-modal__list {
   list-style: none;
-  padding: 0;
+  padding: 12px 16px;
   margin: 0 0 16px;
   text-align: left;
   background: #f8f9fa;
   border-radius: 10px;
-  padding: 12px 16px;
 }
 
 .session-modal__list li {
@@ -66,6 +87,68 @@
   font-size: 0.8em;
   color: #888;
   font-style: italic;
+}
+
+.session-modal__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.session-modal__actions .session-btn {
+  flex: 1;
+}
+
+/* Confirmation modal */
+.session-confirm__location-name {
+  font-size: 1.3em !important;
+  font-weight: 700 !important;
+  color: #0F766E !important;
+  margin: 4px 0 8px !important;
+}
+
+.session-confirm__building {
+  font-size: 0.88em !important;
+  color: #64748b !important;
+  margin-bottom: 20px !important;
+}
+
+/* ── FORM ─────────────────────────────────────────────── */
+.session-form-group {
+  margin-bottom: 14px;
+}
+
+.session-form-label {
+  display: block;
+  font-size: 0.78em;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 5px;
+}
+
+.session-form-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.92em;
+  color: #1e293b;
+  background: white;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+
+.session-form-input:focus {
+  border-color: #0F766E;
+}
+
+.session-form-input--readonly {
+  background: #f1f5f9;
+  color: #475569;
+  cursor: not-allowed;
 }
 
 /* ── BUTTONS ─────────────────────────────────────────── */
@@ -83,13 +166,18 @@
 }
 
 .session-btn--primary {
-  background-color: #007bff;
+  background-color: #0F766E;
   color: white;
 }
 
-.session-btn--primary:hover {
-  background-color: #0056b3;
+.session-btn--primary:hover:not(:disabled) {
+  background-color: #0d9488;
   transform: translateY(-1px);
+}
+
+.session-btn--primary:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
 }
 
 .session-btn--secondary {
@@ -97,158 +185,17 @@
   color: #555;
 }
 
-.session-btn--secondary:hover {
+.session-btn--secondary:hover:not(:disabled) {
   background-color: #e0e8f0;
 }
 
-.session-btn--start {
-  background-color: #007bff;
-  color: white;
-  width: auto;
-  padding: 10px 20px;
-  display: inline-block;
-}
-
-.session-btn--start:hover {
-  background-color: #0056b3;
-}
-
-.session-btn--start:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
-
-.session-btn--end {
-  background-color: #ff4757;
-  color: white;
-  width: auto;
-  padding: 10px 20px;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.session-btn--end:hover {
-  background-color: #cc0000;
-}
-
-/* ── OCCUPANCY GRID ──────────────────────────────────── */
-.session-occupancy-grid {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin: 16px 0;
-  flex-wrap: wrap;
-}
-
-.session-occupancy-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 16px;
-  border: 2px solid #eee;
-  border-radius: 12px;
-  background: white;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  min-width: 68px;
-}
-
-.session-occupancy-btn:hover {
-  border-color: #007bff;
-  background: #f0f7ff;
-  transform: translateY(-2px);
-}
-
-.session-occupancy-btn:disabled {
+.session-btn--secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.session-occupancy-btn__emoji {
-  font-size: 1.4em;
-}
-
-.session-occupancy-btn__level {
-  font-size: 0.85em;
-  font-weight: 700;
-  color: #333;
-}
-
-.session-occupancy-btn__label {
-  font-size: 0.75em;
-  color: #777;
-}
-
-/* ── SESSION BAR ─────────────────────────────────────── */
-.session-bar {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-}
-
-.session-bar.is-active {
-  background: white;
-  border-radius: 16px;
-  padding: 16px 20px;
-  box-shadow: 0 4px 24px rgba(0, 123, 255, 0.15);
-  border: 1.5px solid #007bff;
-}
-
-/* ── BIG MIC BUTTON ──────────────────────────────────── */
-.session-mic-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-.session-mic-hint {
-  font-size: 15px;
-  color: #64748b;
-  margin: 0;
-}
-
-.session-mic-btn {
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  border: none;
-  background: linear-gradient(135deg, #0F766E, #0d9488);
-  font-size: 64px;
-  cursor: pointer;
-  box-shadow: 0 8px 32px rgba(15, 118, 110, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.session-mic-btn:hover:not(:disabled) {
-  transform: scale(1.07);
-  box-shadow: 0 12px 40px rgba(15, 118, 110, 0.45);
-}
-
-.session-mic-btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.session-mic-btn:disabled {
-  background: #cbd5e1;
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-.session-mic-label {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1e293b;
-  margin: 0;
+.session-btn--create {
+  margin-top: 0;
 }
 
 /* ── LOCATION LIST ───────────────────────────────────── */
@@ -269,6 +216,8 @@
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
+  color: #1e293b;
+  font-weight: 600;
 }
 
 .session-location-btn:hover {
@@ -277,64 +226,377 @@
   color: #0F766E;
 }
 
-.session-bar.is-active {
-  border-color: #007bff;
-  box-shadow: 0 4px 20px rgba(0, 123, 255, 0.2);
+.session-location-btn__building {
+  font-weight: 400;
+  color: #64748b;
 }
 
-.session-bar__active {
+/* ── MAIN CONTAINER ──────────────────────────────────── */
+.dc-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+/* ── SESSION LOCATION BANNER ─────────────────────────── */
+.dc-location-banner {
+  width: 100%;
+  background: linear-gradient(135deg, #0F766E, #0d9488);
+  border-radius: 14px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  width: 100%;
-  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(15, 118, 110, 0.25);
 }
 
-.session-bar__info {
+.dc-location-banner__pin {
+  font-size: 1.4em;
+  flex-shrink: 0;
+}
+
+.dc-location-banner__text {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.session-bar__location {
-  font-size: 0.88em;
-  font-weight: 600;
-  color: #222;
-}
-
-.session-bar__db {
-  font-size: 1.1em;
+.dc-location-banner__name {
+  font-size: 1em;
   font-weight: 700;
-  color: #007bff;
+  color: white;
 }
 
-.session-bar__samples {
-  font-size: 0.75em;
-  color: #888;
-}
-
-.session-bar__samples.ready {
-  color: #28a745;
-  font-weight: 600;
-}
-
-.session-bar__denied {
+.dc-location-banner__building {
   font-size: 0.8em;
-  color: #cc0000;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.dc-location-banner__samples {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  flex-shrink: 0;
+}
+
+.dc-location-banner__samples.ready {
+  color: #a7f3d0;
+}
+
+/* ── PANEL CARD ──────────────────────────────────────── */
+.dc-panel {
+  width: 100%;
+  background: white;
+  border-radius: 16px;
+  padding: 18px 22px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.07);
+  border: 1px solid #e2e8f0;
+}
+
+.dc-panel--row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.dc-panel__label {
+  font-size: 0.72em;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+.dc-panel__sublabel {
+  font-size: 0.8em;
+  color: #94a3b8;
+  margin: 4px 0 0;
   text-align: center;
+}
+
+/* ── DECIBEL READOUT ─────────────────────────────────── */
+.dc-db-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.dc-db-readout__number {
+  font-size: 3em;
+  font-weight: 800;
+  color: #1e293b;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-db-readout__unit {
+  font-size: 1.2em;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* ── QUALITATIVE NOISE BAR ───────────────────────────── */
+.dc-noise-quality-label {
+  font-size: 1.5em;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0 0 14px;
+}
+
+.dc-noise-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dc-noise-bar {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  border-radius: 99px;
+  background: linear-gradient(to right,
+    #3b82f6 0%,
+    #06b6d4 20%,
+    #22c55e 35%,
+    #eab308 55%,
+    #f97316 75%,
+    #ef4444 100%
+  );
+  overflow: visible;
+}
+
+.dc-noise-bar__indicator {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 22px;
+  background: white;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+  transition: left 0.3s ease;
+  pointer-events: none;
+}
+
+.dc-noise-bar-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75em;
+  color: #94a3b8;
+}
+
+/* ── BIG MIC BUTTON ──────────────────────────────────── */
+.session-mic-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.session-mic-hint {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+  text-align: center;
+}
+
+.session-mic-btn {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #0F766E, #0d9488);
+  font-size: 64px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(15, 118, 110, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.session-mic-btn--active {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 8px 32px rgba(220, 38, 38, 0.35);
+  animation: pulse-active 2s infinite;
+}
+
+@keyframes pulse-active {
+  0%, 100% { box-shadow: 0 8px 32px rgba(220, 38, 38, 0.35); }
+  50%       { box-shadow: 0 8px 48px rgba(220, 38, 38, 0.55); }
+}
+
+.session-mic-btn:hover:not(:disabled) {
+  transform: scale(1.07);
+}
+
+.session-mic-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.session-mic-btn:disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.session-mic-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
   margin: 0;
 }
 
+/* ── OCCUPANCY VERTICAL SLIDER ───────────────────────── */
+.dc-occupancy-wrap {
+  width: 100%;
+}
+
+.dc-occupancy-current {
+  font-size: 1.6em;
+  font-weight: 800;
+  margin: 0 0 2px;
+  transition: color 0.2s ease;
+}
+
+.dc-occupancy-sub {
+  font-size: 0.78em;
+  color: #94a3b8;
+  margin: 0 0 16px;
+}
+
+.dc-occupancy-layout {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.dc-occupancy-bar-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.dc-occupancy-bar {
+  position: relative;
+  width: 20px;
+  height: 180px;
+  border-radius: 99px;
+  background: linear-gradient(to bottom,
+    #ef4444 0%,
+    #f97316 25%,
+    #eab308 50%,
+    #84cc16 75%,
+    #22c55e 100%
+  );
+  flex-shrink: 0;
+}
+
+.dc-occupancy-bar__dot {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: top 0.25s ease;
+  pointer-events: none;
+}
+
+.dc-occupancy-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 180px;
+  padding: 4px 0;
+}
+
+.dc-occupancy-label-btn {
+  background: none;
+  border: none;
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: color 0.15s ease, transform 0.1s ease;
+  line-height: 1;
+}
+
+.dc-occupancy-label-btn:hover {
+  transform: translateX(4px);
+}
+
+.dc-occupancy-label-btn.active {
+  font-weight: 800;
+  font-size: 1.05em;
+}
+
+/* ── CREATE GROUP BUTTON ─────────────────────────────── */
+.dc-create-group-btn {
+  width: 100%;
+  padding: 14px 20px;
+  background: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 14px;
+  font-size: 0.95em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.3);
+}
+
+.dc-create-group-btn:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
+}
+
+.dc-create-group-btn:active {
+  transform: translateY(0);
+}
+
+/* ── STATUS MESSAGES ─────────────────────────────────── */
 .session-bar__message {
-  font-size: 0.82em;
+  font-size: 0.88em;
   text-align: center;
   margin: 0;
+  padding: 10px 16px;
+  border-radius: 10px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .session-bar__message.success {
-  color: #28a745;
+  color: #065f46;
+  background: #d1fae5;
 }
 
 .session-bar__message.error {
-  color: #cc0000;
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.session-bar__denied {
+  font-size: 0.82em;
+  color: #991b1b;
+  background: #fee2e2;
+  border-radius: 10px;
+  padding: 10px 16px;
+  text-align: center;
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
