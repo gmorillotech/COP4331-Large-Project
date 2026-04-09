@@ -32,11 +32,25 @@ function normalizePinColor(pinColor) {
 }
 
 function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email ?? "").trim().toLowerCase();
 }
 
 function generateSixDigitCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function maskEmail(email) {
+  const normalizedEmail = normalizeEmail(email);
+  const atIndex = normalizedEmail.indexOf("@");
+  if (atIndex <= 0) {
+    return normalizedEmail;
+  }
+
+  const localPart = normalizedEmail.slice(0, atIndex);
+  const domain = normalizedEmail.slice(atIndex + 1);
+  const visiblePart = localPart.slice(0, 2);
+  const maskedPart = "*".repeat(Math.max(0, localPart.length - visiblePart.length));
+  return `${visiblePart}${maskedPart}@${domain}`;
 }
 
 async function sendCodeEmail({ to, subject, intro, code }) {
@@ -94,6 +108,7 @@ const register = async (req, res) => {
     }
 
     const emailVerificationCode = generateSixDigitCode();
+    const emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const newUser = new User({
@@ -112,7 +127,7 @@ const register = async (req, res) => {
       userNoiseWF: 1,
       userOccupancyWF: 1,
       emailVerificationCode,
-      emailVerificationExpiresAt: new Date(Date.now() + CODE_TTL_MS),
+      emailVerificationExpiresAt,
       emailVerifiedAt: null,
       passwordChangedAt: new Date(),
     });
@@ -134,6 +149,7 @@ const register = async (req, res) => {
       userId: newUser.userId,
       login: newUser.login,
       email: newUser.email,
+      maskedEmail: maskEmail(newUser.email),
       message: "Registration successful. Please check your email for a verification code.",
     });
   } catch (error) {
@@ -155,15 +171,25 @@ const login = async (req, res) => {
     }
 
     if (user.accountStatus === "suspended") {
-      return res.status(403).json({ error: "This account is suspended." });
+      return res.status(403).json({ error: "This account is suspended. Please contact an administrator." });
     }
 
     if (user.accountStatus === "forced_reset") {
-      return res.status(403).json({ error: "A password reset is required for this account." });
+      return res.status(403).json({
+        reason: "forced_reset",
+        email: user.email,
+        maskedEmail: maskEmail(user.email),
+        error: "A password reset is required for this account. Use the reset code sent to your email before logging in.",
+      });
     }
 
     if (!user.emailVerifiedAt) {
-      return res.status(403).json({ error: "Please verify your email before logging in." });
+      return res.status(403).json({
+        reason: "email_not_verified",
+        email: user.email,
+        maskedEmail: maskEmail(user.email),
+        error: "Please verify your email before logging in.",
+      });
     }
 
     const token = tokenService.createToken(user.firstName, user.lastName, user.userId);
@@ -214,7 +240,8 @@ const resendVerification = async (req, res) => {
       return res.status(400).json({ error: "Account already verified." });
     }
 
-    user.emailVerificationCode = generateSixDigitCode();
+    const emailVerificationCode = generateSixDigitCode();
+    user.emailVerificationCode = emailVerificationCode;
     user.emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
@@ -223,14 +250,18 @@ const resendVerification = async (req, res) => {
         to: user.email,
         subject: "Your StudySpot Verification Code",
         intro: "Your new verification code is:",
-        code: user.emailVerificationCode,
+        code: emailVerificationCode,
       });
     } catch (mailError) {
       console.error("Failed to send verification email:", mailError.message);
-      return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
+      return res.status(500).json({ error: "Unable to send verification code. Please try again later." });
     }
 
-    return res.status(200).json({ message: "Verification code sent! Check your inbox." });
+    return res.status(200).json({
+      email: user.email,
+      maskedEmail: maskEmail(user.email),
+      message: "Verification code sent! Check your inbox.",
+    });
   } catch (error) {
     return res.status(500).json({ error: "Server error." });
   }
@@ -239,15 +270,23 @@ const resendVerification = async (req, res) => {
 const forgotPassword = async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(req.body?.email);
-    const user = normalizedEmail ? await User.findOne({ email: normalizedEmail }) : null;
+    const normalizedLogin = String(req.body?.login ?? "").trim().toLowerCase();
+
+    let user = null;
+    if (normalizedEmail) {
+      user = await User.findOne({ email: normalizedEmail });
+    } else if (normalizedLogin) {
+      user = await User.findOne({ login: normalizedLogin });
+    }
 
     if (!user) {
       return res.status(200).json({
-        message: "If an account with that email exists, a reset code has been sent.",
+        message: "If an account exists, a reset code has been sent.",
       });
     }
 
-    user.passwordResetCode = generateSixDigitCode();
+    const resetCode = generateSixDigitCode();
+    user.passwordResetCode = resetCode;
     user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
@@ -256,14 +295,16 @@ const forgotPassword = async (req, res) => {
         to: user.email,
         subject: "Your StudySpot Password Reset Code",
         intro: "Your password reset code is:",
-        code: user.passwordResetCode,
+        code: resetCode,
       });
     } catch (mailError) {
       console.error("Failed to send password reset email:", mailError.message);
     }
 
     return res.status(200).json({
-      message: "If an account with that email exists, a reset code has been sent.",
+      email: user.email,
+      maskedEmail: maskEmail(user.email),
+      message: "If an account exists, a reset code has been sent.",
     });
   } catch (error) {
     return res.status(500).json({ error: "Server error.", details: error.message });
@@ -343,6 +384,7 @@ const updateProfile = async (req, res) => {
       if (!EMAIL_REGEX.test(normalizedEmail)) {
         return res.status(400).json({ error: "Please provide a valid email address." });
       }
+
       if (normalizedEmail !== user.email) {
         const existing = await User.findOne({
           email: normalizedEmail,
@@ -351,6 +393,7 @@ const updateProfile = async (req, res) => {
         if (existing) {
           return res.status(409).json({ error: "That email address is already in use." });
         }
+
         user.email = normalizedEmail;
         user.emailVerifiedAt = null;
         user.emailVerificationCode = generateSixDigitCode();

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '../config';
+import { maskEmail } from '../utils/emailMask';
 import './ProfilePanel.css';
 
 type User = {
@@ -165,7 +166,7 @@ function ProfilePanel() {
         showError(res.error || 'Failed to send reset code.');
         return;
       }
-      showSuccess('Reset code sent to your email!');
+      showSuccess(`Enter the 6-digit code sent to ${maskEmail(user.email)}.`);
       setResetStep('code');
       setView('forgotSent');
     } catch (error) {
@@ -231,7 +232,7 @@ function ProfilePanel() {
         return;
       }
 
-      showSuccess('Email updated! A verification code has been sent to your new email. Please verify it before logging in again.');
+      showSuccess('Email updated! If verification is required for this account, use the latest 6-digit code sent to your new email before logging in again.');
       const updatedUser = { ...user!, email: newEmail.trim().toLowerCase() };
       setUser(updatedUser);
       localStorage.setItem('user_data', JSON.stringify(updatedUser));
@@ -372,7 +373,7 @@ function ProfilePanel() {
             </button>
             <h3 className="profile-edit-title">Update Email</h3>
             <p className="profile-edit-info">
-              You will need to verify your new email address before you can log in again.
+              If verification is enabled for your account, you will need the latest code sent to your new email before logging in again.
             </p>
             <input
               type="email"
@@ -403,7 +404,7 @@ function ProfilePanel() {
       <>
         <div className="profile-info-box">
           <span className="profile-info-icon">✉</span>
-          <p>We sent a 6-digit reset code to <strong>{user?.email}</strong>. Enter it below.</p>
+          <p>Enter the 6-digit code sent to <strong>{user?.email ? maskEmail(user.email) : 'your email'}</strong>.</p>
         </div>
         <input
           type="text"

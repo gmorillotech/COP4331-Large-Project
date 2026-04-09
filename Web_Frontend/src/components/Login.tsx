@@ -2,33 +2,40 @@ import type { ChangeEvent, MouseEvent } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl } from '../config';
+import { maskEmail } from '../utils/emailMask';
 import './Login.css';
 
 type Tab = 'login' | 'register';
-type LoginView = 'form' | 'forgot-password' | 'reset-password' | 'resend-verification';
+type LoginView = 'form' | 'forgot-password' | 'resend-verification';
+
+type AuthUser = {
+  userId: string;
+  login: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  favorites: string[];
+  userNoiseWF: number;
+  userOccupancyWF: number;
+  role?: string;
+  accountStatus?: string;
+};
 
 type LoginResponse = {
-  accessToken: string;
-  user: {
-    userId: string;
-    login: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    displayName: string;
-    favorites: string[];
-    userNoiseWF: number;
-    userOccupancyWF: number;
-    role?: string;
-    accountStatus?: string;
-  };
+  accessToken?: string;
+  user?: AuthUser;
   error?: string;
+  reason?: string;
+  email?: string;
+  maskedEmail?: string;
 };
 
 type RegisterResponse = {
   userId: string;
   login: string;
   email: string;
+  maskedEmail?: string;
   message: string;
   error?: string;
 };
@@ -36,6 +43,9 @@ type RegisterResponse = {
 type GenericResponse = {
   message?: string;
   error?: string;
+  reason?: string;
+  email?: string;
+  maskedEmail?: string;
 };
 
 function Login() {
@@ -44,11 +54,9 @@ function Login() {
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
 
-  // Login fields
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
-  // Register fields
   const [regFirstName, setRegFirstName] = useState('');
   const [regLastName, setRegLastName] = useState('');
   const [regDisplayName, setRegDisplayName] = useState('');
@@ -56,21 +64,18 @@ function Login() {
   const [regUsername, setRegUsername] = useState('');
   const [regPassword, setRegPassword] = useState('');
 
-  // Post-register verify email
   const [showVerifyBox, setShowVerifyBox] = useState(false);
   const [verifyCode, setVerifyCode] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
-  const [verifiedEmail, setVerifiedEmail] = useState('');
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [verificationMaskedEmail, setVerificationMaskedEmail] = useState('');
 
-  // Forgot / reset password
-  const [forgotStep, setForgotStep] = useState<'email' | 'code' | 'newpass'>('email');
+  const [forgotStep, setForgotStep] = useState<'lookup' | 'code' | 'newpass'>('lookup');
+  const [resetIdentifier, setResetIdentifier] = useState('');
   const [resetEmail, setResetEmail] = useState('');
+  const [resetMaskedEmail, setResetMaskedEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  // Resend verification
-  const [resendEmail, setResendEmail] = useState('');
 
   const navigate = useNavigate();
 
@@ -84,22 +89,34 @@ function Login() {
     setMessage(msg);
   }
 
+  function resetForgotPasswordState(): void {
+    setForgotStep('lookup');
+    setResetIdentifier('');
+    setResetEmail('');
+    setResetMaskedEmail('');
+    setResetCode('');
+    setNewPassword('');
+    setConfirmPassword('');
+  }
+
+  function resetVerificationState(): void {
+    setVerifyCode('');
+    setVerificationEmail('');
+    setVerificationMaskedEmail('');
+  }
+
   function handleTabSwitch(tab: Tab): void {
     setActiveTab(tab);
     setLoginView('form');
     setMessage('');
     setIsError(false);
     setShowVerifyBox(false);
-    setForgotStep('email');   // ← add
-    setResetEmail('');         // ← add
-    setResetCode('');          // ← add
-    setNewPassword('');        // ← add
-    setConfirmPassword('');    // ← add
+    resetVerificationState();
+    resetForgotPasswordState();
   }
 
-  // ── LOGIN ────────────────────────────────────────────
-  async function doLogin(event: MouseEvent<HTMLInputElement>): Promise<void> {
-    event.preventDefault();
+  async function doLogin(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
 
     try {
       const response = await fetch(apiUrl('/api/auth/login'), {
@@ -112,13 +129,45 @@ function Login() {
 
       if (!response.ok) {
         const errorMsg = res.error || '';
-        if (errorMsg.toLowerCase().includes('verify')) {
-          setLoginView('resend-verification');
-          setResendEmail('');
-          showError('Your account is not verified. Please check your email for a 6-digit code or resend it.');
+        const resolvedEmail = res.email?.trim().toLowerCase() || '';
+        const resolvedMaskedEmail = res.maskedEmail || (resolvedEmail ? maskEmail(resolvedEmail) : '');
+
+        if (res.reason === 'forced_reset') {
+          setLoginView('forgot-password');
+          setResetIdentifier(loginName.trim());
+          setResetEmail(resolvedEmail);
+          setResetMaskedEmail(resolvedMaskedEmail);
+          setResetCode('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setForgotStep('code');
+          showError(
+            resolvedMaskedEmail
+              ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
+              : errorMsg || 'A password reset is required for this account.',
+          );
           return;
         }
+
+        if (res.reason === 'email_not_verified' || errorMsg.toLowerCase().includes('verify')) {
+          setLoginView('resend-verification');
+          setVerificationEmail(resolvedEmail);
+          setVerificationMaskedEmail(resolvedMaskedEmail);
+          setVerifyCode('');
+          showError(
+            resolvedMaskedEmail
+              ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
+              : 'Your account is not verified. Enter the 6-digit code sent to your email.',
+          );
+          return;
+        }
+
         showError(errorMsg || 'User/Password combination incorrect');
+        return;
+      }
+
+      if (!res.user || !res.accessToken) {
+        showError('Login failed. Please try again.');
         return;
       }
 
@@ -131,14 +180,15 @@ function Login() {
     }
   }
 
-  // ── REGISTER ─────────────────────────────────────────
-  async function doRegister(event: MouseEvent<HTMLInputElement>): Promise<void> {
-    event.preventDefault();
+  async function doRegister(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
 
     if (!regUsername || !regEmail || !regPassword) {
       showError('Username, email, and password are required.');
       return;
     }
+
+    const normalizedRegEmail = regEmail.trim().toLowerCase();
 
     try {
       const response = await fetch(apiUrl('/api/auth/register'), {
@@ -164,79 +214,123 @@ function Login() {
       setRegFirstName('');
       setRegLastName('');
       setRegDisplayName('');
-      setVerifiedEmail(regEmail.trim().toLowerCase());
       setRegEmail('');
       setRegUsername('');
       setRegPassword('');
       setMessage('');
+      setVerificationEmail(normalizedRegEmail);
+      setVerificationMaskedEmail(res.maskedEmail || maskEmail(normalizedRegEmail));
+      setVerifyCode('');
       setShowVerifyBox(true);
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }
   }
 
+  async function doRequestResetCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
 
-  // ── FORGOT PASSWORD ───────────────────────────────────
-  async function doVerifyResetCode(event: MouseEvent<HTMLInputElement>): Promise<void> {
-  event.preventDefault();
-  if (!resetCode.trim()) {
-    showError('Please enter the reset code.');
-    return;
-  }
-  // Code is validated on submit of new password, just advance the step
-  setForgotStep('newpass');
-  setMessage('');
-}
-
-async function doResetPassword(event: MouseEvent<HTMLInputElement>): Promise<void> {
-  event.preventDefault();
-  if (!newPassword || !confirmPassword) {
-    showError('Please fill in both password fields.');
-    return;
-  }
-  if (newPassword !== confirmPassword) {
-    showError('Passwords do not match.');
-    return;
-  }
-  try {
-    const response = await fetch(apiUrl('/api/auth/reset-password'), {
-      method: 'POST',
-      body: JSON.stringify({ email: resetEmail, code: resetCode, newPassword }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const res: GenericResponse = await response.json();
-    if (!response.ok) {
-      showError(res.error || 'Reset failed. Your code may have expired.');
-      setForgotStep('code'); // send them back to re-enter the code
+    if (!resetIdentifier.trim()) {
+      showError('Please enter your username.');
       return;
     }
-    showSuccess('Password reset! You can now log in.');
-    setTimeout(() => {
-      setLoginView('form');
-      setForgotStep('email');
-      setResetEmail('');
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/forgot-password'), {
+        method: 'POST',
+        body: JSON.stringify({ login: resetIdentifier.trim() }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const res: GenericResponse = await response.json();
+
+      if (!response.ok) {
+        showError(res.error || 'Failed to send reset code.');
+        return;
+      }
+
+      if (!res.email) {
+        showSuccess(res.message || 'If an account exists, a reset code has been sent.');
+        return;
+      }
+
+      const resolvedEmail = res.email.trim().toLowerCase();
+      const resolvedMaskedEmail = res.maskedEmail || maskEmail(resolvedEmail);
+      setResetEmail(resolvedEmail);
+      setResetMaskedEmail(resolvedMaskedEmail);
       setResetCode('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }, 2500);
-  } catch (error) {
-    showError(error instanceof Error ? error.message : 'Unable to contact the server');
+      setForgotStep('code');
+      showSuccess(`Enter the 6-digit code sent to ${resolvedMaskedEmail}.`);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Unable to contact the server');
+    }
   }
-}
 
-  // ── RESEND VERIFICATION ───────────────────────────────
-  async function doResendVerification(event: MouseEvent<HTMLInputElement>): Promise<void> {
-    event.preventDefault();
+  async function doVerifyResetCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
 
-    if (!resendEmail.trim()) {
-      showError('Please enter your email address.');
+    if (!resetCode.trim()) {
+      showError('Please enter the reset code.');
+      return;
+    }
+
+    setForgotStep('newpass');
+    setMessage('');
+  }
+
+  async function doResetPassword(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
+
+    if (!resetEmail) {
+      showError('We could not determine which account to reset. Please start again.');
+      return;
+    }
+    if (!newPassword || !confirmPassword) {
+      showError('Please fill in both password fields.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showError('Passwords do not match.');
+      return;
+    }
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/reset-password'), {
+        method: 'POST',
+        body: JSON.stringify({ email: resetEmail, code: resetCode, newPassword }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const res: GenericResponse = await response.json();
+
+      if (!response.ok) {
+        showError(res.error || 'Reset failed. Your code may have expired.');
+        setForgotStep('code');
+        return;
+      }
+
+      showSuccess('Password reset! You can now log in.');
+      setTimeout(() => {
+        setLoginView('form');
+        resetForgotPasswordState();
+      }, 2500);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Unable to contact the server');
+    }
+  }
+
+  async function doResendVerification(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
+
+    const targetEmail = verificationEmail.trim().toLowerCase();
+    if (!targetEmail) {
+      showError('We could not determine which email to verify. Please try logging in again.');
       return;
     }
 
     try {
       const response = await fetch(apiUrl('/api/auth/resend-verification'), {
         method: 'POST',
-        body: JSON.stringify({ email: resendEmail.trim().toLowerCase() }),
+        body: JSON.stringify({ email: targetEmail }),
         headers: { 'Content-Type': 'application/json' },
       });
 
@@ -247,48 +341,53 @@ async function doResetPassword(event: MouseEvent<HTMLInputElement>): Promise<voi
         return;
       }
 
-      setVerifiedEmail(resendEmail.trim().toLowerCase());
-      showSuccess('Code sent! Check your inbox.');
-      setCodeSent(true);
-      setResendEmail('');
+      const resolvedEmail = res.email?.trim().toLowerCase() || targetEmail;
+      const resolvedMaskedEmail = res.maskedEmail || maskEmail(resolvedEmail);
+      setVerificationEmail(resolvedEmail);
+      setVerificationMaskedEmail(resolvedMaskedEmail);
+      showSuccess(`A new 6-digit code was sent to ${resolvedMaskedEmail}.`);
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }
   }
 
-async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> {
-  event.preventDefault();
-  if (!verifyCode.trim()) {
-    showError('Please enter the verification code.');
-    return;
-  }
-  // const emailToVerify = showVerifyBox ? regEmail : resendEmail || '';
-  const emailToVerify = verifiedEmail;
-  try {
-    const response = await fetch(apiUrl('/api/auth/verify-email'), {
-      method: 'POST',
-      body: JSON.stringify({ email: emailToVerify, code: verifyCode.trim() }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const res: GenericResponse = await response.json();
-    if (!response.ok) {
-      showError(res.error || 'Invalid or expired code.');
+  async function doVerifyCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
+    event?.preventDefault();
+
+    if (!verifyCode.trim()) {
+      showError('Please enter the verification code.');
       return;
     }
-    showSuccess('Email verified! You can now log in.');
-    setVerifyCode('');
-    setCodeSent(false);
-    handleTabSwitch('login');
-    setTimeout(() => handleTabSwitch('login'), 2500);
-  } catch (error) {
-    showError(error instanceof Error ? error.message : 'Unable to contact the server');
+    if (!verificationEmail) {
+      showError('We could not determine which email to verify. Please request a new code.');
+      return;
+    }
+
+    try {
+      const response = await fetch(apiUrl('/api/auth/verify-email'), {
+        method: 'POST',
+        body: JSON.stringify({ email: verificationEmail, code: verifyCode.trim() }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const res: GenericResponse = await response.json();
+
+      if (!response.ok) {
+        showError(res.error || 'Invalid or expired code.');
+        return;
+      }
+
+      showSuccess('Email verified! You can now log in.');
+      resetVerificationState();
+      setShowVerifyBox(false);
+      handleTabSwitch('login');
+      setTimeout(() => handleTabSwitch('login'), 2500);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Unable to contact the server');
+    }
   }
-}
 
   return (
     <div id="loginDiv">
-
-      {/* TABS */}
       <div id="authTabs">
         <button
           type="button"
@@ -306,10 +405,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
         </button>
       </div>
 
-      {/* ── LOGIN TAB ── */}
       <div className="tab-panel" style={{ display: activeTab === 'login' ? 'flex' : 'none' }}>
-
-        {/* LOGIN FORM */}
         {loginView === 'form' && (
           <>
             <span id="inner-title">LOG IN</span>
@@ -335,6 +431,8 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
                 setLoginView('forgot-password');
                 setMessage('');
                 setIsError(false);
+                resetForgotPasswordState();
+                setResetIdentifier(loginName.trim());
               }}
             >
               Forgot Password?
@@ -350,205 +448,184 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
           </>
         )}
 
-        {/* FORGOT PASSWORD */}
         {loginView === 'forgot-password' && (
-  <>
-    <span id="inner-title">RESET PASSWORD</span>
-    <br />
+          <>
+            <span id="inner-title">RESET PASSWORD</span>
+            <br />
 
-    {/* STEP 1 — Enter email */}
-    {forgotStep === 'email' && (
-      <>
-        <p className="auth-info">Enter your email and we'll send you a reset code.</p>
-        <input
-          type="email"
-          id="forgotEmail"
-          placeholder="Email Address"
-          value={resetEmail}
-          onChange={(e) => setResetEmail(e.target.value)}
-        />
-        <br />
-        <input
-          type="submit"
-          className="buttons"
-          value="Send Reset Code"
-          onClick={async (e) => {
-            e.preventDefault();
-            if (!resetEmail) { showError('Please enter your email.'); return; }
-            const response = await fetch(apiUrl('/api/auth/forgot-password'), {
-              method: 'POST',
-              body: JSON.stringify({ email: resetEmail }),
-              headers: { 'Content-Type': 'application/json' },
-            });
-            const res: GenericResponse = await response.json();
-            showSuccess(res.message || 'Code sent! Check your inbox.');
-            setForgotStep('code');
-          }}
-        />
-      </>
-    )}
+            {forgotStep === 'lookup' && (
+              <>
+                <p className="auth-info">Enter your username and we&apos;ll send you a reset code.</p>
+                <input
+                  type="text"
+                  id="forgotUsername"
+                  placeholder="Username"
+                  value={resetIdentifier}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setResetIdentifier(e.target.value)}
+                />
+                <br />
+                <input
+                  type="submit"
+                  className="buttons"
+                  value="Send Reset Code"
+                  onClick={doRequestResetCode}
+                />
+              </>
+            )}
 
-    {/* STEP 2 — Enter code */}
-    {forgotStep === 'code' && (
-      <>
-        <div className="info-box">
-          <span className="info-box-icon">✉</span>
-          <p>We sent a 6-digit code to {resetEmail}. Enter it below.</p>
-        </div>
-        <input
-          type="text"
-          placeholder="Enter 6-digit code"
-          maxLength={6}
-          value={resetCode}
-          onChange={(e) => setResetCode(e.target.value)}
-        />
-        <br />
-        <input
-          type="submit"
-          className="buttons"
-          value="Verify Code"
-          onClick={doVerifyResetCode}
-        />
-        <span className="auth-link" onClick={() => setForgotStep('email')}>
-          ← Use a different email
-        </span>
-      </>
-    )}
+            {forgotStep === 'code' && (
+              <>
+                <div className="info-box">
+                  <span className="info-box-icon">&#9993;</span>
+                  <p>
+                    Enter the 6-digit code sent to <strong>{resetMaskedEmail || 'your email'}</strong>.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Enter 6-digit code"
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setResetCode(e.target.value)}
+                />
+                <br />
+                <input
+                  type="submit"
+                  className="buttons"
+                  value="Verify Code"
+                  onClick={doVerifyResetCode}
+                />
+                <span className="auth-link" onClick={() => void doRequestResetCode()}>
+                  Resend code
+                </span>
+                <span
+                  className="auth-link"
+                  onClick={() => {
+                    resetForgotPasswordState();
+                    setResetIdentifier(loginName.trim());
+                  }}
+                >
+                  Try a different username
+                </span>
+              </>
+            )}
 
-    {/* STEP 3 — Enter new password */}
-    {forgotStep === 'newpass' && (
-      <>
-        <p className="auth-info">Enter your new password below.</p>
-        <input
-          type="password"
-          placeholder="New Password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-        />
-        <br />
-        <input
-          type="password"
-          placeholder="Confirm New Password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-        />
-        <br />
-        <input
-          type="submit"
-          className="buttons"
-          value="Reset Password"
-          onClick={doResetPassword}
-        />
-      </>
-    )}
+            {forgotStep === 'newpass' && (
+              <>
+                <p className="auth-info">Enter your new password below.</p>
+                <input
+                  type="password"
+                  placeholder="New Password"
+                  value={newPassword}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)}
+                />
+                <br />
+                <input
+                  type="password"
+                  placeholder="Confirm New Password"
+                  value={confirmPassword}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
+                />
+                <br />
+                <input
+                  type="submit"
+                  className="buttons"
+                  value="Reset Password"
+                  onClick={doResetPassword}
+                />
+              </>
+            )}
 
-    <span
-      className="auth-link"
-      onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); setForgotStep('email'); }}
-    >
-      ← Back to Login
-    </span>
-  </>
-)}
+            <span
+              className="auth-link"
+              onClick={() => {
+                setLoginView('form');
+                setMessage('');
+                setIsError(false);
+                resetForgotPasswordState();
+              }}
+            >
+              &#8592; Back to Login
+            </span>
+          </>
+        )}
 
-
-        {/* RESEND VERIFICATION */}
         {loginView === 'resend-verification' && (
-  <>
-    <span id="inner-title">VERIFY YOUR EMAIL</span>
-    <br />
-    {!codeSent ? (
-      <>
-        <div className="info-box">
-          <span className="info-box-icon">✉</span>
-          <p>Enter your email below to receive a 6-digit verification code.</p>
-        </div>
-        <input
-          type="email"
-          placeholder="Email Address"
-          value={resendEmail}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setResendEmail(e.target.value)}
-        />
-        <br />
-        <input
-          type="submit"
-          className="buttons"
-          value="Send Verification Code"
-          onClick={doResendVerification}
-        />
-      </>
-    ) : (
-      <>
-        <div className="info-box">
-          <span className="info-box-icon">✉</span>
-          <p>Check your email for a 6-digit code and enter it below.</p>
-        </div>
-        <input
-          type="text"
-          className="reg-input"
-          placeholder="Enter 6-digit code"
-          maxLength={6}
-          value={verifyCode}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
-        />
-        <br />
-        <input
-          type="submit"
-          className="buttons"
-          value="Verify Account"
-          onClick={doVerifyCode}
-        />
-        <span className="auth-link" onClick={() => setCodeSent(false)}>
-          ← Use a different email
-        </span>
-      </>
-    )}
-    <span
-      className="auth-link"
-      onClick={() => { setLoginView('form'); setMessage(''); setIsError(false); setCodeSent(false); }}
-    >
-      ← Back to Login
-    </span>
-  </>
-)}
+          <>
+            <span id="inner-title">VERIFY YOUR EMAIL</span>
+            <br />
+            <div className="info-box">
+              <span className="info-box-icon">&#9993;</span>
+              <p>
+                Enter the 6-digit code sent to <strong>{verificationMaskedEmail || 'your email'}</strong>.
+              </p>
+            </div>
+            <input
+              type="text"
+              className="reg-input"
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+              value={verifyCode}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
+            />
+            <br />
+            <input
+              type="submit"
+              className="buttons"
+              value="Verify Account"
+              onClick={doVerifyCode}
+            />
+            <span className="auth-link" onClick={() => void doResendVerification()}>
+              Resend code
+            </span>
+            <span
+              className="auth-link"
+              onClick={() => {
+                setLoginView('form');
+                setMessage('');
+                setIsError(false);
+                resetVerificationState();
+              }}
+            >
+              &#8592; Back to Login
+            </span>
+          </>
+        )}
       </div>
 
-      {/* ── REGISTER TAB ── */}
       <div className="tab-panel" style={{ display: activeTab === 'register' ? 'flex' : 'none' }}>
-{showVerifyBox ? (
-  <>
-    <span id="inner-title">CHECK YOUR EMAIL</span>
-    <br />
-    <div className="info-box">
-      <span className="info-box-icon">✉</span>
-      {/* OLD: <p>Account created! A verification email has been sent to your inbox. Click the link in the email to activate your account, then come back here to log in.</p> */}
-      <p>Account created! We sent a 6-digit code to your email. Enter it below to verify your account.</p>
-    </div>
-    <input
-      type="text"
-      id="verifyCode"
-      className="reg-input"
-      placeholder="Enter 6-digit code"
-      maxLength={6}
-      value={verifyCode}
-      onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
-    />
-    <br />
-    <input
-      type="submit"
-      id="verifyButton"
-      className="buttons"
-      value="Verify Account"
-      onClick={doVerifyCode}
-    />
-    <span
-      className="auth-link"
-      onClick={doResendVerification.bind(null, { preventDefault: () => {} } as any)}
-    >
-      Resend code
-    </span>
-  </>
-) : (
+        {showVerifyBox ? (
+          <>
+            <span id="inner-title">CHECK YOUR EMAIL</span>
+            <br />
+            <div className="info-box">
+              <span className="info-box-icon">&#9993;</span>
+              <p>
+                Enter the 6-digit code sent to <strong>{verificationMaskedEmail || 'your email'}</strong>.
+              </p>
+            </div>
+            <input
+              type="text"
+              id="verifyCode"
+              className="reg-input"
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+              value={verifyCode}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
+            />
+            <br />
+            <input
+              type="submit"
+              id="verifyButton"
+              className="buttons"
+              value="Verify Account"
+              onClick={doVerifyCode}
+            />
+            <span className="auth-link" onClick={() => void doResendVerification()}>
+              Resend code
+            </span>
+          </>
+        ) : (
           <>
             <span id="inner-title">REGISTER</span>
             <br />
@@ -558,7 +635,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="First Name"
               value={regFirstName}
-              onChange={(e) => setRegFirstName(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegFirstName(e.target.value)}
             />
             <br />
             <input
@@ -567,7 +644,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="Last Name"
               value={regLastName}
-              onChange={(e) => setRegLastName(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegLastName(e.target.value)}
             />
             <br />
             <input
@@ -576,7 +653,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="Display Name"
               value={regDisplayName}
-              onChange={(e) => setRegDisplayName(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegDisplayName(e.target.value)}
             />
             <br />
             <input
@@ -585,7 +662,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="Email *"
               value={regEmail}
-              onChange={(e) => setRegEmail(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegEmail(e.target.value)}
             />
             <br />
             <input
@@ -594,7 +671,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="Username *"
               value={regUsername}
-              onChange={(e) => setRegUsername(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegUsername(e.target.value)}
             />
             <br />
             <input
@@ -603,7 +680,7 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
               className="reg-input"
               placeholder="Password *"
               value={regPassword}
-              onChange={(e) => setRegPassword(e.target.value)}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegPassword(e.target.value)}
             />
             <br />
             <input
@@ -617,7 +694,9 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
         )}
       </div>
 
-      <span id="loginResult" className={isError ? 'error' : 'success'}>{message}</span>
+      <span id="loginResult" className={isError ? 'error' : 'success'}>
+        {message}
+      </span>
     </div>
   );
 }
