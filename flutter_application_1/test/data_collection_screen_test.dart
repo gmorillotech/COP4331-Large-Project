@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_application_1/data_collection/background_collection_controller.dart';
 import 'package:flutter_application_1/data_collection/data_collection_backend.dart';
 import 'package:flutter_application_1/data_collection/data_collection_model.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
@@ -75,7 +76,8 @@ class FakeBackendClient implements DataCollectionBackendClient {
               .map((group) => group.buildingName)
               .cast<String?>()
               .firstWhere(
-                (buildingName) => buildingName != null && buildingName.isNotEmpty,
+                (buildingName) =>
+                    buildingName != null && buildingName.isNotEmpty,
                 orElse: () => 'Study Location Group',
               ),
         )!;
@@ -96,6 +98,37 @@ class FakeBackendClient implements DataCollectionBackendClient {
   }
 }
 
+class FakeBackgroundCollectionController
+    implements BackgroundCollectionController {
+  FakeBackgroundCollectionController({this.supported = true});
+
+  final bool supported;
+  bool isActive = false;
+  String? lastNotificationTitle;
+  String? lastNotificationText;
+
+  @override
+  bool get isSupported => supported;
+
+  @override
+  Future<bool> isSessionActive() async => isActive;
+
+  @override
+  Future<void> startSession({
+    required String notificationTitle,
+    required String notificationText,
+  }) async {
+    isActive = true;
+    lastNotificationTitle = notificationTitle;
+    lastNotificationText = notificationText;
+  }
+
+  @override
+  Future<void> stopSession() async {
+    isActive = false;
+  }
+}
+
 Future<PermissionStatus> grantedMicrophonePermission() async {
   return PermissionStatus.granted;
 }
@@ -106,6 +139,14 @@ Future<PermissionStatus> deniedMicrophonePermission() async {
 
 Future<PermissionStatus> grantedLocationPermission() async {
   return PermissionStatus.granted;
+}
+
+Future<PermissionStatus> grantedBackgroundLocationPermission() async {
+  return PermissionStatus.granted;
+}
+
+Future<PermissionStatus> deniedBackgroundLocationPermission() async {
+  return PermissionStatus.denied;
 }
 
 Future<PermissionStatus> deniedLocationPermission() async {
@@ -149,10 +190,16 @@ Widget buildScreen({
       grantedMicrophonePermission,
   LocationPermissionRequest locationPermissionRequest =
       grantedLocationPermission,
+  BackgroundLocationPermissionRequest backgroundLocationPermissionRequest =
+      grantedBackgroundLocationPermission,
+  BackgroundLocationPermissionStatusProvider
+      backgroundLocationPermissionStatusProvider =
+      grantedBackgroundLocationPermission,
   CurrentSessionCoordinatesProvider currentCoordinatesProvider =
       libraryCoordinatesProvider,
   SessionCoordinatesStreamFactory coordinatesStreamFactory =
       emptyCoordinatesStream,
+  BackgroundCollectionController? backgroundCollectionController,
 }) {
   return MaterialApp(
     home: DataCollectionScreen(
@@ -161,8 +208,14 @@ Widget buildScreen({
       backendClient: backendClient,
       microphonePermissionRequest: microphonePermissionRequest,
       locationPermissionRequest: locationPermissionRequest,
+      backgroundLocationPermissionRequest: backgroundLocationPermissionRequest,
+      backgroundLocationPermissionStatusProvider:
+          backgroundLocationPermissionStatusProvider,
       currentCoordinatesProvider: currentCoordinatesProvider,
       coordinatesStreamFactory: coordinatesStreamFactory,
+      backgroundCollectionController:
+          backgroundCollectionController ??
+          FakeBackgroundCollectionController(supported: false),
       allowSyntheticAudioInput: true,
     ),
   );
@@ -171,11 +224,13 @@ Widget buildScreen({
 void main() {
   late InMemoryReportDraftRepository repository;
   late FakeBackendClient backendClient;
+  late FakeBackgroundCollectionController backgroundController;
 
   setUp(() {
     repository = InMemoryReportDraftRepository.instance;
     repository.clear();
     backendClient = FakeBackendClient();
+    backgroundController = FakeBackgroundCollectionController();
   });
 
   testWidgets('data collection screen renders core controls', (tester) async {
@@ -193,7 +248,37 @@ void main() {
     expect(find.byKey(const Key('stop-capture-button')), findsOneWidget);
     expect(find.byKey(const Key('signal-history-chart')), findsOneWidget);
     expect(find.byKey(const Key('capture-progress-bar')), findsOneWidget);
+    expect(find.byKey(const Key('privacy-statements-card')), findsOneWidget);
     expect(find.text('A1 INPUT PREP'), findsNothing);
+  });
+
+  testWidgets('android background mode card reflects active capture state', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildScreen(
+        draftRepository: repository,
+        backendClient: backendClient,
+        backgroundCollectionController: backgroundController,
+      ),
+    );
+    await waitForLocationLockReady(tester);
+
+    expect(
+      find.byKey(const Key('android-background-mode-card')),
+      findsOneWidget,
+    );
+    expect(find.text('ANDROID BACKGROUND MODE: READY'), findsOneWidget);
+
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
+    await tester.pump();
+
+    expect(find.text('ANDROID BACKGROUND MODE: ACTIVE'), findsOneWidget);
+    expect(backgroundController.isActive, isTrue);
+    expect(
+      backgroundController.lastNotificationText,
+      contains('Collecting microphone and location samples'),
+    );
   });
 
   testWidgets('occupancy slider exposes exactly five levels', (tester) async {
@@ -305,10 +390,7 @@ void main() {
       findsOneWidget,
     );
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('start-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
 
     expect(find.text('Collecting live samples'), findsOneWidget);
     expect(find.text('Capturing'), findsOneWidget);
@@ -317,17 +399,12 @@ void main() {
       findsOneWidget,
     );
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('stop-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('stop-capture-button')));
 
     expect(find.text('Ready to capture'), findsOneWidget);
     expect(find.text('Stopped'), findsOneWidget);
     expect(
-      find.textContaining(
-        'Currently inside John C. Hitt Library',
-      ),
+      find.textContaining('Currently inside John C. Hitt Library'),
       findsOneWidget,
     );
   });
@@ -348,7 +425,9 @@ void main() {
       );
       expect(find.text('Floor 1, North Reading Room'), findsOneWidget);
       expect(
-        find.text('This studyLocationId is sent directly with each backend report submission.'),
+        find.text(
+          'This studyLocationId is sent directly with each backend report submission.',
+        ),
         findsOneWidget,
       );
     },
@@ -370,10 +449,7 @@ void main() {
     );
     await waitForLocationLockReady(tester);
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('start-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
 
     coordinatesController.add(
       const SessionCoordinates(latitude: 28.60192, longitude: -81.19994),
@@ -435,10 +511,7 @@ void main() {
     );
     await waitForLocationLockReady(tester);
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('start-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
     for (int i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 250));
     }
@@ -471,15 +544,9 @@ void main() {
     );
     await waitForLocationLockReady(tester);
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('start-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('stop-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('stop-capture-button')));
 
     expect(find.text('Ready to capture'), findsOneWidget);
     expect(find.text('Stopped'), findsOneWidget);
@@ -506,10 +573,7 @@ void main() {
     );
     await waitForLocationLockReady(tester);
 
-    await scrollToAndTap(
-      tester,
-      find.byKey(const Key('start-capture-button')),
-    );
+    await scrollToAndTap(tester, find.byKey(const Key('start-capture-button')));
 
     for (int i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 250));
