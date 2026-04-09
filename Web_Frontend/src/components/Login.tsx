@@ -50,6 +50,48 @@ type GenericResponse = {
   requiresPasswordReset?: boolean;
 };
 
+// ── Validation helpers ──────────────────────────────────
+function validatePassword(pw: string): string[] {
+  const errors: string[] = [];
+  if (pw.length < 8) errors.push('at least 8 characters');
+  if (!/[a-zA-Z]/.test(pw)) errors.push('at least one letter');
+  if (!/[0-9]/.test(pw)) errors.push('at least one number');
+  if (!/[^a-zA-Z0-9]/.test(pw)) errors.push('at least one special character');
+  return errors;
+}
+
+function validateUsername(u: string): string[] {
+  const errors: string[] = [];
+  if (u.length < 3 || u.length > 22) errors.push('3–22 characters');
+  if (!/[a-zA-Z]/.test(u)) errors.push('at least one letter');
+  return errors;
+}
+
+// ── Eye toggle component ────────────────────────────────
+function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="eye-toggle"
+      onClick={onToggle}
+      aria-label={show ? 'Hide password' : 'Show password'}
+      tabIndex={-1}
+    >
+      {show ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function Login() {
   const [activeTab, setActiveTab] = useState<Tab>('login');
   const [loginView, setLoginView] = useState<LoginView>('form');
@@ -70,7 +112,7 @@ function Login() {
   const [verifyCode, setVerifyCode] = useState('');
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationMaskedEmail, setVerificationMaskedEmail] = useState('');
-  const [verificationFlow, setVerificationFlow] = useState<VerificationFlow>('standard');
+  const [_verificationFlow, setVerificationFlow] = useState<VerificationFlow>('standard');
 
   const [forgotStep, setForgotStep] = useState<'lookup' | 'code' | 'newpass'>('lookup');
   const [resetIdentifier, setResetIdentifier] = useState('');
@@ -80,17 +122,18 @@ function Login() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Validation & UI state
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const navigate = useNavigate();
 
-  function showSuccess(msg: string): void {
-    setIsError(false);
-    setMessage(msg);
-  }
-
-  function showError(msg: string): void {
-    setIsError(true);
-    setMessage(msg);
-  }
+  function showSuccess(msg: string): void { setIsError(false); setMessage(msg); }
+  function showError(msg: string): void { setIsError(true); setMessage(msg); }
 
   function resetForgotPasswordState(): void {
     setForgotStep('lookup');
@@ -100,6 +143,7 @@ function Login() {
     setResetCode('');
     setNewPassword('');
     setConfirmPassword('');
+    setFieldErrors({});
   }
 
   function resetVerificationState(): void {
@@ -115,13 +159,14 @@ function Login() {
     setMessage('');
     setIsError(false);
     setShowVerifyBox(false);
+    setFieldErrors({});
+    setActiveField(null);
     resetVerificationState();
     resetForgotPasswordState();
   }
 
   async function doLogin(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
-
     try {
       const response = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
@@ -142,11 +187,9 @@ function Login() {
           setVerificationEmail(resolvedEmail);
           setVerificationMaskedEmail(resolvedMaskedEmail);
           setVerifyCode('');
-          showError(
-            resolvedMaskedEmail
-              ? `Enter the 6-digit verification code sent to ${resolvedMaskedEmail} to continue resetting your password.`
-              : errorMsg || 'Verify your email to continue resetting your password.',
-          );
+          showError(resolvedMaskedEmail
+            ? `Enter the 6-digit verification code sent to ${resolvedMaskedEmail} to continue resetting your password.`
+            : errorMsg || 'Verify your email to continue resetting your password.');
           return;
         }
 
@@ -159,11 +202,9 @@ function Login() {
           setNewPassword('');
           setConfirmPassword('');
           setForgotStep('code');
-          showError(
-            resolvedMaskedEmail
-              ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
-              : errorMsg || 'A password reset is required for this account.',
-          );
+          showError(resolvedMaskedEmail
+            ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
+            : errorMsg || 'A password reset is required for this account.');
           return;
         }
 
@@ -173,11 +214,9 @@ function Login() {
           setVerificationEmail(resolvedEmail);
           setVerificationMaskedEmail(resolvedMaskedEmail);
           setVerifyCode('');
-          showError(
-            resolvedMaskedEmail
-              ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
-              : 'Your account is not verified. Enter the 6-digit code sent to your email.',
-          );
+          showError(resolvedMaskedEmail
+            ? `Enter the 6-digit code sent to ${resolvedMaskedEmail}.`
+            : 'Your account is not verified. Enter the 6-digit code sent to your email.');
           return;
         }
 
@@ -202,11 +241,31 @@ function Login() {
   async function doRegister(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
 
-    if (!regUsername || !regEmail || !regPassword) {
-      showError('Username, email, and password are required.');
+    const errors: Record<string, string> = {};
+
+    if (!regFirstName.trim()) errors.regFirstName = 'First name is required.';
+    if (!regLastName.trim()) errors.regLastName = 'Last name is required.';
+    if (!regDisplayName.trim()) errors.regDisplayName = 'Display name is required.';
+    if (!regEmail.trim()) errors.regEmail = 'Email is required.';
+    if (!regUsername.trim()) {
+      errors.regUsername = 'Username is required.';
+    } else {
+      const uErrs = validateUsername(regUsername.trim());
+      if (uErrs.length > 0) errors.regUsername = uErrs.join(' · ');
+    }
+    if (!regPassword) {
+      errors.regPassword = 'required';
+    } else {
+      const pErrs = validatePassword(regPassword);
+      if (pErrs.length > 0) errors.regPassword = 'invalid';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
+    setFieldErrors({});
     const normalizedRegEmail = regEmail.trim().toLowerCase();
 
     try {
@@ -248,31 +307,19 @@ function Login() {
 
   async function doRequestResetCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
-
     if (!resetIdentifier.trim()) {
       showError('Please enter your username.');
       return;
     }
-
     try {
       const response = await fetch(apiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         body: JSON.stringify({ login: resetIdentifier.trim() }),
         headers: { 'Content-Type': 'application/json' },
       });
-
       const res: GenericResponse = await response.json();
-
-      if (!response.ok) {
-        showError(res.error || 'Failed to send reset code.');
-        return;
-      }
-
-      if (!res.email) {
-        showSuccess(res.message || 'If an account exists, a reset code has been sent.');
-        return;
-      }
-
+      if (!response.ok) { showError(res.error || 'Failed to send reset code.'); return; }
+      if (!res.email) { showSuccess(res.message || 'If an account exists, a reset code has been sent.'); return; }
       const resolvedEmail = res.email.trim().toLowerCase();
       const resolvedMaskedEmail = res.maskedEmail || maskEmail(resolvedEmail);
       setResetEmail(resolvedEmail);
@@ -287,32 +334,36 @@ function Login() {
 
   async function doVerifyResetCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
-
-    if (!resetCode.trim()) {
-      showError('Please enter the reset code.');
-      return;
-    }
-
+    if (!resetCode.trim()) { showError('Please enter the reset code.'); return; }
     setForgotStep('newpass');
     setMessage('');
+    setFieldErrors({});
   }
 
   async function doResetPassword(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
 
-    if (!resetEmail) {
-      showError('We could not determine which account to reset. Please start again.');
-      return;
+    if (!resetEmail) { showError('We could not determine which account to reset. Please start again.'); return; }
+
+    const errors: Record<string, string> = {};
+    if (!newPassword) {
+      errors.newPassword = 'required';
+    } else {
+      const pErrs = validatePassword(newPassword);
+      if (pErrs.length > 0) errors.newPassword = 'invalid';
     }
-    if (!newPassword || !confirmPassword) {
-      showError('Please fill in both password fields.');
-      return;
+    if (!confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password.';
+    } else if (newPassword !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match.';
     }
-    if (newPassword !== confirmPassword) {
-      showError('Passwords do not match.');
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
 
+    setFieldErrors({});
     try {
       const response = await fetch(apiUrl('/api/auth/reset-password'), {
         method: 'POST',
@@ -320,18 +371,13 @@ function Login() {
         headers: { 'Content-Type': 'application/json' },
       });
       const res: GenericResponse = await response.json();
-
       if (!response.ok) {
         showError(res.error || 'Reset failed. Your code may have expired.');
         setForgotStep('code');
         return;
       }
-
       showSuccess('Password reset! You can now log in.');
-      setTimeout(() => {
-        setLoginView('form');
-        resetForgotPasswordState();
-      }, 2500);
+      setTimeout(() => { setLoginView('form'); resetForgotPasswordState(); }, 2500);
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     }
@@ -339,27 +385,16 @@ function Login() {
 
   async function doResendVerification(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
-
     const targetEmail = verificationEmail.trim().toLowerCase();
-    if (!targetEmail) {
-      showError('We could not determine which email to verify. Please try logging in again.');
-      return;
-    }
-
+    if (!targetEmail) { showError('We could not determine which email to verify. Please try logging in again.'); return; }
     try {
       const response = await fetch(apiUrl('/api/auth/resend-verification'), {
         method: 'POST',
         body: JSON.stringify({ email: targetEmail }),
         headers: { 'Content-Type': 'application/json' },
       });
-
       const res: GenericResponse = await response.json();
-
-      if (!response.ok) {
-        showError(res.error || 'Unable to resend verification code.');
-        return;
-      }
-
+      if (!response.ok) { showError(res.error || 'Unable to resend verification code.'); return; }
       const resolvedEmail = res.email?.trim().toLowerCase() || targetEmail;
       const resolvedMaskedEmail = res.maskedEmail || maskEmail(resolvedEmail);
       setVerificationEmail(resolvedEmail);
@@ -372,16 +407,8 @@ function Login() {
 
   async function doVerifyCode(event?: MouseEvent<HTMLInputElement>): Promise<void> {
     event?.preventDefault();
-
-    if (!verifyCode.trim()) {
-      showError('Please enter the verification code.');
-      return;
-    }
-    if (!verificationEmail) {
-      showError('We could not determine which email to verify. Please request a new code.');
-      return;
-    }
-
+    if (!verifyCode.trim()) { showError('Please enter the verification code.'); return; }
+    if (!verificationEmail) { showError('We could not determine which email to verify. Please request a new code.'); return; }
     try {
       const response = await fetch(apiUrl('/api/auth/verify-email'), {
         method: 'POST',
@@ -389,15 +416,9 @@ function Login() {
         headers: { 'Content-Type': 'application/json' },
       });
       const res: GenericResponse = await response.json();
-
-      if (!response.ok) {
-        showError(res.error || 'Invalid or expired code.');
-        return;
-      }
-
+      if (!response.ok) { showError(res.error || 'Invalid or expired code.'); return; }
       const resolvedEmail = res.email?.trim().toLowerCase() || verificationEmail;
       const resolvedMaskedEmail = res.maskedEmail || (resolvedEmail ? maskEmail(resolvedEmail) : verificationMaskedEmail);
-
       if (res.requiresPasswordReset) {
         setVerificationEmail(resolvedEmail);
         setVerificationMaskedEmail(resolvedMaskedEmail);
@@ -412,7 +433,6 @@ function Login() {
         showSuccess('Email verified. Set a new password to finish signing in.');
         return;
       }
-
       showSuccess('Email verified! You can now log in.');
       resetVerificationState();
       setShowVerifyBox(false);
@@ -423,8 +443,25 @@ function Login() {
     }
   }
 
+  // ── helpers for live rule highlighting ─────────────────
+  const pwRules = [
+    { label: 'At least 8 characters',         ok: (p: string) => p.length >= 8 },
+    { label: 'At least one letter',            ok: (p: string) => /[a-zA-Z]/.test(p) },
+    { label: 'At least one number',            ok: (p: string) => /[0-9]/.test(p) },
+    { label: 'At least one special character', ok: (p: string) => /[^a-zA-Z0-9]/.test(p) },
+  ];
+
+  const uRules = [
+    { label: '3–22 characters',    ok: (u: string) => u.length >= 3 && u.length <= 22 },
+    { label: 'At least one letter', ok: (u: string) => /[a-zA-Z]/.test(u) },
+  ];
+
+  // True when we're on the main login form (for inline message positioning)
+  const isLoginForm = activeTab === 'login' && loginView === 'form' && !showVerifyBox;
+
   return (
     <div id="loginDiv">
+      {/* ── Tabs ── */}
       <div id="authTabs">
         <button
           type="button"
@@ -442,303 +479,357 @@ function Login() {
         </button>
       </div>
 
-      <div className="tab-panel" style={{ display: activeTab === 'login' ? 'flex' : 'none' }}>
-        {loginView === 'form' && (
-          <>
-            <span id="inner-title">LOG IN</span>
-            <br />
-            <input
-              type="text"
-              id="loginName"
-              placeholder="Username"
-              value={loginName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setLoginName(e.target.value)}
-            />
-            <br />
-            <input
-              type="password"
-              id="loginPassword"
-              placeholder="Password"
-              value={loginPassword}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setLoginPassword(e.target.value)}
-            />
-            <span
-              className="auth-link"
-              onClick={() => {
-                setLoginView('forgot-password');
-                setMessage('');
-                setIsError(false);
-                resetForgotPasswordState();
-                setResetIdentifier(loginName.trim());
-              }}
-            >
-              Forgot Password?
-            </span>
-            <br />
-            <input
-              type="submit"
-              id="loginButton"
-              className="buttons"
-              value="Login"
-              onClick={doLogin}
-            />
-          </>
-        )}
+      {/* ── Global message (all views except main login form, where it's shown inline) ── */}
+      {message && !isLoginForm && (
+        <span id="loginResult" className={isError ? '' : 'success'}>
+          {message}
+        </span>
+      )}
 
-        {loginView === 'forgot-password' && (
-          <>
-            <span id="inner-title">RESET PASSWORD</span>
-            <br />
-
-            {forgotStep === 'lookup' && (
-              <>
-                <p className="auth-info">Enter your username and we&apos;ll send you a reset code.</p>
-                <input
-                  type="text"
-                  id="forgotUsername"
-                  placeholder="Username"
-                  value={resetIdentifier}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setResetIdentifier(e.target.value)}
-                />
-                <br />
-                <input
-                  type="submit"
-                  className="buttons"
-                  value="Send Reset Code"
-                  onClick={doRequestResetCode}
-                />
-              </>
-            )}
-
-            {forgotStep === 'code' && (
-              <>
-                <div className="info-box">
-                  <span className="info-box-icon">&#9993;</span>
-                  <p>
-                    Enter the 6-digit code sent to <strong>{resetMaskedEmail || 'your email'}</strong>.
-                  </p>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Enter 6-digit code"
-                  maxLength={6}
-                  value={resetCode}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setResetCode(e.target.value)}
-                />
-                <br />
-                <input
-                  type="submit"
-                  className="buttons"
-                  value="Verify Code"
-                  onClick={doVerifyResetCode}
-                />
-                <span className="auth-link" onClick={() => void doRequestResetCode()}>
-                  Resend code
-                </span>
-                <span
-                  className="auth-link"
-                  onClick={() => {
-                    resetForgotPasswordState();
-                    setResetIdentifier(loginName.trim());
-                  }}
-                >
-                  Try a different username
-                </span>
-              </>
-            )}
-
-            {forgotStep === 'newpass' && (
-              <>
-                <p className="auth-info">Enter your new password below.</p>
-                <input
-                  type="password"
-                  placeholder="New Password"
-                  value={newPassword}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNewPassword(e.target.value)}
-                />
-                <br />
-                <input
-                  type="password"
-                  placeholder="Confirm New Password"
-                  value={confirmPassword}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.target.value)}
-                />
-                <br />
-                <input
-                  type="submit"
-                  className="buttons"
-                  value="Reset Password"
-                  onClick={doResetPassword}
-                />
-              </>
-            )}
-
-            <span
-              className="auth-link"
-              onClick={() => {
-                setLoginView('form');
-                setMessage('');
-                setIsError(false);
-                resetForgotPasswordState();
-              }}
-            >
-              &#8592; Back to Login
-            </span>
-          </>
-        )}
-
-        {loginView === 'resend-verification' && (
-          <>
-            <span id="inner-title">VERIFY YOUR EMAIL</span>
-            <br />
-            {verificationFlow === 'forced-reset' && (
-              <p className="auth-info">
-                Verify your email first, then you&apos;ll be prompted to set a new password.
-              </p>
-            )}
-            <div className="info-box">
-              <span className="info-box-icon">&#9993;</span>
-              <p>
-                Enter the 6-digit code sent to <strong>{verificationMaskedEmail || 'your email'}</strong>.
-              </p>
+      {/* ══════════════════════════════════════════
+          LOGIN TAB
+      ══════════════════════════════════════════ */}
+      {isLoginForm && (
+        <div className="tab-panel">
+          <span id="inner-title">Welcome Back</span>
+          <input
+            type="text"
+            placeholder="Username"
+            value={loginName}
+            onChange={(e) => setLoginName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') doLogin(); }}
+          />
+          {/* Password with eye toggle */}
+          <div className="field-wrap">
+            <div className="password-input-wrap">
+              <input
+                type={showLoginPassword ? 'text' : 'password'}
+                placeholder="Password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') doLogin(); }}
+              />
+              <EyeToggle show={showLoginPassword} onToggle={() => setShowLoginPassword(p => !p)} />
             </div>
-            <input
-              type="text"
-              className="reg-input"
-              placeholder="Enter 6-digit code"
-              maxLength={6}
-              value={verifyCode}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
-            />
-            <br />
-            <input
-              type="submit"
-              className="buttons"
-              value="Verify Account"
-              onClick={doVerifyCode}
-            />
-            <span className="auth-link" onClick={() => void doResendVerification()}>
-              Resend code
+          </div>
+          {/* Inline error — between password and button */}
+          {message && (
+            <span id="loginResult" className={isError ? '' : 'success'}>
+              {message}
             </span>
-            <span
-              className="auth-link"
-              onClick={() => {
-                setLoginView('form');
-                setMessage('');
-                setIsError(false);
-                resetVerificationState();
-              }}
-            >
-              &#8592; Back to Login
-            </span>
-          </>
-        )}
-      </div>
+          )}
+          <input
+            type="button"
+            id="loginButton"
+            value="Log In"
+            onClick={doLogin}
+          />
+          <span
+            className="auth-link"
+            onClick={() => { setLoginView('forgot-password'); setMessage(''); }}
+          >
+            Forgot Password?
+          </span>
+        </div>
+      )}
 
-      <div className="tab-panel" style={{ display: activeTab === 'register' ? 'flex' : 'none' }}>
-        {showVerifyBox ? (
-          <>
-            <span id="inner-title">CHECK YOUR EMAIL</span>
-            <br />
-            <div className="info-box">
-              <span className="info-box-icon">&#9993;</span>
-              <p>
-                Enter the 6-digit code sent to <strong>{verificationMaskedEmail || 'your email'}</strong>.
-              </p>
+      {/* ── Forgot Password — lookup ── */}
+      {activeTab === 'login' && loginView === 'forgot-password' && forgotStep === 'lookup' && (
+        <div className="tab-panel">
+          <span id="inner-title">Reset Password</span>
+          <p className="auth-info">Enter your username to receive a reset code.</p>
+          <input
+            type="text"
+            placeholder="Username"
+            value={resetIdentifier}
+            onChange={(e) => setResetIdentifier(e.target.value)}
+          />
+          <input
+            type="button"
+            id="forgotButton"
+            value="Send Reset Code"
+            onClick={doRequestResetCode}
+          />
+          <span className="auth-link" onClick={() => { setLoginView('form'); setMessage(''); }}>
+            ← Back to Login
+          </span>
+        </div>
+      )}
+
+      {/* ── Forgot Password — enter code ── */}
+      {activeTab === 'login' && loginView === 'forgot-password' && forgotStep === 'code' && (
+        <div className="tab-panel">
+          <span id="inner-title">Enter Reset Code</span>
+          <p className="auth-info">Enter the 6-digit code sent to {resetMaskedEmail || 'your email'}.</p>
+          <input
+            type="text"
+            placeholder="6-digit code"
+            value={resetCode}
+            onChange={(e) => setResetCode(e.target.value)}
+            maxLength={6}
+          />
+          <input
+            type="button"
+            id="resetButton"
+            value="Verify Code"
+            onClick={doVerifyResetCode}
+          />
+          <span className="auth-link" onClick={() => { setForgotStep('lookup'); setMessage(''); }}>
+            ← Back
+          </span>
+        </div>
+      )}
+
+      {/* ── Forgot Password — new password ── */}
+      {activeTab === 'login' && loginView === 'forgot-password' && forgotStep === 'newpass' && (
+        <div className="tab-panel">
+          <span id="inner-title">Set New Password</span>
+
+          {/* New password */}
+          <div className="field-wrap">
+            <div className="password-input-wrap">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                placeholder="New Password"
+                className={fieldErrors.newPassword ? 'input-error' : ''}
+                value={newPassword}
+                onChange={(e) => { setNewPassword(e.target.value); setFieldErrors(p => ({ ...p, newPassword: '' })); }}
+                onFocus={() => setActiveField('newPassword')}
+                onBlur={() => setActiveField(null)}
+              />
+              <EyeToggle show={showNewPassword} onToggle={() => setShowNewPassword(p => !p)} />
             </div>
+            {fieldErrors.newPassword && (fieldErrors.newPassword === 'invalid' || fieldErrors.newPassword === 'required') ? (
+              <div className="field-error-msg">
+                {fieldErrors.newPassword === 'required'
+                  ? 'New password is required.'
+                  : <>Your password is missing:
+                    <ul className="field-rules-inline">
+                      {validatePassword(newPassword).map(e => <li key={e}>{e}</li>)}
+                    </ul>
+                  </>
+                }
+              </div>
+            ) : fieldErrors.newPassword ? (
+              <p className="field-error-msg">{fieldErrors.newPassword}</p>
+            ) : null}
+            {activeField === 'newPassword' && (
+              <ul className="field-rules">
+                {pwRules.map(r => (
+                  <li key={r.label} className={r.ok(newPassword) ? 'rule-ok' : 'rule-pending'}>
+                    {r.ok(newPassword) ? '✓' : '·'} {r.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Confirm password */}
+          <div className="field-wrap">
+            <div className="password-input-wrap">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                placeholder="Confirm Password"
+                className={fieldErrors.confirmPassword ? 'input-error' : ''}
+                value={confirmPassword}
+                onChange={(e) => { setConfirmPassword(e.target.value); setFieldErrors(p => ({ ...p, confirmPassword: '' })); }}
+              />
+              <EyeToggle show={showConfirmPassword} onToggle={() => setShowConfirmPassword(p => !p)} />
+            </div>
+            {fieldErrors.confirmPassword && (
+              <p className="field-error-msg">{fieldErrors.confirmPassword}</p>
+            )}
+          </div>
+
+          <input
+            type="button"
+            id="resetButton"
+            value="Reset Password"
+            onClick={doResetPassword}
+          />
+        </div>
+      )}
+
+      {/* ── Resend Verification ── */}
+      {activeTab === 'login' && loginView === 'resend-verification' && (
+        <div className="tab-panel">
+          <span id="inner-title">Verify Email</span>
+          <p className="auth-info">
+            Enter the 6-digit code sent to {verificationMaskedEmail || 'your email'}.
+          </p>
+          <input
+            type="text"
+            placeholder="6-digit code"
+            value={verifyCode}
+            onChange={(e) => setVerifyCode(e.target.value)}
+            maxLength={6}
+          />
+          <input
+            type="button"
+            id="verifyButton"
+            value="Verify Email"
+            onClick={doVerifyCode}
+          />
+          <span className="auth-link" onClick={() => doResendVerification()}>
+            Resend code
+          </span>
+          <span className="auth-link" onClick={() => { setLoginView('form'); setMessage(''); }}>
+            ← Back to Login
+          </span>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          REGISTER TAB
+      ══════════════════════════════════════════ */}
+      {activeTab === 'register' && !showVerifyBox && (
+        <div className="tab-panel">
+          <span id="inner-title">Create Account</span>
+
+          {/* First Name */}
+          <div className="field-wrap">
             <input
               type="text"
-              id="verifyCode"
-              className="reg-input"
-              placeholder="Enter 6-digit code"
-              maxLength={6}
-              value={verifyCode}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setVerifyCode(e.target.value)}
-            />
-            <br />
-            <input
-              type="submit"
-              id="verifyButton"
-              className="buttons"
-              value="Verify Account"
-              onClick={doVerifyCode}
-            />
-            <span className="auth-link" onClick={() => void doResendVerification()}>
-              Resend code
-            </span>
-          </>
-        ) : (
-          <>
-            <span id="inner-title">REGISTER</span>
-            <br />
-            <input
-              type="text"
-              id="regFirstName"
-              className="reg-input"
               placeholder="First Name"
+              className={fieldErrors.regFirstName ? 'input-error' : ''}
               value={regFirstName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegFirstName(e.target.value)}
+              onChange={(e) => { setRegFirstName(e.target.value); setFieldErrors(p => ({ ...p, regFirstName: '' })); }}
             />
-            <br />
+            {fieldErrors.regFirstName && <p className="field-error-msg">{fieldErrors.regFirstName}</p>}
+          </div>
+
+          {/* Last Name */}
+          <div className="field-wrap">
             <input
               type="text"
-              id="regLastName"
-              className="reg-input"
               placeholder="Last Name"
+              className={fieldErrors.regLastName ? 'input-error' : ''}
               value={regLastName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegLastName(e.target.value)}
+              onChange={(e) => { setRegLastName(e.target.value); setFieldErrors(p => ({ ...p, regLastName: '' })); }}
             />
-            <br />
+            {fieldErrors.regLastName && <p className="field-error-msg">{fieldErrors.regLastName}</p>}
+          </div>
+
+          {/* Display Name */}
+          <div className="field-wrap">
             <input
               type="text"
-              id="regDisplayName"
-              className="reg-input"
               placeholder="Display Name"
+              className={fieldErrors.regDisplayName ? 'input-error' : ''}
               value={regDisplayName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegDisplayName(e.target.value)}
+              onChange={(e) => { setRegDisplayName(e.target.value); setFieldErrors(p => ({ ...p, regDisplayName: '' })); }}
             />
-            <br />
+            {fieldErrors.regDisplayName && <p className="field-error-msg">{fieldErrors.regDisplayName}</p>}
+          </div>
+
+          {/* Email */}
+          <div className="field-wrap">
             <input
               type="email"
-              id="regEmail"
-              className="reg-input"
-              placeholder="Email *"
+              placeholder="Email"
+              className={fieldErrors.regEmail ? 'input-error' : ''}
               value={regEmail}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegEmail(e.target.value)}
+              onChange={(e) => { setRegEmail(e.target.value); setFieldErrors(p => ({ ...p, regEmail: '' })); }}
             />
-            <br />
+            {fieldErrors.regEmail && <p className="field-error-msg">{fieldErrors.regEmail}</p>}
+          </div>
+
+          {/* Username */}
+          <div className="field-wrap">
             <input
               type="text"
-              id="regUsername"
-              className="reg-input"
-              placeholder="Username *"
+              placeholder="Username"
+              className={fieldErrors.regUsername ? 'input-error' : ''}
               value={regUsername}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegUsername(e.target.value)}
+              onChange={(e) => { setRegUsername(e.target.value); setFieldErrors(p => ({ ...p, regUsername: '' })); }}
+              onFocus={() => setActiveField('regUsername')}
+              onBlur={() => setActiveField(null)}
             />
-            <br />
-            <input
-              type="password"
-              id="regPassword"
-              className="reg-input"
-              placeholder="Password *"
-              value={regPassword}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setRegPassword(e.target.value)}
-            />
-            <br />
-            <input
-              type="submit"
-              id="registerButton"
-              className="buttons"
-              value="Create Account"
-              onClick={doRegister}
-            />
-          </>
-        )}
-      </div>
+            {fieldErrors.regUsername && <p className="field-error-msg">{fieldErrors.regUsername}</p>}
+            {activeField === 'regUsername' && (
+              <ul className="field-rules">
+                {uRules.map(r => (
+                  <li key={r.label} className={r.ok(regUsername) ? 'rule-ok' : 'rule-pending'}>
+                    {r.ok(regUsername) ? '✓' : '·'} {r.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-      <span id="loginResult" className={isError ? 'error' : 'success'}>
-        {message}
-      </span>
+          {/* Password */}
+          <div className="field-wrap">
+            <div className="password-input-wrap">
+              <input
+                type={showRegPassword ? 'text' : 'password'}
+                placeholder="Password"
+                className={fieldErrors.regPassword ? 'input-error' : ''}
+                value={regPassword}
+                onChange={(e) => { setRegPassword(e.target.value); setFieldErrors(p => ({ ...p, regPassword: '' })); }}
+                onFocus={() => setActiveField('regPassword')}
+                onBlur={() => setActiveField(null)}
+              />
+              <EyeToggle show={showRegPassword} onToggle={() => setShowRegPassword(p => !p)} />
+            </div>
+            {fieldErrors.regPassword && (fieldErrors.regPassword === 'invalid' || fieldErrors.regPassword === 'required') ? (
+              <div className="field-error-msg">
+                {fieldErrors.regPassword === 'required'
+                  ? 'Password is required.'
+                  : <>Your password is missing:
+                    <ul className="field-rules-inline">
+                      {validatePassword(regPassword).map(e => <li key={e}>{e}</li>)}
+                    </ul>
+                  </>
+                }
+              </div>
+            ) : fieldErrors.regPassword ? (
+              <p className="field-error-msg">{fieldErrors.regPassword}</p>
+            ) : null}
+            {activeField === 'regPassword' && (
+              <ul className="field-rules">
+                {pwRules.map(r => (
+                  <li key={r.label} className={r.ok(regPassword) ? 'rule-ok' : 'rule-pending'}>
+                    {r.ok(regPassword) ? '✓' : '·'} {r.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <input
+            type="button"
+            id="registerButton"
+            value="Register"
+            onClick={doRegister}
+          />
+        </div>
+      )}
+
+      {/* ── Post-register verification ── */}
+      {activeTab === 'register' && showVerifyBox && (
+        <div className="tab-panel">
+          <span id="inner-title">Verify Your Email</span>
+          <p className="auth-info">
+            A 6-digit code was sent to {verificationMaskedEmail || 'your email'}. Enter it below.
+          </p>
+          <input
+            type="text"
+            placeholder="6-digit code"
+            value={verifyCode}
+            onChange={(e) => setVerifyCode(e.target.value)}
+            maxLength={6}
+          />
+          <input
+            type="button"
+            id="verifyButton"
+            value="Verify Email"
+            onClick={doVerifyCode}
+          />
+          <span className="auth-link" onClick={() => doResendVerification()}>
+            Resend code
+          </span>
+        </div>
+      )}
     </div>
   );
 }

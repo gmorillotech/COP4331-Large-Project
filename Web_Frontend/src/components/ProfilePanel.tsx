@@ -21,6 +21,41 @@ type GenericResponse = {
   error?: string;
 };
 
+// ── Validation helper ───────────────────────────────────
+function validatePassword(pw: string): string[] {
+  const errors: string[] = [];
+  if (pw.length < 8) errors.push('At least 8 characters');
+  if (!/[a-zA-Z]/.test(pw)) errors.push('At least one letter');
+  if (!/[0-9]/.test(pw)) errors.push('At least one number');
+  if (!/[^a-zA-Z0-9]/.test(pw)) errors.push('At least one special character');
+  return errors;
+}
+
+// ── Eye toggle component ────────────────────────────────
+function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="eye-toggle"
+      onClick={onToggle}
+      aria-label={show ? 'Hide password' : 'Show password'}
+      tabIndex={-1}
+    >
+      {show ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function ProfilePanel() {
   const [isOpen, setIsOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -37,6 +72,19 @@ function ProfilePanel() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Validation & UI state
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const pwRules = [
+    { label: 'At least 8 characters',        ok: (p: string) => p.length >= 8 },
+    { label: 'At least one letter',           ok: (p: string) => /[a-zA-Z]/.test(p) },
+    { label: 'At least one number',           ok: (p: string) => /[0-9]/.test(p) },
+    { label: 'At least one special character',ok: (p: string) => /[^a-zA-Z0-9]/.test(p) },
+  ];
+
   function showSuccess(msg: string) { setIsError(false); setMessage(msg); }
   function showError(msg: string) { setIsError(true); setMessage(msg); }
 
@@ -50,24 +98,22 @@ function ProfilePanel() {
     }
 
     async function fetchProfile() {
-        try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(apiUrl('/api/auth/profile'), {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (!response.ok) return;
-            const fresh = await response.json();
-            setUser(fresh);
-            setDisplayName(fresh.displayName || '');
-            localStorage.setItem('user_data', JSON.stringify(fresh));
-        } catch {
-      // silently fall back to localStorage data
-        }
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(apiUrl('/api/auth/profile'), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+        const fresh = await response.json();
+        setUser(fresh);
+        setDisplayName(fresh.displayName || '');
+        localStorage.setItem('user_data', JSON.stringify(fresh));
+      } catch {
+        // silently fall back to localStorage data
+      }
     }
 
-     fetchProfile();
-
-
+    fetchProfile();
   }, []);
 
   // Close panel when clicking outside
@@ -87,10 +133,12 @@ function ProfilePanel() {
     setMessage('');
     setIsError(false);
     setNewEmail('');
-    setResetStep('idle');   
-    setResetCode('');       
-    setNewPassword('');   
-    setConfirmPassword('');  
+    setResetStep('idle');
+    setResetCode('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setFieldErrors({});
+    setActiveField(null);
   }
 
   function formatDate(dateStr: string): string {
@@ -180,11 +228,31 @@ function ProfilePanel() {
     if (!resetCode.trim()) { showError('Please enter the code.'); return; }
     setResetStep('newpass');
     setMessage('');
+    setFieldErrors({});
   }
 
   async function doSubmitNewPassword() {
-    if (!newPassword || !confirmPassword) { showError('Please fill in both fields.'); return; }
-    if (newPassword !== confirmPassword) { showError('Passwords do not match.'); return; }
+    const errors: Record<string, string> = {};
+
+    if (!newPassword) {
+      errors.newPassword = 'New password is required.';
+    } else {
+      const pErrs = validatePassword(newPassword);
+      if (pErrs.length > 0) errors.newPassword = pErrs.join(' · ');
+    }
+    if (!confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password.';
+    } else if (newPassword !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      showError('Please fix the highlighted fields.');
+      return;
+    }
+
+    setFieldErrors({});
     setLoading(true);
     try {
       const response = await fetch(apiUrl('/api/auth/reset-password'), {
@@ -199,7 +267,7 @@ function ProfilePanel() {
         return;
       }
       showSuccess('Password reset successfully!');
-      setTimeout(() => { setView('profile'); setResetStep('idle'); setMessage(''); }, 2500);
+      setTimeout(() => { setView('profile'); setResetStep('idle'); setMessage(''); setFieldErrors({}); }, 2500);
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Unable to contact the server');
     } finally {
@@ -360,7 +428,7 @@ function ProfilePanel() {
               onClick={doUpdateDisplayName}
               disabled={loading}
             >
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         )}
@@ -371,14 +439,12 @@ function ProfilePanel() {
             <button className="profile-back-btn" onClick={() => { setView('profile'); setMessage(''); }}>
               ← Back
             </button>
-            <h3 className="profile-edit-title">Update Email</h3>
-            <p className="profile-edit-info">
-              If verification is enabled for your account, you will need the latest code sent to your new email before logging in again.
-            </p>
+            <h3 className="profile-edit-title">Edit Email</h3>
+            <p className="profile-edit-info">Enter a new email address for your account.</p>
             <input
               type="email"
               className="profile-input"
-              placeholder="New Email Address"
+              placeholder="New Email"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
             />
@@ -387,72 +453,112 @@ function ProfilePanel() {
               onClick={doUpdateEmail}
               disabled={loading}
             >
-              {loading ? 'Updating...' : 'Update Email'}
+              {loading ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         )}
 
-        {/* ── PASSWORD RESET SENT ── */}
+        {/* ── CHANGE PASSWORD FLOW ── */}
         {view === 'forgotSent' && (
-  <div className="profile-panel-body">
-    <button className="profile-back-btn" onClick={() => { setView('profile'); setResetStep('idle'); setMessage(''); }}>
-      ← Back
-    </button>
+          <div className="profile-panel-body">
+            <button
+              className="profile-back-btn"
+              onClick={() => { setView('profile'); setMessage(''); setResetStep('idle'); setFieldErrors({}); }}
+            >
+              ← Back
+            </button>
 
-    {/* STEP 1 — Enter code */}
-    {resetStep === 'code' && (
-      <>
-        <div className="profile-info-box">
-          <span className="profile-info-icon">✉</span>
-          <p>Enter the 6-digit code sent to <strong>{user?.email ? maskEmail(user.email) : 'your email'}</strong>.</p>
-        </div>
-        <input
-          type="text"
-          className="profile-input"
-          placeholder="Enter 6-digit code"
-          maxLength={6}
-          value={resetCode}
-          onChange={(e) => setResetCode(e.target.value)}
-        />
-        <button
-          className="profile-save-btn"
-          onClick={doSubmitResetCode}
-          disabled={loading}
-        >
-          Verify Code
-        </button>
-      </>
-    )}
+            {/* Step 1: Enter code */}
+            {resetStep === 'code' && (
+              <>
+                <h3 className="profile-edit-title">Enter Reset Code</h3>
+                <div className="profile-info-box">
+                  <span className="profile-info-icon">✉</span>
+                  <p>
+                    A 6-digit code was sent to{' '}
+                    <strong>{maskEmail(user?.email || '')}</strong>. Enter it below.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  className="profile-input"
+                  placeholder="6-digit code"
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value)}
+                  maxLength={6}
+                />
+                <button
+                  className="profile-save-btn"
+                  onClick={doSubmitResetCode}
+                  disabled={loading}
+                >
+                  Verify Code
+                </button>
+              </>
+            )}
 
-    {/* STEP 2 — Enter new password */}
-    {resetStep === 'newpass' && (
-      <>
-        <h3 className="profile-edit-title">Set New Password</h3>
-        <input
-          type="password"
-          className="profile-input"
-          placeholder="New Password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-        />
-        <input
-          type="password"
-          className="profile-input"
-          placeholder="Confirm New Password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-        />
-        <button
-          className="profile-save-btn"
-          onClick={doSubmitNewPassword}
-          disabled={loading}
-        >
-          {loading ? 'Saving...' : 'Reset Password'}
-        </button>
-      </>
-    )}
-  </div>
-)}
+            {/* Step 2: Set new password */}
+            {resetStep === 'newpass' && (
+              <>
+                <h3 className="profile-edit-title">Set New Password</h3>
+                <p className="profile-edit-info">Choose a strong password for your account.</p>
+
+                {/* New password */}
+                <div className="field-wrap">
+                  <div className="password-input-wrap">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      className={`profile-input${fieldErrors.newPassword ? ' input-error' : ''}`}
+                      placeholder="New Password"
+                      value={newPassword}
+                      onChange={(e) => { setNewPassword(e.target.value); setFieldErrors(p => ({ ...p, newPassword: '' })); }}
+                      onFocus={() => setActiveField('newPassword')}
+                      onBlur={() => setActiveField(null)}
+                    />
+                    <EyeToggle show={showNewPassword} onToggle={() => setShowNewPassword(p => !p)} />
+                  </div>
+                  {fieldErrors.newPassword && (
+                    <p className="field-error-msg">{fieldErrors.newPassword}</p>
+                  )}
+                  {activeField === 'newPassword' && (
+                    <ul className="field-rules">
+                      {pwRules.map(r => (
+                        <li key={r.label} className={r.ok(newPassword) ? 'rule-ok' : 'rule-pending'}>
+                          {r.ok(newPassword) ? '✓' : '·'} {r.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Confirm password */}
+                <div className="field-wrap">
+                  <div className="password-input-wrap">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      className={`profile-input${fieldErrors.confirmPassword ? ' input-error' : ''}`}
+                      placeholder="Confirm Password"
+                      value={confirmPassword}
+                      onChange={(e) => { setConfirmPassword(e.target.value); setFieldErrors(p => ({ ...p, confirmPassword: '' })); }}
+                    />
+                    <EyeToggle show={showConfirmPassword} onToggle={() => setShowConfirmPassword(p => !p)} />
+                  </div>
+                  {fieldErrors.confirmPassword && (
+                    <p className="field-error-msg">{fieldErrors.confirmPassword}</p>
+                  )}
+                </div>
+
+                <button
+                  className="profile-save-btn"
+                  onClick={doSubmitNewPassword}
+                  disabled={loading}
+                >
+                  {loading ? 'Saving…' : 'Reset Password'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
       </div>
     </>

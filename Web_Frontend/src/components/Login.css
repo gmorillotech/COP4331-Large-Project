@@ -29,6 +29,7 @@ input[type="email"] {
   border: 1px solid #aaa;
   font-size: 1em;
   outline: none;
+  box-sizing: border-box;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -179,5 +180,112 @@ input[type="email"]:focus {
 /* Success message color override */
 #loginResult.success {
   color: green;
+}
+
+/* ── FIELD VALIDATION WRAPPERS ───────────────────────── */
+
+/* Wraps a single field + its error message + its rules list.
+   Uses the same 90% width and centering as the global input style. */
+.field-wrap {
+  width: 90%;
+  margin: 10px auto 0;
+  text-align: left;
+}
+
+/* Inputs inside field-wrap fill the wrapper width (the wrapper itself is 90%) */
+.field-wrap input[type="text"],
+.field-wrap input[type="password"],
+.field-wrap input[type="email"] {
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Password field + eye icon side-by-side */
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* Inputs inside password-input-wrap need right padding for the eye icon */
+.password-input-wrap input[type="text"],
+.password-input-wrap input[type="password"] {
+  padding-right: 42px;
+}
+
+/* Eye toggle button */
+.eye-toggle {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+
+.eye-toggle:hover {
+  color: #333;
+}
+
+/* Red border on invalid field */
+.input-error {
+  border-color: #e53e3e !important;
+  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.2) !important;
+}
+
+/* Inline error text below a field */
+.field-error-msg {
+  color: #e53e3e;
+  font-size: 0.78em;
+  margin: 3px 0 4px;
+  padding: 0;
+  line-height: 1.5;
+}
+
+/* Live rules checklist (shown on focus) */
+.field-rules {
+  display: block;
+  list-style: none;
+  padding: 6px 10px;
+  margin: 4px 0 0;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.78em;
+}
+
+.field-rules li {
+  display: block;
+  line-height: 1.8;
+  transition: color 0.15s ease;
+}
+
+/* Error-state rules list (shown after failed submit) */
+.field-rules-inline {
+  display: block;
+  list-style: disc;
+  padding-left: 18px;
+  margin: 2px 0 0;
+}
+
+.field-rules-inline li {
+  display: list-item;
+  line-height: 1.7;
+}
+
+.rule-ok {
+  color: #22863a;
+  font-weight: 600;
+}
+
+.rule-pending {
+  color: #888;
 }
 
