@@ -554,6 +554,67 @@ it("POST /api/locations/groups/:groupId/locations accepts omitted floor and desc
   });
 });
 
+it("POST /api/locations/groups/:groupId/locations honors a saved polygon over stale circle data", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-a",
+      locationGroupId: "group-1",
+      name: "Existing Study Nook",
+      floorLabel: "Floor 2",
+      sublocationLabel: "Atrium",
+      latitude: 28.60110,
+      longitude: -81.19886,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-1",
+      name: "Mathematical Sciences Building",
+      shapeType: "polygon",
+      polygon: [
+        { latitude: 28.60090, longitude: -81.19910 },
+        { latitude: 28.60134, longitude: -81.19910 },
+        { latitude: 28.60134, longitude: -81.19858 },
+        { latitude: 28.60090, longitude: -81.19858 },
+      ],
+      centerLatitude: 28.61000,
+      centerLongitude: -81.19000,
+      radiusMeters: 10,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(express.json());
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/locations/groups/group-1/locations`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Polygon Interior Desk",
+        floorLabel: "Floor 2",
+        sublocationLabel: "West Hall",
+        latitude: 28.60102,
+        longitude: -81.19882,
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(body.locationGroupId, "group-1");
+    assert.equal(body.name, "Polygon Interior Desk");
+  });
+});
+
 it("POST /api/locations/groups/:groupId/locations rejects coordinates outside the group boundary", async () => {
   const StudyLocationModel = createQueryModel([
     {

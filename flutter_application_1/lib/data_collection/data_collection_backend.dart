@@ -43,6 +43,10 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
       final group = Map<String, dynamic>.from(groupEntry as Map);
       final groupId = (group['locationGroupId'] as String? ?? '').trim();
       final groupName = (group['name'] as String? ?? 'Unknown Building').trim();
+      final groupCenterLatitude = _readFiniteDouble(group['centerLatitude']);
+      final groupCenterLongitude = _readFiniteDouble(group['centerLongitude']);
+      final groupRadiusMeters = _readFiniteDouble(group['radiusMeters']);
+      final groupPolygon = _parseGroupPolygon(group['polygon']);
       if (groupId.isEmpty) {
         continue;
       }
@@ -60,7 +64,15 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
         }
 
         studyLocations.add(
-          _parseStudyLocation(location, groupId: groupId, groupName: groupName),
+          _parseStudyLocation(
+            location,
+            groupId: groupId,
+            groupName: groupName,
+            groupCenterLatitude: groupCenterLatitude,
+            groupCenterLongitude: groupCenterLongitude,
+            groupRadiusMeters: groupRadiusMeters,
+            groupPolygon: groupPolygon,
+          ),
         );
       }
     }
@@ -145,6 +157,10 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
       location,
       groupId: locationGroupId,
       groupName: (matchingGroup['name'] as String? ?? 'Study Location Group').trim(),
+      groupCenterLatitude: _readFiniteDouble(matchingGroup['centerLatitude']),
+      groupCenterLongitude: _readFiniteDouble(matchingGroup['centerLongitude']),
+      groupRadiusMeters: _readFiniteDouble(matchingGroup['radiusMeters']),
+      groupPolygon: _parseGroupPolygon(matchingGroup['polygon']),
     );
   }
 
@@ -177,16 +193,27 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
     }
 
     final group = Map<String, dynamic>.from(payload as Map);
+    final polygon = _parseGroupPolygon(group['polygon']);
+    final derivedCenter = polygon.isEmpty ? null : _polygonAverageCenter(polygon);
     return DataCollectionLocationGroup(
       locationGroupId: (group['locationGroupId'] as String? ?? '').trim(),
       buildingName: (group['name'] as String? ?? 'Study Location Group').trim(),
-      centerLatitude: (group['centerLatitude'] as num?)?.toDouble() ??
+      centerLatitude:
+          _readFiniteDouble(group['centerLatitude']) ??
+          derivedCenter?.latitude ??
           centerLatitude,
-      centerLongitude: (group['centerLongitude'] as num?)?.toDouble() ??
+      centerLongitude:
+          _readFiniteDouble(group['centerLongitude']) ??
+          derivedCenter?.longitude ??
           centerLongitude,
-      radiusMeters:
-          (group['radiusMeters'] as num?)?.toDouble() ?? 60,
+      radiusMeters: _readFiniteDouble(group['radiusMeters']) ?? 60,
       studyLocations: const <DataCollectionStudyLocation>[],
+      polygon: polygon,
+      hasExplicitBoundary:
+          polygon.isNotEmpty ||
+          (_readFiniteDouble(group['centerLatitude']) != null &&
+              _readFiniteDouble(group['centerLongitude']) != null &&
+              _readFiniteDouble(group['radiusMeters']) != null),
     );
   }
 
@@ -252,6 +279,11 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
     Map<String, dynamic> location, {
     required String groupId,
     required String groupName,
+    double? groupCenterLatitude,
+    double? groupCenterLongitude,
+    double? groupRadiusMeters,
+    List<DataCollectionGroupVertex> groupPolygon =
+        const <DataCollectionGroupVertex>[],
   }) {
     return DataCollectionStudyLocation(
       studyLocationId: (location['studyLocationId'] as String? ?? '').trim(),
@@ -262,6 +294,55 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
       sublocationLabel: (location['sublocationLabel'] as String? ?? '').trim(),
       latitude: (location['latitude'] as num?)?.toDouble() ?? 0,
       longitude: (location['longitude'] as num?)?.toDouble() ?? 0,
+      groupCenterLatitude: groupCenterLatitude,
+      groupCenterLongitude: groupCenterLongitude,
+      groupRadiusMeters: groupRadiusMeters,
+      groupPolygon: List<DataCollectionGroupVertex>.unmodifiable(groupPolygon),
     );
   }
+}
+
+double? _readFiniteDouble(Object? value) {
+  final nextValue = (value as num?)?.toDouble();
+  if (nextValue == null || !nextValue.isFinite) {
+    return null;
+  }
+
+  return nextValue;
+}
+
+List<DataCollectionGroupVertex> _parseGroupPolygon(Object? value) {
+  if (value is! List) {
+    return const <DataCollectionGroupVertex>[];
+  }
+
+  return value
+      .whereType<Map>()
+      .map((entry) => Map<String, dynamic>.from(entry))
+      .map(
+        (entry) => DataCollectionGroupVertex(
+          latitude: _readFiniteDouble(entry['latitude']) ?? double.nan,
+          longitude: _readFiniteDouble(entry['longitude']) ?? double.nan,
+        ),
+      )
+      .where(
+        (vertex) => vertex.latitude.isFinite && vertex.longitude.isFinite,
+      )
+      .toList(growable: false);
+}
+
+SessionCoordinates? _polygonAverageCenter(
+  List<DataCollectionGroupVertex> polygon,
+) {
+  if (polygon.isEmpty) {
+    return null;
+  }
+
+  final latitude =
+      polygon.map((vertex) => vertex.latitude).reduce((a, b) => a + b) /
+      polygon.length;
+  final longitude =
+      polygon.map((vertex) => vertex.longitude).reduce((a, b) => a + b) /
+      polygon.length;
+  return SessionCoordinates(latitude: latitude, longitude: longitude);
 }

@@ -1,3 +1,9 @@
+const {
+  isClosedPolygon,
+  pointInPolygon,
+  pointOnPolygonBoundary,
+} = require("./geometryValidation");
+
 class LocationService {
   constructor(studyLocationRepository, locationGroupRepository, maxResolutionDistanceMeters = 150) {
     this.studyLocationRepository = studyLocationRepository;
@@ -197,6 +203,25 @@ class LocationService {
       throw new Error(`LocationGroup not found for id ${groupId}`);
     }
 
+    if (group.shapeType === "polygon" && Array.isArray(group.polygon) && group.polygon.length >= 3) {
+      const polygon = group.polygon
+        .map((vertex) => ({
+          latitude: Number(vertex.latitude),
+          longitude: Number(vertex.longitude),
+        }))
+        .filter((vertex) => Number.isFinite(vertex.latitude) && Number.isFinite(vertex.longitude));
+
+      if (polygon.length >= 3) {
+        const { vertices: closedPolygon } = isClosedPolygon(polygon);
+        return {
+          locationGroupId: group.locationGroupId,
+          name: group.name,
+          shapeType: "polygon",
+          polygon: closedPolygon,
+        };
+      }
+    }
+
     if (
       Number.isFinite(group.centerLatitude) &&
       Number.isFinite(group.centerLongitude) &&
@@ -205,6 +230,7 @@ class LocationService {
       return {
         locationGroupId: group.locationGroupId,
         name: group.name,
+        shapeType: "circle",
         centerLatitude: group.centerLatitude,
         centerLongitude: group.centerLongitude,
         radiusMeters: group.radiusMeters,
@@ -235,6 +261,7 @@ class LocationService {
     return {
       locationGroupId: group.locationGroupId,
       name: group.name,
+      shapeType: "circle",
       centerLatitude,
       centerLongitude,
       radiusMeters: Math.max(
@@ -313,6 +340,18 @@ function toRadians(value) {
 }
 
 function isWithinBoundary(boundary, coords) {
+  if (Array.isArray(boundary.polygon) && boundary.polygon.length >= 4) {
+    return pointInPolygon(coords, boundary.polygon) || pointOnPolygonBoundary(coords, boundary.polygon);
+  }
+
+  if (
+    !Number.isFinite(boundary.centerLatitude) ||
+    !Number.isFinite(boundary.centerLongitude) ||
+    !Number.isFinite(boundary.radiusMeters)
+  ) {
+    return false;
+  }
+
   return haversineDistanceMeters(
     { latitude: boundary.centerLatitude, longitude: boundary.centerLongitude },
     coords,

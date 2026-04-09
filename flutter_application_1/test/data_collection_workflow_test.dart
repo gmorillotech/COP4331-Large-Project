@@ -174,7 +174,7 @@ void main() {
       expect(location!.studyLocationId, 'library-floor-1-quiet');
     });
 
-    test('location resolver derives padded location group boundaries', () {
+    test('location resolver uses polygon-backed location group boundaries', () {
       const resolver = LocalStudyLocationResolver();
 
       final group = resolver.findGroupById('group-john-c-hitt-library');
@@ -195,6 +195,55 @@ void main() {
         isFalse,
       );
     });
+
+    test(
+      'location resolver prefers explicit polygon groups over overlapping derived circles',
+      () {
+        const mathPolygon = <DataCollectionGroupVertex>[
+          DataCollectionGroupVertex(latitude: 28.6008, longitude: -81.2002),
+          DataCollectionGroupVertex(latitude: 28.6013, longitude: -81.2002),
+          DataCollectionGroupVertex(latitude: 28.6013, longitude: -81.1996),
+          DataCollectionGroupVertex(latitude: 28.6008, longitude: -81.1996),
+        ];
+
+        final resolver = LocalStudyLocationResolver(
+          studyLocations: const <DataCollectionStudyLocation>[
+            DataCollectionStudyLocation(
+              studyLocationId: 'library-main',
+              locationGroupId: 'group-library',
+              locationName: 'Main Floor',
+              buildingName: 'Library',
+              floorLabel: 'Floor 1',
+              sublocationLabel: 'Stacks',
+              latitude: 28.60105,
+              longitude: -81.19992,
+            ),
+            DataCollectionStudyLocation(
+              studyLocationId: 'math-atrium',
+              locationGroupId: 'group-math',
+              locationName: 'Atrium',
+              buildingName: 'Mathematical Sciences Building',
+              floorLabel: 'Floor 2',
+              sublocationLabel: 'Balcony',
+              latitude: 28.60118,
+              longitude: -81.19974,
+              groupCenterLatitude: 28.60105,
+              groupCenterLongitude: -81.1999,
+              groupRadiusMeters: 55,
+              groupPolygon: mathPolygon,
+            ),
+          ],
+        );
+
+        final group = resolver.resolveNearestGroup(
+          latitude: 28.60102,
+          longitude: -81.19988,
+        );
+
+        expect(group, isNotNull);
+        expect(group!.locationGroupId, 'group-math');
+      },
+    );
 
     test('in-memory draft repository removes queued drafts by id', () async {
       final repository = InMemoryReportDraftRepository.instance;

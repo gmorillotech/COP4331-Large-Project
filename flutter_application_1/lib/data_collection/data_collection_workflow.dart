@@ -10,6 +10,17 @@ import 'data_collection_model.dart';
 enum ReportDeliveryStatus { submittedToApi, queuedOffline }
 
 @immutable
+class DataCollectionGroupVertex {
+  const DataCollectionGroupVertex({
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final double latitude;
+  final double longitude;
+}
+
+@immutable
 class DataCollectionStudyLocation {
   const DataCollectionStudyLocation({
     required this.studyLocationId,
@@ -20,6 +31,10 @@ class DataCollectionStudyLocation {
     required this.sublocationLabel,
     required this.latitude,
     required this.longitude,
+    this.groupCenterLatitude,
+    this.groupCenterLongitude,
+    this.groupRadiusMeters,
+    this.groupPolygon = const <DataCollectionGroupVertex>[],
   });
 
   final String studyLocationId;
@@ -30,6 +45,10 @@ class DataCollectionStudyLocation {
   final String sublocationLabel;
   final double latitude;
   final double longitude;
+  final double? groupCenterLatitude;
+  final double? groupCenterLongitude;
+  final double? groupRadiusMeters;
+  final List<DataCollectionGroupVertex> groupPolygon;
 
   String get displayLabel => '$buildingName - $locationName';
   String get detailLabel => '$floorLabel, $sublocationLabel';
@@ -44,6 +63,8 @@ class DataCollectionLocationGroup {
     required this.centerLongitude,
     required this.radiusMeters,
     required this.studyLocations,
+    this.polygon = const <DataCollectionGroupVertex>[],
+    this.hasExplicitBoundary = false,
   });
 
   final String locationGroupId;
@@ -52,15 +73,19 @@ class DataCollectionLocationGroup {
   final double centerLongitude;
   final double radiusMeters;
   final List<DataCollectionStudyLocation> studyLocations;
+  final List<DataCollectionGroupVertex> polygon;
+  final bool hasExplicitBoundary;
 
   bool contains(SessionCoordinates coords) {
-    return _haversineDistanceMeters(
-          latitudeA: centerLatitude,
-          longitudeA: centerLongitude,
-          latitudeB: coords.latitude,
-          longitudeB: coords.longitude,
-        ) <=
-        radiusMeters;
+    if (polygon.length < 3) {
+      return false;
+    }
+
+    return _pointInOrOnPolygon(
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      polygon: polygon,
+    );
   }
 
   DataCollectionStudyLocation resolveNearestLocation(
@@ -87,6 +112,30 @@ class DataCollectionLocationGroup {
   }
 }
 
+const List<DataCollectionGroupVertex> _libraryGroupPolygon =
+    <DataCollectionGroupVertex>[
+      DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20208),
+      DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20208),
+      DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20136),
+      DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20136),
+    ];
+
+const List<DataCollectionGroupVertex> _mathGroupPolygon =
+    <DataCollectionGroupVertex>[
+      DataCollectionGroupVertex(latitude: 28.60090, longitude: -81.19910),
+      DataCollectionGroupVertex(latitude: 28.60134, longitude: -81.19910),
+      DataCollectionGroupVertex(latitude: 28.60134, longitude: -81.19858),
+      DataCollectionGroupVertex(latitude: 28.60090, longitude: -81.19858),
+    ];
+
+const List<DataCollectionGroupVertex> _studentUnionGroupPolygon =
+    <DataCollectionGroupVertex>[
+      DataCollectionGroupVertex(latitude: 28.60174, longitude: -81.20018),
+      DataCollectionGroupVertex(latitude: 28.60210, longitude: -81.20018),
+      DataCollectionGroupVertex(latitude: 28.60210, longitude: -81.19970),
+      DataCollectionGroupVertex(latitude: 28.60174, longitude: -81.19970),
+    ];
+
 const List<DataCollectionStudyLocation> seededStudyLocations = [
   DataCollectionStudyLocation(
     studyLocationId: 'library-floor-1-quiet',
@@ -97,6 +146,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'North Reading Room',
     latitude: 28.60024,
     longitude: -81.20182,
+    groupPolygon: _libraryGroupPolygon,
   ),
   DataCollectionStudyLocation(
     studyLocationId: 'library-floor-2-moderate',
@@ -107,6 +157,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'West Commons',
     latitude: 28.60036,
     longitude: -81.20168,
+    groupPolygon: _libraryGroupPolygon,
   ),
   DataCollectionStudyLocation(
     studyLocationId: 'library-floor-3-busy',
@@ -117,6 +168,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'Digital Media Area',
     latitude: 28.60048,
     longitude: -81.20155,
+    groupPolygon: _libraryGroupPolygon,
   ),
   DataCollectionStudyLocation(
     studyLocationId: 'library-floor-4-empty',
@@ -127,6 +179,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'East Quiet Wing',
     latitude: 28.60018,
     longitude: -81.20198,
+    groupPolygon: _libraryGroupPolygon,
   ),
   DataCollectionStudyLocation(
     studyLocationId: 'msb-floor-2-moderate',
@@ -137,6 +190,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'Atrium Balcony',
     latitude: 28.60116,
     longitude: -81.19886,
+    groupPolygon: _mathGroupPolygon,
   ),
   DataCollectionStudyLocation(
     studyLocationId: 'student-union-food-court',
@@ -147,6 +201,7 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
     sublocationLabel: 'South Dining Hall',
     latitude: 28.60192,
     longitude: -81.19994,
+    groupPolygon: _studentUnionGroupPolygon,
   ),
 ];
 
@@ -244,15 +299,21 @@ class LocalStudyLocationResolver {
     required double latitude,
     required double longitude,
   }) {
-    final nearestLocation = resolveNearest(
-      latitude: latitude,
-      longitude: longitude,
-    );
-    if (nearestLocation == null) {
-      return null;
+    final coords = SessionCoordinates(latitude: latitude, longitude: longitude);
+    final containingGroups =
+        locationGroups
+            .where((group) => group.polygon.length >= 3 && group.contains(coords))
+            .toList();
+
+    if (containingGroups.isNotEmpty) {
+      containingGroups.sort(
+        (left, right) => _distanceToGroup(left, coords)
+            .compareTo(_distanceToGroup(right, coords)),
+      );
+      return containingGroups.first;
     }
 
-    return findGroupById(nearestLocation.locationGroupId);
+    return null;
   }
 
   bool isWithinLocationGroup({
@@ -274,6 +335,60 @@ class LocalStudyLocationResolver {
     String locationGroupId,
     List<DataCollectionStudyLocation> groupedLocations,
   ) {
+    final explicitPolygon = _firstExplicitPolygon(groupedLocations);
+    final explicitCenterLatitude = _firstFiniteValue(
+      groupedLocations.map((location) => location.groupCenterLatitude),
+    );
+    final explicitCenterLongitude = _firstFiniteValue(
+      groupedLocations.map((location) => location.groupCenterLongitude),
+    );
+    final explicitRadiusMeters = _firstFiniteValue(
+      groupedLocations.map((location) => location.groupRadiusMeters),
+    );
+
+    if (explicitPolygon.length >= 3) {
+      final polygonCenter = _polygonAverageCenter(explicitPolygon);
+      final centerLatitude = explicitCenterLatitude ?? polygonCenter.latitude;
+      final centerLongitude = explicitCenterLongitude ?? polygonCenter.longitude;
+      final radiusMeters =
+          explicitRadiusMeters ??
+          _maxPolygonDistanceMeters(
+            centerLatitude: centerLatitude,
+            centerLongitude: centerLongitude,
+            polygon: explicitPolygon,
+          );
+
+      return DataCollectionLocationGroup(
+        locationGroupId: locationGroupId,
+        buildingName: groupedLocations.first.buildingName,
+        centerLatitude: centerLatitude,
+        centerLongitude: centerLongitude,
+        radiusMeters: math.max(minimumLocationGroupRadiusMeters, radiusMeters),
+        studyLocations: List<DataCollectionStudyLocation>.unmodifiable(
+          groupedLocations,
+        ),
+        polygon: List<DataCollectionGroupVertex>.unmodifiable(explicitPolygon),
+        hasExplicitBoundary: true,
+      );
+    }
+
+    if (explicitCenterLatitude != null &&
+        explicitCenterLongitude != null &&
+        explicitRadiusMeters != null &&
+        explicitRadiusMeters > 0) {
+      return DataCollectionLocationGroup(
+        locationGroupId: locationGroupId,
+        buildingName: groupedLocations.first.buildingName,
+        centerLatitude: explicitCenterLatitude,
+        centerLongitude: explicitCenterLongitude,
+        radiusMeters: explicitRadiusMeters,
+        studyLocations: List<DataCollectionStudyLocation>.unmodifiable(
+          groupedLocations,
+        ),
+        hasExplicitBoundary: true,
+      );
+    }
+
     final centerLatitude =
         groupedLocations
             .map((location) => location.latitude)
@@ -312,6 +427,205 @@ class LocalStudyLocationResolver {
       ),
     );
   }
+
+  double _distanceToGroup(
+    DataCollectionLocationGroup group,
+    SessionCoordinates coords,
+  ) {
+    final nearestLocation = group.resolveNearestLocation(coords);
+    return _haversineDistanceMeters(
+      latitudeA: coords.latitude,
+      longitudeA: coords.longitude,
+      latitudeB: nearestLocation.latitude,
+      longitudeB: nearestLocation.longitude,
+    );
+  }
+}
+
+List<DataCollectionGroupVertex> _firstExplicitPolygon(
+  List<DataCollectionStudyLocation> groupedLocations,
+) {
+  for (final location in groupedLocations) {
+    if (location.groupPolygon.length >= 3) {
+      return location.groupPolygon;
+    }
+  }
+
+  return const <DataCollectionGroupVertex>[];
+}
+
+double? _firstFiniteValue(Iterable<double?> values) {
+  for (final value in values) {
+    if (value != null && value.isFinite) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+SessionCoordinates _polygonAverageCenter(List<DataCollectionGroupVertex> polygon) {
+  final latitude =
+      polygon.map((vertex) => vertex.latitude).reduce((a, b) => a + b) /
+      polygon.length;
+  final longitude =
+      polygon.map((vertex) => vertex.longitude).reduce((a, b) => a + b) /
+      polygon.length;
+  return SessionCoordinates(latitude: latitude, longitude: longitude);
+}
+
+double _maxPolygonDistanceMeters({
+  required double centerLatitude,
+  required double centerLongitude,
+  required List<DataCollectionGroupVertex> polygon,
+}) {
+  var maxDistanceMeters = 0.0;
+
+  for (final vertex in polygon) {
+    final distanceMeters = _haversineDistanceMeters(
+      latitudeA: centerLatitude,
+      longitudeA: centerLongitude,
+      latitudeB: vertex.latitude,
+      longitudeB: vertex.longitude,
+    );
+    if (distanceMeters > maxDistanceMeters) {
+      maxDistanceMeters = distanceMeters;
+    }
+  }
+
+  return maxDistanceMeters;
+}
+
+bool _pointInOrOnPolygon({
+  required double latitude,
+  required double longitude,
+  required List<DataCollectionGroupVertex> polygon,
+}) {
+  return _pointOnPolygonBoundary(
+        latitude: latitude,
+        longitude: longitude,
+        polygon: polygon,
+      ) ||
+      _pointInPolygon(
+        latitude: latitude,
+        longitude: longitude,
+        polygon: polygon,
+      );
+}
+
+bool _pointInPolygon({
+  required double latitude,
+  required double longitude,
+  required List<DataCollectionGroupVertex> polygon,
+}) {
+  final ring = _closePolygon(polygon);
+  if (ring.length < 4) {
+    return false;
+  }
+
+  var inside = false;
+  final edgeCount = ring.length - 1;
+
+  for (var i = 0, j = edgeCount - 1; i < edgeCount; j = i, i += 1) {
+    final xi = ring[i].latitude;
+    final yi = ring[i].longitude;
+    final xj = ring[j].latitude;
+    final yj = ring[j].longitude;
+
+    final intersects =
+        (yi > longitude) != (yj > longitude) &&
+        latitude < ((xj - xi) * (longitude - yi)) / (yj - yi) + xi;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+bool _pointOnPolygonBoundary({
+  required double latitude,
+  required double longitude,
+  required List<DataCollectionGroupVertex> polygon,
+}) {
+  final ring = _closePolygon(polygon);
+  if (ring.length < 4) {
+    return false;
+  }
+
+  for (var index = 0; index < ring.length - 1; index += 1) {
+    final start = ring[index];
+    final end = ring[index + 1];
+    if (_orientation(start, latitude, longitude, end) == 0 &&
+        _pointOnSegment(start, latitude, longitude, end)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+List<DataCollectionGroupVertex> _closePolygon(
+  List<DataCollectionGroupVertex> polygon,
+) {
+  if (polygon.isEmpty) {
+    return const <DataCollectionGroupVertex>[];
+  }
+
+  final first = polygon.first;
+  final last = polygon.last;
+  if (_pointsEqual(first, last)) {
+    return List<DataCollectionGroupVertex>.from(polygon);
+  }
+
+  return <DataCollectionGroupVertex>[
+    ...polygon,
+    DataCollectionGroupVertex(
+      latitude: first.latitude,
+      longitude: first.longitude,
+    ),
+  ];
+}
+
+bool _pointsEqual(
+  DataCollectionGroupVertex left,
+  DataCollectionGroupVertex right, {
+  double epsilon = 1e-9,
+}) {
+  return (left.latitude - right.latitude).abs() <= epsilon &&
+      (left.longitude - right.longitude).abs() <= epsilon;
+}
+
+int _orientation(
+  DataCollectionGroupVertex start,
+  double latitude,
+  double longitude,
+  DataCollectionGroupVertex end,
+) {
+  const epsilon = 1e-9;
+  final value =
+      (longitude - start.longitude) * (end.latitude - latitude) -
+      (latitude - start.latitude) * (end.longitude - longitude);
+
+  if (value.abs() < epsilon) {
+    return 0;
+  }
+
+  return value > 0 ? 1 : 2;
+}
+
+bool _pointOnSegment(
+  DataCollectionGroupVertex start,
+  double latitude,
+  double longitude,
+  DataCollectionGroupVertex end,
+) {
+  const epsilon = 1e-9;
+  return latitude <= math.max(start.latitude, end.latitude) + epsilon &&
+      latitude >= math.min(start.latitude, end.latitude) - epsilon &&
+      longitude <= math.max(start.longitude, end.longitude) + epsilon &&
+      longitude >= math.min(start.longitude, end.longitude) - epsilon;
 }
 
 class CaptureNoiseSummaryConfig {
