@@ -24,6 +24,7 @@ type SearchApiNode = {
   buildingName?: string;
   lat?: number;
   lng?: number;
+  radius?: number;
   floorLabel?: string;
   sublocationLabel?: string;
 };
@@ -31,12 +32,6 @@ type SearchApiNode = {
 type SearchApiResponse = {
   results?: SearchApiNode[];
   error?: string;
-};
-
-type GroupLookup = {
-  locationGroupId: string;
-  centerLatitude?: number | null;
-  centerLongitude?: number | null;
 };
 
 function AdminSearchPage() {
@@ -65,52 +60,30 @@ function AdminSearchPage() {
     try {
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-      const [res, groupsRes] = await Promise.all([
-        fetch(
-          apiUrl(
-            `/api/locations/search?q=${encodeURIComponent(query)}&includeGroups=true&includeLocations=true&sortBy=relevance`,
-          ),
-          { headers },
+      const res = await fetch(
+        apiUrl(
+          `/api/admin/search?q=${encodeURIComponent(query)}&includeGroups=true&includeLocations=true&sortBy=relevance`,
         ),
-        fetch(apiUrl('/api/locations/groups'), { headers }),
-      ]);
-      const [data, groupsPayload] = await Promise.all([
-        res.json() as Promise<SearchApiResponse>,
-        groupsRes.json() as Promise<GroupLookup[] | { groups?: GroupLookup[] }>,
-      ]);
+        { headers },
+      );
+      const data = (await res.json()) as SearchApiResponse;
 
       if (!res.ok || data.error) {
         setResults([]);
         return;
       }
 
-      const allGroups: GroupLookup[] = Array.isArray(groupsPayload)
-        ? groupsPayload
-        : groupsPayload.groups ?? [];
-      const groupsById = new Map(
-        allGroups.map((group) => [
-          group.locationGroupId,
-          {
-            lat: group.centerLatitude ?? undefined,
-            lng: group.centerLongitude ?? undefined,
-          },
-        ]),
-      );
-
       const items: SearchResultItem[] = (data.results ?? [])
         .filter((item) => item.kind === 'group' || item.kind === 'location')
         .map((item): SearchResultItem => {
-          const fallbackGroupCoords = item.kind === 'group'
-            ? groupsById.get(item.id)
-            : undefined;
-
           return {
             id: item.id,
             kind: item.kind,
             name: item.title,
             parentName: item.kind === 'location' ? item.buildingName : undefined,
-            lat: item.lat ?? fallbackGroupCoords?.lat,
-            lng: item.lng ?? fallbackGroupCoords?.lng,
+            lat: item.lat,
+            lng: item.lng,
+            radius: item.radius,
             floorLabel: item.floorLabel,
             sublocationLabel: item.sublocationLabel,
           };
