@@ -11,8 +11,21 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 type LocationGroup = {
   locationGroupId: string;
   name: string;
-  centerLatitude: number;
-  centerLongitude: number;
+  centerLatitude: number | null;
+  centerLongitude: number | null;
+};
+
+type GroupSearchResult = {
+  id: string;
+  kind: 'group';
+  title: string;
+  lat?: number;
+  lng?: number;
+};
+
+type GroupSearchResponse = {
+  results?: GroupSearchResult[];
+  error?: string;
 };
 
 function LocationEditPage() {
@@ -31,16 +44,35 @@ function LocationEditPage() {
       setError(null);
 
       try {
-        const res = await fetch(apiUrl('/api/locations/groups'), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+        const res = await fetch(apiUrl('/api/locations/groups'), { headers });
         const data = await res.json();
 
         if (!isActive) return;
 
-        const allGroups: LocationGroup[] = Array.isArray(data)
+        let allGroups: LocationGroup[] = Array.isArray(data)
           ? data
           : data.groups ?? [];
+
+        // Fall back to the shared location search feed so the admin page
+        // still has selectable groups even if the dedicated list route regresses.
+        if (!res.ok || allGroups.length === 0) {
+          const fallbackRes = await fetch(
+            apiUrl('/api/locations/search?includeGroups=true&includeLocations=false&sortBy=relevance'),
+            { headers },
+          );
+          const fallbackData: GroupSearchResponse = await fallbackRes.json();
+
+          if (fallbackRes.ok && !fallbackData.error) {
+            allGroups = (fallbackData.results ?? []).map((group) => ({
+              locationGroupId: group.id,
+              name: group.title,
+              centerLatitude: group.lat ?? null,
+              centerLongitude: group.lng ?? null,
+            }));
+          }
+        }
+
         setGroups(allGroups);
       } catch (err) {
         if (!isActive) return;
@@ -128,26 +160,32 @@ function LocationEditPage() {
             disableDefaultUI={true}
             style={{ width: '100%', height: '100%' }}
           >
-            {groups.filter((g) => g.centerLatitude != null && g.centerLongitude != null).map((group) => {
-              const isSelected = selectedIds.includes(group.locationGroupId);
-              return (
-                <AdvancedMarker
-                  key={group.locationGroupId}
-                  position={{ lat: group.centerLatitude, lng: group.centerLongitude }}
-                  title={group.name}
-                  zIndex={isSelected ? 100 : 10}
-                  onClick={() => handleToggle(group.locationGroupId)}
-                >
-                  <div
-                    className={`group-map-pin${isSelected ? ' is-selected' : ''}`}
+            {groups
+              .filter((g) => g.centerLatitude != null && g.centerLongitude != null)
+              .map((group) => {
+                const isSelected = selectedIds.includes(group.locationGroupId);
+                const position = {
+                  lat: Number(group.centerLatitude),
+                  lng: Number(group.centerLongitude),
+                };
+                return (
+                  <AdvancedMarker
+                    key={group.locationGroupId}
+                    position={position}
+                    title={group.name}
+                    zIndex={isSelected ? 100 : 10}
+                    onClick={() => handleToggle(group.locationGroupId)}
                   >
-                    <span className="group-map-pin__letter">
-                      {group.name.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                </AdvancedMarker>
-              );
-            })}
+                    <div
+                      className={`group-map-pin${isSelected ? ' is-selected' : ''}`}
+                    >
+                      <span className="group-map-pin__letter">
+                        {group.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  </AdvancedMarker>
+                );
+              })}
           </Map>
         </APIProvider>
       </div>

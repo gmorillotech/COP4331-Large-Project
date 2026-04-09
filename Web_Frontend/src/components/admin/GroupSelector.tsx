@@ -5,8 +5,8 @@ import './RedrawMerge.css';
 type LocationGroup = {
   locationGroupId: string;
   name: string;
-  centerLatitude: number;
-  centerLongitude: number;
+  centerLatitude: number | null;
+  centerLongitude: number | null;
 };
 
 type GroupSelectorProps = {
@@ -66,7 +66,9 @@ function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
         })}
         {filtered.length === 0 && (
           <li style={{ padding: '20px', textAlign: 'center', color: '#999', fontSize: '0.9em' }}>
-            No groups match your filter.
+            {groups.length === 0 && filter.trim().length === 0
+              ? 'No groups available.'
+              : 'No groups match your filter.'}
           </li>
         )}
       </ul>

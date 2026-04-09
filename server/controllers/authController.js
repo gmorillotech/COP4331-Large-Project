@@ -174,21 +174,23 @@ const login = async (req, res) => {
       return res.status(403).json({ error: "This account is suspended. Please contact an administrator." });
     }
 
+    if (!user.emailVerifiedAt) {
+      return res.status(403).json({
+        reason: user.accountStatus === "forced_reset" ? "forced_reset_verify" : "email_not_verified",
+        email: user.email,
+        maskedEmail: maskEmail(user.email),
+        error: user.accountStatus === "forced_reset"
+          ? "Verify your email to continue resetting your password."
+          : "Please verify your email before logging in.",
+      });
+    }
+
     if (user.accountStatus === "forced_reset") {
       return res.status(403).json({
         reason: "forced_reset",
         email: user.email,
         maskedEmail: maskEmail(user.email),
         error: "A password reset is required for this account. Use the reset code sent to your email before logging in.",
-      });
-    }
-
-    if (!user.emailVerifiedAt) {
-      return res.status(403).json({
-        reason: "email_not_verified",
-        email: user.email,
-        maskedEmail: maskEmail(user.email),
-        error: "Please verify your email before logging in.",
       });
     }
 
@@ -209,17 +211,32 @@ const verifyEmail = async (req, res) => {
       return res.status(400).json({ error: "Email and verification code are required." });
     }
 
+    const submittedCode = String(code).trim();
     const user = await User.findOne({
       email: normalizeEmail(email),
-      emailVerificationCode: String(code).trim(),
+      emailVerificationCode: submittedCode,
       emailVerificationExpiresAt: { $gt: new Date() },
     });
     if (!user) {
       return res.status(400).json({ error: "Invalid or expired verification code." });
     }
 
+    const requiresPasswordReset = user.accountStatus === "forced_reset";
+    if (requiresPasswordReset) {
+      user.passwordResetCode = submittedCode;
+      user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
+    }
+
+    const verifiedEmail = user.email;
     await user.verifyEmail();
-    return res.status(200).json({ message: "Email verified successfully. You can now log in." });
+    return res.status(200).json({
+      message: requiresPasswordReset
+        ? "Email verified. Set a new password to continue."
+        : "Email verified successfully. You can now log in.",
+      requiresPasswordReset,
+      email: verifiedEmail,
+      maskedEmail: maskEmail(verifiedEmail),
+    });
   } catch (error) {
     return res.status(500).json({ error: "Server error during email verification." });
   }

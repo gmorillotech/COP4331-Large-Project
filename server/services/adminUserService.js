@@ -30,8 +30,8 @@ async function sendForcedResetCode(email, code) {
   await sgMail.send({
     to: email,
     from: process.env.EMAIL_FROM,
-    subject: "Password Reset Required",
-    html: `<p>An administrator has required you to reset your password.</p><p>Your password reset code is:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+    subject: "Verify Your Account and Reset Your Password",
+    html: `<p>An administrator has required you to verify your email again and set a new password.</p><p>Use this 6-digit code when prompted:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
   });
 }
 
@@ -178,14 +178,20 @@ async function forcePasswordReset(userId, adminUserId) {
     return { error: "User not found", status: 404 };
   }
 
+  const verificationCode = generateSixDigitCode();
+  const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+
   user.passwordChangedAt = new Date();
-  user.passwordResetCode = generateSixDigitCode();
-  user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
+  user.emailVerifiedAt = null;
+  user.emailVerificationCode = verificationCode;
+  user.emailVerificationExpiresAt = expiresAt;
+  user.passwordResetCode = verificationCode;
+  user.passwordResetCodeExpiresAt = expiresAt;
   user.accountStatus = "forced_reset";
   await user.save();
 
   try {
-    await sendForcedResetCode(user.email, user.passwordResetCode);
+    await sendForcedResetCode(user.email, verificationCode);
   } catch (mailError) {
     console.error("Failed to send forced password reset email:", mailError.message);
   }

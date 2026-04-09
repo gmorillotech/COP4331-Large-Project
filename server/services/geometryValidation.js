@@ -4,6 +4,35 @@
  * No database calls or side effects.
  */
 
+const EPSILON = 1e-9;
+
+function pointKey(point) {
+  return `${point.latitude.toFixed(12)},${point.longitude.toFixed(12)}`;
+}
+
+function pointsEqual(a, b, epsilon = EPSILON) {
+  return (
+    Math.abs(a.latitude - b.latitude) <= epsilon &&
+    Math.abs(a.longitude - b.longitude) <= epsilon
+  );
+}
+
+function dedupePoints(points) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const point of points) {
+    const key = pointKey(point);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(point);
+  }
+
+  return unique;
+}
+
 /**
  * Check if first and last vertex are the same (ring is closed).
  * Returns the vertices array, auto-closing if needed.
@@ -54,7 +83,7 @@ function orientation(p, q, r) {
     (q.longitude - p.longitude) * (r.latitude - q.latitude) -
     (q.latitude - p.latitude) * (r.longitude - q.longitude);
 
-  if (Math.abs(val) < 1e-12) {
+  if (Math.abs(val) < EPSILON) {
     return 0;
   }
 
@@ -66,10 +95,10 @@ function orientation(p, q, r) {
  */
 function onSegment(p, q, r) {
   return (
-    q.latitude <= Math.max(p.latitude, r.latitude) &&
-    q.latitude >= Math.min(p.latitude, r.latitude) &&
-    q.longitude <= Math.max(p.longitude, r.longitude) &&
-    q.longitude >= Math.min(p.longitude, r.longitude)
+    q.latitude <= Math.max(p.latitude, r.latitude) + EPSILON &&
+    q.latitude >= Math.min(p.latitude, r.latitude) - EPSILON &&
+    q.longitude <= Math.max(p.longitude, r.longitude) + EPSILON &&
+    q.longitude >= Math.min(p.longitude, r.longitude) - EPSILON
   );
 }
 
@@ -153,6 +182,27 @@ function pointInPolygon(point, vertices) {
   return inside;
 }
 
+function pointOnPolygonBoundary(point, vertices) {
+  if (!Array.isArray(vertices) || vertices.length < 4) {
+    return false;
+  }
+
+  for (let i = 0; i < vertices.length - 1; i++) {
+    if (
+      orientation(vertices[i], point, vertices[i + 1]) === 0 &&
+      onSegment(vertices[i], point, vertices[i + 1])
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function pointInPolygonStrict(point, vertices) {
+  return pointInPolygon(point, vertices) && !pointOnPolygonBoundary(point, vertices);
+}
+
 /**
  * Check that every point in `points` is inside the polygon defined by `vertices`.
  */
@@ -206,6 +256,380 @@ function polygonsOverlap(polyA, polyB) {
   }
 
   return false;
+}
+
+function segmentsProperlyIntersect(p1, q1, p2, q2) {
+  const o1 = orientation(p1, q1, p2);
+  const o2 = orientation(p1, q1, q2);
+  const o3 = orientation(p2, q2, p1);
+  const o4 = orientation(p2, q2, q1);
+
+  return o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0 && o1 !== o2 && o3 !== o4;
+}
+
+function polygonsHaveAreaOverlap(polyA, polyB) {
+  if (
+    !Array.isArray(polyA) ||
+    !Array.isArray(polyB) ||
+    polyA.length < 4 ||
+    polyB.length < 4
+  ) {
+    return false;
+  }
+
+  const nA = polyA.length - 1;
+  for (let i = 0; i < nA; i++) {
+    if (pointInPolygonStrict(polyA[i], polyB)) {
+      return true;
+    }
+  }
+
+  const nB = polyB.length - 1;
+  for (let i = 0; i < nB; i++) {
+    if (pointInPolygonStrict(polyB[i], polyA)) {
+      return true;
+    }
+  }
+
+  for (let i = 0; i < nA; i++) {
+    for (let j = 0; j < nB; j++) {
+      if (segmentsProperlyIntersect(polyA[i], polyA[i + 1], polyB[j], polyB[j + 1])) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function segmentLengthSquared(a, b) {
+  const dLat = a.latitude - b.latitude;
+  const dLng = a.longitude - b.longitude;
+  return dLat * dLat + dLng * dLng;
+}
+
+function collinearSegmentsOverlap(p1, q1, p2, q2) {
+  if (
+    orientation(p1, q1, p2) !== 0 ||
+    orientation(p1, q1, q2) !== 0 ||
+    orientation(p2, q2, p1) !== 0 ||
+    orientation(p2, q2, q1) !== 0
+  ) {
+    return false;
+  }
+
+  const overlapPoints = dedupePoints(
+    [p1, q1, p2, q2].filter((point) => onSegment(p1, point, q1) && onSegment(p2, point, q2)),
+  );
+
+  if (overlapPoints.length < 2) {
+    return false;
+  }
+
+  for (let i = 0; i < overlapPoints.length; i++) {
+    for (let j = i + 1; j < overlapPoints.length; j++) {
+      if (segmentLengthSquared(overlapPoints[i], overlapPoints[j]) > EPSILON * EPSILON) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function polygonsShareBorder(polyA, polyB) {
+  if (
+    !Array.isArray(polyA) ||
+    !Array.isArray(polyB) ||
+    polyA.length < 4 ||
+    polyB.length < 4
+  ) {
+    return false;
+  }
+
+  const nA = polyA.length - 1;
+  const nB = polyB.length - 1;
+
+  for (let i = 0; i < nA; i++) {
+    for (let j = 0; j < nB; j++) {
+      if (collinearSegmentsOverlap(polyA[i], polyA[i + 1], polyB[j], polyB[j + 1])) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function polygonsTouchOrOverlap(polyA, polyB) {
+  return polygonsHaveAreaOverlap(polyA, polyB) || polygonsShareBorder(polyA, polyB);
+}
+
+function lineIntersection(p1, q1, p2, q2) {
+  const x1 = p1.latitude;
+  const y1 = p1.longitude;
+  const x2 = q1.latitude;
+  const y2 = q1.longitude;
+  const x3 = p2.latitude;
+  const y3 = p2.longitude;
+  const x4 = q2.latitude;
+  const y4 = q2.longitude;
+
+  const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denominator) < EPSILON) {
+    return null;
+  }
+
+  const det1 = x1 * y2 - y1 * x2;
+  const det2 = x3 * y4 - y3 * x4;
+
+  return {
+    latitude: (det1 * (x3 - x4) - (x1 - x2) * det2) / denominator,
+    longitude: (det1 * (y3 - y4) - (y1 - y2) * det2) / denominator,
+  };
+}
+
+function segmentIntersectionPoints(p1, q1, p2, q2) {
+  if (!segmentsIntersect(p1, q1, p2, q2)) {
+    return [];
+  }
+
+  if (
+    orientation(p1, q1, p2) === 0 &&
+    orientation(p1, q1, q2) === 0 &&
+    orientation(p2, q2, p1) === 0 &&
+    orientation(p2, q2, q1) === 0
+  ) {
+    return dedupePoints(
+      [p1, q1, p2, q2].filter((point) => onSegment(p1, point, q1) && onSegment(p2, point, q2)),
+    );
+  }
+
+  const intersection = lineIntersection(p1, q1, p2, q2);
+  return intersection ? [intersection] : [];
+}
+
+function projectPointT(point, start, end) {
+  const dLat = end.latitude - start.latitude;
+  const dLng = end.longitude - start.longitude;
+
+  if (Math.abs(dLat) >= Math.abs(dLng)) {
+    return Math.abs(dLat) < EPSILON ? 0 : (point.latitude - start.latitude) / dLat;
+  }
+
+  return Math.abs(dLng) < EPSILON ? 0 : (point.longitude - start.longitude) / dLng;
+}
+
+function midpoint(a, b) {
+  return {
+    latitude: (a.latitude + b.latitude) / 2,
+    longitude: (a.longitude + b.longitude) / 2,
+  };
+}
+
+function pointInOrOnPolygon(point, vertices) {
+  return pointInPolygonStrict(point, vertices) || pointOnPolygonBoundary(point, vertices);
+}
+
+function offsetPointAlongNormal(point, start, end, direction = 1, epsilon = 1e-7) {
+  const dx = end.latitude - start.latitude;
+  const dy = end.longitude - start.longitude;
+  const length = Math.sqrt(dx * dx + dy * dy);
+
+  if (length < EPSILON) {
+    return point;
+  }
+
+  const normalLat = (-dy / length) * epsilon * direction;
+  const normalLng = (dx / length) * epsilon * direction;
+
+  return {
+    latitude: point.latitude + normalLat,
+    longitude: point.longitude + normalLng,
+  };
+}
+
+function shouldKeepUnionSegment(a, b, ownPoly, otherPoly) {
+  const mid = midpoint(a, b);
+
+  if (pointInPolygonStrict(mid, otherPoly)) {
+    return false;
+  }
+
+  if (!pointOnPolygonBoundary(mid, otherPoly)) {
+    return true;
+  }
+
+  const probeA = offsetPointAlongNormal(mid, a, b, 1);
+  const probeB = offsetPointAlongNormal(mid, a, b, -1);
+  const probeAInsideUnion = pointInOrOnPolygon(probeA, ownPoly) || pointInOrOnPolygon(probeA, otherPoly);
+  const probeBInsideUnion = pointInOrOnPolygon(probeB, ownPoly) || pointInOrOnPolygon(probeB, otherPoly);
+
+  return probeAInsideUnion !== probeBInsideUnion;
+}
+
+function splitPolygonIntoSegments(sourcePoly, clipPoly) {
+  const ring = isClosedPolygon(sourcePoly).vertices;
+  const clipRing = isClosedPolygon(clipPoly).vertices;
+  const segments = [];
+
+  for (let i = 0; i < ring.length - 1; i++) {
+    const start = ring[i];
+    const end = ring[i + 1];
+    const splitPoints = [start, end];
+
+    for (let j = 0; j < clipRing.length - 1; j++) {
+      splitPoints.push(...segmentIntersectionPoints(start, end, clipRing[j], clipRing[j + 1]));
+    }
+
+    const orderedPoints = dedupePoints(splitPoints)
+      .map((point) => ({ point, t: projectPointT(point, start, end) }))
+      .sort((left, right) => left.t - right.t)
+      .map(({ point }) => point);
+
+    for (let j = 0; j < orderedPoints.length - 1; j++) {
+      const a = orderedPoints[j];
+      const b = orderedPoints[j + 1];
+      if (segmentLengthSquared(a, b) <= EPSILON * EPSILON) {
+        continue;
+      }
+      segments.push([a, b]);
+    }
+  }
+
+  return segments;
+}
+
+function segmentMapKey(a, b) {
+  const keyA = pointKey(a);
+  const keyB = pointKey(b);
+  return keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+}
+
+function simplifyPolygon(vertices) {
+  if (!Array.isArray(vertices) || vertices.length < 4) {
+    return vertices;
+  }
+
+  const simplified = [vertices[0]];
+
+  for (let i = 1; i < vertices.length - 1; i++) {
+    const prev = simplified[simplified.length - 1];
+    const current = vertices[i];
+    const next = vertices[i + 1];
+
+    if (
+      orientation(prev, current, next) === 0 &&
+      onSegment(prev, current, next)
+    ) {
+      continue;
+    }
+
+    simplified.push(current);
+  }
+
+  simplified.push(simplified[0]);
+  return simplified;
+}
+
+function stitchSegmentsToPolygon(segments) {
+  if (!Array.isArray(segments) || segments.length === 0) {
+    return null;
+  }
+
+  const adjacency = new Map();
+  for (const [a, b] of segments) {
+    const keyA = pointKey(a);
+    const keyB = pointKey(b);
+
+    if (!adjacency.has(keyA)) adjacency.set(keyA, []);
+    if (!adjacency.has(keyB)) adjacency.set(keyB, []);
+    adjacency.get(keyA).push({ point: a, next: b });
+    adjacency.get(keyB).push({ point: b, next: a });
+  }
+
+  for (const neighbors of adjacency.values()) {
+    if (neighbors.length !== 2) {
+      return null;
+    }
+  }
+
+  const orderedKeys = [...adjacency.keys()].sort();
+  const startKey = orderedKeys[0];
+  const startPoint = adjacency.get(startKey)[0].point;
+  const polygon = [startPoint];
+  const visitedEdges = new Set();
+
+  let current = startPoint;
+  let previous = null;
+
+  while (true) {
+    const currentKey = pointKey(current);
+    const neighbors = adjacency.get(currentKey) ?? [];
+    let nextPoint = null;
+
+    for (const neighbor of neighbors) {
+      const edgeKey = segmentMapKey(current, neighbor.next);
+      if (visitedEdges.has(edgeKey)) {
+        continue;
+      }
+      if (previous && pointsEqual(neighbor.next, previous)) {
+        continue;
+      }
+      nextPoint = neighbor.next;
+      visitedEdges.add(edgeKey);
+      break;
+    }
+
+    if (!nextPoint) {
+      if (!previous && neighbors[0]) {
+        nextPoint = neighbors[0].next;
+        visitedEdges.add(segmentMapKey(current, nextPoint));
+      } else {
+        break;
+      }
+    }
+
+    polygon.push(nextPoint);
+    previous = current;
+    current = nextPoint;
+
+    if (pointsEqual(current, startPoint)) {
+      break;
+    }
+  }
+
+  if (!pointsEqual(polygon[polygon.length - 1], polygon[0])) {
+    return null;
+  }
+
+  if (visitedEdges.size !== segments.length) {
+    return null;
+  }
+
+  return simplifyPolygon(polygon);
+}
+
+function unionPolygons(polyA, polyB) {
+  const ringA = isClosedPolygon(polyA).vertices;
+  const ringB = isClosedPolygon(polyB).vertices;
+  const keptSegments = new Map();
+
+  for (const [a, b] of splitPolygonIntoSegments(ringA, ringB)) {
+    if (!shouldKeepUnionSegment(a, b, ringA, ringB)) {
+      continue;
+    }
+    keptSegments.set(segmentMapKey(a, b), [a, b]);
+  }
+
+  for (const [a, b] of splitPolygonIntoSegments(ringB, ringA)) {
+    if (!shouldKeepUnionSegment(a, b, ringB, ringA)) {
+      continue;
+    }
+    keptSegments.set(segmentMapKey(a, b), [a, b]);
+  }
+
+  return stitchSegmentsToPolygon([...keptSegments.values()]);
 }
 
 /**
@@ -357,9 +781,15 @@ module.exports = {
   hasSelfIntersection,
   segmentsIntersect,
   pointInPolygon,
+  pointOnPolygonBoundary,
+  pointInPolygonStrict,
   allPointsInPolygon,
   polygonsOverlap,
+  polygonsHaveAreaOverlap,
+  polygonsShareBorder,
+  polygonsTouchOrOverlap,
   validatePolygon,
   computeConvexHull,
   bufferPolygon,
+  unionPolygons,
 };
