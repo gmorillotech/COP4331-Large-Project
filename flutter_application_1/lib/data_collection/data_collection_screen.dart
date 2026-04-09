@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/auth_service.dart';
+import 'background_collection_controller.dart';
 import 'data_collection_backend.dart';
 import 'data_collection_model.dart';
 import 'data_collection_render_model.dart';
@@ -18,6 +19,10 @@ import 'data_collection_workflow.dart';
 
 typedef MicrophonePermissionRequest = Future<PermissionStatus> Function();
 typedef LocationPermissionRequest = Future<PermissionStatus> Function();
+typedef BackgroundLocationPermissionRequest =
+    Future<PermissionStatus> Function();
+typedef BackgroundLocationPermissionStatusProvider =
+    Future<PermissionStatus> Function();
 typedef CurrentSessionCoordinatesProvider =
     Future<SessionCoordinates?> Function();
 typedef SessionCoordinatesStreamFactory = Stream<SessionCoordinates> Function();
@@ -28,6 +33,22 @@ Future<PermissionStatus> _requestMicrophonePermission() {
 
 Future<PermissionStatus> _requestLocationPermission() {
   return Permission.locationWhenInUse.request();
+}
+
+Future<PermissionStatus> _requestBackgroundLocationPermission() async {
+  if (!Platform.isAndroid) {
+    return PermissionStatus.granted;
+  }
+
+  return Permission.locationAlways.request();
+}
+
+Future<PermissionStatus> _loadBackgroundLocationPermissionStatus() async {
+  if (!Platform.isAndroid) {
+    return PermissionStatus.granted;
+  }
+
+  return Permission.locationAlways.status;
 }
 
 Future<SessionCoordinates?> _loadCurrentCoordinates() async {
@@ -64,6 +85,13 @@ enum _MicrophonePermissionState { requesting, granted, denied, unavailable }
 
 enum _LocationPermissionState { requesting, granted, denied, unavailable }
 
+enum _BackgroundLocationPermissionState {
+  checking,
+  granted,
+  denied,
+  unavailable,
+}
+
 class DataCollectionScreen extends StatefulWidget {
   const DataCollectionScreen({
     super.key,
@@ -78,8 +106,14 @@ class DataCollectionScreen extends StatefulWidget {
     this.apiBaseUrl,
     this.microphonePermissionRequest = _requestMicrophonePermission,
     this.locationPermissionRequest = _requestLocationPermission,
+    this.backgroundLocationPermissionRequest =
+        _requestBackgroundLocationPermission,
+    this.backgroundLocationPermissionStatusProvider =
+        _loadBackgroundLocationPermissionStatus,
     this.currentCoordinatesProvider = _loadCurrentCoordinates,
     this.coordinatesStreamFactory = _watchCoordinates,
+    this.backgroundCollectionController =
+        const MethodChannelBackgroundCollectionController(),
     this.allowSyntheticAudioInput = false,
   });
 
@@ -94,8 +128,12 @@ class DataCollectionScreen extends StatefulWidget {
   final String? apiBaseUrl;
   final MicrophonePermissionRequest microphonePermissionRequest;
   final LocationPermissionRequest locationPermissionRequest;
+  final BackgroundLocationPermissionRequest backgroundLocationPermissionRequest;
+  final BackgroundLocationPermissionStatusProvider
+  backgroundLocationPermissionStatusProvider;
   final CurrentSessionCoordinatesProvider currentCoordinatesProvider;
   final SessionCoordinatesStreamFactory coordinatesStreamFactory;
+  final BackgroundCollectionController backgroundCollectionController;
   final bool allowSyntheticAudioInput;
 
   @override
@@ -103,13 +141,14 @@ class DataCollectionScreen extends StatefulWidget {
 }
 
 class _DataCollectionScreenState extends State<DataCollectionScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _sampleInterval = Duration(milliseconds: 250);
   static const Duration _reportWindow = Duration(seconds: 15);
   static const Duration _queueRetryDelay = Duration(seconds: 5);
 
   late final Ticker _ticker;
   late final ProceduralSurfaceEngine _engine;
+  late final BackgroundCollectionController _backgroundCollectionController;
   late final ReportDraftRepository _draftRepository;
   late final DataCollectionBackendClient _backendClient;
   late OccupancyLevel _occupancy;
@@ -117,17 +156,21 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   late DataCollectionStudyLocation? _selectedLocation;
   late List<DataCollectionStudyLocation> _studyLocations;
   final List<double> _capturedSamples = <double>[];
+  Duration _captureElapsed = Duration.zero;
 
   bool _isCapturing = false;
+  bool _isBackgroundCollectionActive = false;
   bool _isSyncingQueue = false;
   bool _isCreatingLocation = false;
   bool _isCreatingGroup = false;
   int _lastRecordedSampleMs = -1;
   int? _windowStartedMs;
+  Timer? _captureTimer;
   Timer? _queueRetryTimer;
   CapturedReportDraft? _lastProcessedDraft;
   String? _lastSubmissionSummary;
   bool _lastSubmissionQueued = false;
+  ProceduralSurfaceEngine? _captureEngine;
 
   // Microphone state
   NoiseMeter? _noiseMeter;
@@ -141,6 +184,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   _LocationPermissionState _locationPermissionState =
       _LocationPermissionState.requesting;
   bool _locationPermanentlyDenied = false;
+  _BackgroundLocationPermissionState _backgroundLocationPermissionState =
+      _BackgroundLocationPermissionState.checking;
+  bool _backgroundLocationPermanentlyDenied = false;
   SessionCoordinates? _lastKnownCoordinates;
   String? _availableLocationGroupId;
   String? _sessionLockedLocationGroupId;
@@ -157,6 +203,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _microphonePermissionState == _MicrophonePermissionState.granted;
 
   bool get _hasLockedSession => _sessionLockedLocationGroupId != null;
+
+  bool get _isAndroidBackgroundModeEnabled =>
+      _backgroundCollectionController.isSupported;
+
+  bool get _isBackgroundLocationGranted =>
+      _backgroundLocationPermissionState ==
+      _BackgroundLocationPermissionState.granted;
 
   LocalStudyLocationResolver get _activeLocationResolver =>
       LocalStudyLocationResolver(
@@ -231,6 +284,176 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     }
   }
 
+  Future<void> _syncBackgroundCollectionState() async {
+    if (!_backgroundCollectionController.isSupported || !mounted) {
+      return;
+    }
+
+    try {
+      final isActive = await _backgroundCollectionController.isSessionActive();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isBackgroundCollectionActive = isActive;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isBackgroundCollectionActive = false;
+      });
+    }
+  }
+
+  Future<void> _refreshBackgroundLocationPermissionStatus() async {
+    if (!_backgroundCollectionController.isSupported || !mounted) {
+      return;
+    }
+
+    try {
+      final status = await widget.backgroundLocationPermissionStatusProvider();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _backgroundLocationPermissionState =
+            _mapBackgroundLocationPermissionState(status);
+        _backgroundLocationPermanentlyDenied =
+            status.isPermanentlyDenied || status.isRestricted;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _backgroundLocationPermissionState =
+            _BackgroundLocationPermissionState.unavailable;
+        _backgroundLocationPermanentlyDenied = false;
+      });
+    }
+  }
+
+  Future<bool> _ensureBackgroundLocationAccess() async {
+    if (!_backgroundCollectionController.isSupported) {
+      return true;
+    }
+
+    try {
+      final status = await widget.backgroundLocationPermissionRequest();
+      if (!mounted) {
+        return false;
+      }
+
+      setState(() {
+        _backgroundLocationPermissionState =
+            _mapBackgroundLocationPermissionState(status);
+        _backgroundLocationPermanentlyDenied =
+            status.isPermanentlyDenied || status.isRestricted;
+      });
+
+      return status.isGranted;
+    } catch (_) {
+      if (!mounted) {
+        return false;
+      }
+
+      setState(() {
+        _backgroundLocationPermissionState =
+            _BackgroundLocationPermissionState.unavailable;
+        _backgroundLocationPermanentlyDenied = false;
+      });
+      return false;
+    }
+  }
+
+  _BackgroundLocationPermissionState _mapBackgroundLocationPermissionState(
+    PermissionStatus status,
+  ) {
+    if (status.isGranted) {
+      return _BackgroundLocationPermissionState.granted;
+    }
+
+    if (status.isDenied ||
+        status.isPermanentlyDenied ||
+        status.isRestricted ||
+        status.isLimited) {
+      return _BackgroundLocationPermissionState.denied;
+    }
+
+    return _BackgroundLocationPermissionState.unavailable;
+  }
+
+  String _backgroundCollectionNotificationText() {
+    final location = _selectedLocation;
+    if (location != null) {
+      return 'Collecting microphone and location samples for ${location.displayLabel}. Reopen the app to stop this session.';
+    }
+
+    final group = _currentLocationGroup;
+    if (group != null) {
+      return 'Collecting microphone and location samples for ${group.buildingName}. Reopen the app to stop this session.';
+    }
+
+    return 'Collecting microphone and location samples. Reopen the app to stop this session.';
+  }
+
+  Future<bool> _startBackgroundCollectionMode() async {
+    if (!_backgroundCollectionController.isSupported) {
+      return true;
+    }
+
+    try {
+      await _backgroundCollectionController.startSession(
+        notificationTitle: 'Study data collection active',
+        notificationText: _backgroundCollectionNotificationText(),
+      );
+      if (!mounted) {
+        return false;
+      }
+
+      setState(() {
+        _isBackgroundCollectionActive = true;
+      });
+      return true;
+    } on StateError catch (error) {
+      if (!mounted) {
+        return false;
+      }
+
+      setState(() {
+        _isBackgroundCollectionActive = false;
+      });
+      _showMessage(error.message);
+      return false;
+    }
+  }
+
+  Future<void> _stopBackgroundCollectionMode() async {
+    if (!_backgroundCollectionController.isSupported) {
+      return;
+    }
+
+    try {
+      await _backgroundCollectionController.stopSession();
+    } catch (_) {
+      // Capture shutdown remains best effort during teardown.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isBackgroundCollectionActive = false;
+    });
+  }
+
   Future<void> _initLocationAccess() async {
     await _coordinatesSubscription?.cancel();
     _coordinatesSubscription = null;
@@ -271,6 +494,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _locationPermissionState = _LocationPermissionState.granted;
         });
 
+        unawaited(_refreshBackgroundLocationPermissionStatus());
         await _refreshCurrentCoordinates();
         return;
       }
@@ -439,6 +663,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   void _cutOffSessionForLeavingGroup(DataCollectionLocationGroup lockedGroup) {
     setState(() {
       _isCapturing = false;
+      _isBackgroundCollectionActive = false;
       _capturedSamples.clear();
       _lastRecordedSampleMs = -1;
       _windowStartedMs = null;
@@ -447,6 +672,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _lastSubmissionQueued = false;
       _releaseSessionLock();
     });
+    _stopCaptureLoop();
+    unawaited(_backgroundCollectionController.stopSession());
 
     _showMessage(
       'Recording stopped because you left the ${lockedGroup.buildingName} location group boundary.',
@@ -456,7 +683,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _engine = ProceduralSurfaceEngine(config: widget.config);
+    _backgroundCollectionController = widget.backgroundCollectionController;
     _draftRepository =
         widget.draftRepository ?? InMemoryReportDraftRepository.instance;
     _backendClient =
@@ -477,6 +706,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
     unawaited(_initLocationAccess());
+    unawaited(_refreshBackgroundLocationPermissionStatus());
+    unawaited(_syncBackgroundCollectionState());
     unawaited(_hydrateStudyLocations());
     if (_draftRepository.drafts.isNotEmpty) {
       _lastSubmissionQueued = true;
@@ -488,11 +719,24 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _noiseSubscription?.cancel();
     _coordinatesSubscription?.cancel();
+    _captureTimer?.cancel();
     _queueRetryTimer?.cancel();
+    if (_backgroundCollectionController.isSupported) {
+      unawaited(_backgroundCollectionController.stopSession());
+    }
     _ticker.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_syncBackgroundCollectionState());
+      unawaited(_refreshBackgroundLocationPermissionStatus());
+    }
   }
 
   Future<void> _initMicrophone() async {
@@ -534,9 +778,12 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
             setState(() {
               _micActive = false;
               _isCapturing = false;
+              _isBackgroundCollectionActive = false;
               _microphonePermissionState =
                   _MicrophonePermissionState.unavailable;
             });
+            _stopCaptureLoop();
+            unawaited(_stopBackgroundCollectionMode());
           },
         );
         setState(() {
@@ -548,10 +795,12 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _isCapturing = false;
+        _isBackgroundCollectionActive = false;
         _microphonePermissionState = _MicrophonePermissionState.denied;
         _microphonePermanentlyDenied =
             status.isPermanentlyDenied || status.isRestricted;
       });
+      _stopCaptureLoop();
     } catch (_) {
       if (!mounted) {
         return;
@@ -559,9 +808,11 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _isCapturing = false;
+        _isBackgroundCollectionActive = false;
         _micActive = false;
         _microphonePermissionState = _MicrophonePermissionState.unavailable;
       });
+      _stopCaptureLoop();
     }
   }
 
@@ -572,32 +823,65 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
     final rawLevel = _audioInputLevel(elapsed);
     final nextFrame = _engine.tick(rawLevel: rawLevel, elapsed: elapsed);
-    final shouldEvaluateWindow = _isCapturing;
 
     setState(() {
       _frame = nextFrame;
-      if (_isCapturing) {
-        _recordSampleIfNeeded(nextFrame);
-      }
     });
-
-    if (shouldEvaluateWindow) {
-      unawaited(_queueCompletedWindowIfReady(nextFrame));
-    }
   }
 
-  void _recordSampleIfNeeded(SurfaceFrameState frame) {
-    final elapsedMs = frame.signal.elapsed.inMilliseconds;
-    if (_lastRecordedSampleMs >= 0 &&
-        elapsedMs - _lastRecordedSampleMs < _sampleInterval.inMilliseconds) {
-      return;
-    }
+  void _startCaptureLoop() {
+    _captureTimer?.cancel();
+    _captureEngine = ProceduralSurfaceEngine(config: widget.config);
+    _captureElapsed = Duration.zero;
 
-    _capturedSamples.add(frame.signal.decibels);
-    _lastRecordedSampleMs = elapsedMs;
+    final initialFrame = _captureEngine!.tick(
+      rawLevel: _audioInputLevel(Duration.zero),
+      elapsed: Duration.zero,
+    );
+
+    _capturedSamples
+      ..clear()
+      ..add(initialFrame.signal.decibels);
+    _lastRecordedSampleMs = initialFrame.signal.elapsed.inMilliseconds;
+    _windowStartedMs = initialFrame.signal.elapsed.inMilliseconds;
+
+    _captureTimer = Timer.periodic(_sampleInterval, (_) {
+      final captureEngine = _captureEngine;
+      if (!_isCapturing || captureEngine == null) {
+        return;
+      }
+
+      _captureElapsed += _sampleInterval;
+      final elapsed = _captureElapsed;
+      final frame = captureEngine.tick(
+        rawLevel: _audioInputLevel(elapsed),
+        elapsed: elapsed,
+      );
+
+      if (mounted) {
+        setState(() {
+          _capturedSamples.add(frame.signal.decibels);
+          _lastRecordedSampleMs = frame.signal.elapsed.inMilliseconds;
+        });
+      } else {
+        _capturedSamples.add(frame.signal.decibels);
+        _lastRecordedSampleMs = frame.signal.elapsed.inMilliseconds;
+      }
+
+      unawaited(_queueCompletedWindowIfReady(frame));
+    });
+  }
+
+  void _stopCaptureLoop() {
+    _captureTimer?.cancel();
+    _captureTimer = null;
+    _captureElapsed = Duration.zero;
+    _captureEngine = null;
   }
 
   Future<void> _startCapture() async {
+    var lockedSessionDuringStart = false;
+
     if (!_isDataCollectionEnabled) {
       _showMessage(
         'Microphone access is required before data collection can begin.',
@@ -646,6 +930,29 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       setState(() {
         _lockSessionToGroup(lockedGroup);
       });
+      lockedSessionDuringStart = true;
+    }
+
+    if (_backgroundCollectionController.isSupported) {
+      final hasBackgroundLocationAccess =
+          await _ensureBackgroundLocationAccess();
+      if (!hasBackgroundLocationAccess) {
+        if (lockedSessionDuringStart && mounted) {
+          setState(_releaseSessionLock);
+        }
+        _showMessage(
+          'Allow Android background location so collection can continue with the screen off and stop automatically when you leave the study area.',
+        );
+        return;
+      }
+
+      final backgroundModeStarted = await _startBackgroundCollectionMode();
+      if (!backgroundModeStarted) {
+        if (lockedSessionDuringStart && mounted) {
+          setState(_releaseSessionLock);
+        }
+        return;
+      }
     }
 
     setState(() {
@@ -655,11 +962,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           ? null
           : 'Pending queued uploads will retry in the background.';
       _lastSubmissionQueued = _draftRepository.drafts.isNotEmpty;
-      _capturedSamples.clear();
-      _capturedSamples.add(_frame.signal.decibels);
-      _lastRecordedSampleMs = _frame.signal.elapsed.inMilliseconds;
-      _windowStartedMs = _frame.signal.elapsed.inMilliseconds;
     });
+    _startCaptureLoop();
 
     unawaited(_flushQueuedDrafts());
   }
@@ -670,6 +974,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       _clearCaptureBuffers();
       _releaseSessionLock();
     });
+    _stopCaptureLoop();
+    unawaited(_stopBackgroundCollectionMode());
   }
 
   void _clearCaptureBuffers() {
@@ -760,9 +1066,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
     final result = await showDialog<_NewStudyLocationInput>(
       context: context,
-      builder: (context) => _NewStudyLocationDialog(
-        buildingName: currentGroup.buildingName,
-      ),
+      builder: (context) =>
+          _NewStudyLocationDialog(buildingName: currentGroup.buildingName),
     );
     if (!mounted || result == null) {
       return;
@@ -784,13 +1089,16 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       }
 
       setState(() {
-        _studyLocations = <DataCollectionStudyLocation>[
-          ..._studyLocations.where(
-            (location) =>
-                location.studyLocationId != createdLocation.studyLocationId,
-          ),
-          createdLocation,
-        ]..sort((left, right) => left.displayLabel.compareTo(right.displayLabel));
+        _studyLocations =
+            <DataCollectionStudyLocation>[
+              ..._studyLocations.where(
+                (location) =>
+                    location.studyLocationId != createdLocation.studyLocationId,
+              ),
+              createdLocation,
+            ]..sort(
+              (left, right) => left.displayLabel.compareTo(right.displayLabel),
+            );
         _selectedLocation = createdLocation;
         _lastProcessedDraft = null;
         _lastSubmissionSummary = null;
@@ -861,13 +1169,16 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       }
 
       setState(() {
-        _studyLocations = <DataCollectionStudyLocation>[
-          ..._studyLocations.where(
-            (location) =>
-                location.studyLocationId != createdLocation.studyLocationId,
-          ),
-          createdLocation,
-        ]..sort((left, right) => left.displayLabel.compareTo(right.displayLabel));
+        _studyLocations =
+            <DataCollectionStudyLocation>[
+              ..._studyLocations.where(
+                (location) =>
+                    location.studyLocationId != createdLocation.studyLocationId,
+              ),
+              createdLocation,
+            ]..sort(
+              (left, right) => left.displayLabel.compareTo(right.displayLabel),
+            );
         _availableLocationGroupId = createdGroup.locationGroupId;
         _selectedLocation = createdLocation;
         _lastProcessedDraft = null;
@@ -1328,6 +1639,18 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           },
           onStop: _stopCapture,
         ),
+        if (_isAndroidBackgroundModeEnabled) ...[
+          const SizedBox(height: 12),
+          _AndroidBackgroundModeCard(
+            permissionState: _backgroundLocationPermissionState,
+            isCapturing: _isCapturing,
+            backgroundCollectionActive: _isBackgroundCollectionActive,
+            permanentlyDenied: _backgroundLocationPermanentlyDenied,
+            onRetryPermission: _refreshBackgroundLocationPermissionStatus,
+          ),
+        ],
+        const SizedBox(height: 12),
+        const _PrivacyStatementsCard(),
         if (_lastProcessedDraft != null) ...[
           const SizedBox(height: 12),
           _DraftReviewCard(
@@ -1903,14 +2226,13 @@ class _NewLocationGroupInput {
 }
 
 class _NewStudyLocationDialog extends StatefulWidget {
-  const _NewStudyLocationDialog({
-    required this.buildingName,
-  });
+  const _NewStudyLocationDialog({required this.buildingName});
 
   final String buildingName;
 
   @override
-  State<_NewStudyLocationDialog> createState() => _NewStudyLocationDialogState();
+  State<_NewStudyLocationDialog> createState() =>
+      _NewStudyLocationDialogState();
 }
 
 class _NewStudyLocationDialogState extends State<_NewStudyLocationDialog> {
@@ -2005,10 +2327,7 @@ class _NewStudyLocationDialogState extends State<_NewStudyLocationDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Add'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Add')),
       ],
     );
   }
@@ -2024,14 +2343,16 @@ class _NewLocationGroupDialog extends StatefulWidget {
   final double initialCenterLongitude;
 
   @override
-  State<_NewLocationGroupDialog> createState() => _NewLocationGroupDialogState();
+  State<_NewLocationGroupDialog> createState() =>
+      _NewLocationGroupDialogState();
 }
 
 class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
   late final TextEditingController _groupNameController;
   late final TextEditingController _centerLatitudeController;
   late final TextEditingController _centerLongitudeController;
-  final TextEditingController _studyAreaNameController = TextEditingController();
+  final TextEditingController _studyAreaNameController =
+      TextEditingController();
   final TextEditingController _floorController = TextEditingController();
   final TextEditingController _sublocationController = TextEditingController();
   String? _errorText;
@@ -2064,8 +2385,12 @@ class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
     final studyAreaName = _studyAreaNameController.text.trim();
     final floorLabel = _floorController.text.trim();
     final description = _sublocationController.text.trim();
-    final centerLatitude = double.tryParse(_centerLatitudeController.text.trim());
-    final centerLongitude = double.tryParse(_centerLongitudeController.text.trim());
+    final centerLatitude = double.tryParse(
+      _centerLatitudeController.text.trim(),
+    );
+    final centerLongitude = double.tryParse(
+      _centerLongitudeController.text.trim(),
+    );
 
     if (groupName.isEmpty || studyAreaName.isEmpty) {
       setState(() {
@@ -2124,14 +2449,18 @@ class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
               controller: _centerLatitudeController,
               label: 'Group center latitude',
               textInputAction: TextInputAction.next,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             _DialogTextField(
               controller: _centerLongitudeController,
               label: 'Group center longitude',
               textInputAction: TextInputAction.next,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             _DialogTextField(
@@ -2170,10 +2499,7 @@ class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Create'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Create')),
       ],
     );
   }
@@ -2485,7 +2811,7 @@ class _CaptureControlsCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Collect samples in 15-second windows. Completed windows upload automatically, and failed uploads stay queued in memory while this app session remains open.',
+            'Collect samples in 15-second windows. Android background mode keeps active capture alive with the screen off, and failed uploads stay queued in memory while this app session remains open.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.74),
               fontWeight: FontWeight.w500,
@@ -2512,6 +2838,202 @@ class _CaptureControlsCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AndroidBackgroundModeCard extends StatelessWidget {
+  const _AndroidBackgroundModeCard({
+    required this.permissionState,
+    required this.isCapturing,
+    required this.backgroundCollectionActive,
+    required this.permanentlyDenied,
+    required this.onRetryPermission,
+  });
+
+  final _BackgroundLocationPermissionState permissionState;
+  final bool isCapturing;
+  final bool backgroundCollectionActive;
+  final bool permanentlyDenied;
+  final Future<void> Function() onRetryPermission;
+
+  String get _headline {
+    if (isCapturing && backgroundCollectionActive) {
+      return 'ANDROID BACKGROUND MODE: ACTIVE';
+    }
+
+    switch (permissionState) {
+      case _BackgroundLocationPermissionState.checking:
+        return 'ANDROID BACKGROUND MODE: CHECKING';
+      case _BackgroundLocationPermissionState.granted:
+        return 'ANDROID BACKGROUND MODE: READY';
+      case _BackgroundLocationPermissionState.denied:
+        return 'ANDROID BACKGROUND MODE: NEEDS ACCESS';
+      case _BackgroundLocationPermissionState.unavailable:
+        return 'ANDROID BACKGROUND MODE: UNAVAILABLE';
+    }
+  }
+
+  String get _body {
+    if (isCapturing && backgroundCollectionActive) {
+      return 'Screen-off collection is live. A persistent Android notification stays visible while microphone and location tracking remain active.';
+    }
+
+    switch (permissionState) {
+      case _BackgroundLocationPermissionState.checking:
+        return 'Checking whether Android background location is ready for screen-off collection.';
+      case _BackgroundLocationPermissionState.granted:
+        return 'Background location is ready. Starting capture will also start an Android foreground service so collection can continue when the screen turns off.';
+      case _BackgroundLocationPermissionState.denied:
+        return 'Allow Android location access all the time so the app can keep collecting with the screen off and stop automatically if you leave the study area.';
+      case _BackgroundLocationPermissionState.unavailable:
+        return 'Android background mode could not be verified on this device yet. Retry after confirming location services are enabled.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassCard(
+      key: const Key('android-background-mode-card'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _headline,
+            style: TextStyle(
+              color: const Color(0xFFBDEBFF),
+              fontSize: 12,
+              letterSpacing: 1.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _body,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          if (permissionState != _BackgroundLocationPermissionState.granted ||
+              permanentlyDenied) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.tonalIcon(
+                  key: const Key('retry-background-location-button'),
+                  onPressed: () {
+                    unawaited(onRetryPermission());
+                  },
+                  icon: const Icon(Icons.my_location_rounded),
+                  label: const Text('Refresh Access'),
+                ),
+                if (permanentlyDenied)
+                  FilledButton.icon(
+                    key: const Key('open-background-location-settings-button'),
+                    onPressed: () {
+                      unawaited(openAppSettings());
+                    },
+                    icon: const Icon(Icons.settings_outlined),
+                    label: const Text('Open Settings'),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyStatementsCard extends StatelessWidget {
+  const _PrivacyStatementsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassCard(
+      key: const Key('privacy-statements-card'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          _PrivacyStatementHeader(),
+          SizedBox(height: 12),
+          _PrivacyStatementRow(
+            icon: Icons.mic_none_rounded,
+            message:
+                'Microphone audio is never saved. The app only keeps derived noise metrics for each 15-second report window.',
+          ),
+          SizedBox(height: 10),
+          _PrivacyStatementRow(
+            icon: Icons.stop_circle_outlined,
+            message:
+                'Use Stop to end collection. If a background session is running, fully closing the app will also stop collection.',
+          ),
+          SizedBox(height: 10),
+          _PrivacyStatementRow(
+            icon: Icons.location_searching_rounded,
+            message:
+                'Collection stops automatically when the device leaves the locked study location group boundary.',
+          ),
+          SizedBox(height: 10),
+          _PrivacyStatementRow(
+            icon: Icons.notifications_active_outlined,
+            message:
+                'Android keeps a persistent notification visible whenever screen-off collection is active.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivacyStatementHeader extends StatelessWidget {
+  const _PrivacyStatementHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'PRIVACY + SAFETY',
+      style: TextStyle(
+        color: const Color(0xFFBDEBFF),
+        fontSize: 12,
+        letterSpacing: 1.5,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _PrivacyStatementRow extends StatelessWidget {
+  const _PrivacyStatementRow({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(icon, color: const Color(0xFF7CE8FF), size: 18),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            message,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
