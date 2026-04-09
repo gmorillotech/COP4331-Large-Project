@@ -62,18 +62,72 @@ class LoginResult {
   }
 }
 
+class RegisterResult {
+  const RegisterResult({
+    required this.userId,
+    required this.login,
+    required this.email,
+    required this.message,
+    this.maskedEmail,
+  });
+
+  final String userId;
+  final String login;
+  final String email;
+  final String message;
+  final String? maskedEmail;
+
+  factory RegisterResult.fromJson(Map<String, dynamic> json) {
+    return RegisterResult(
+      userId: json['userId'] as String? ?? '',
+      login: json['login'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+      maskedEmail: json['maskedEmail'] as String?,
+    );
+  }
+}
+
+class VerificationDelivery {
+  const VerificationDelivery({
+    required this.message,
+    required this.email,
+    this.maskedEmail,
+  });
+
+  final String message;
+  final String email;
+  final String? maskedEmail;
+
+  factory VerificationDelivery.fromJson(Map<String, dynamic> json) {
+    return VerificationDelivery(
+      message: json['message'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      maskedEmail: json['maskedEmail'] as String?,
+    );
+  }
+}
+
 enum LoginFailureReason {
   invalidCredentials,
   emailNotVerified,
+  forcedReset,
   serverError,
   networkError,
 }
 
 class LoginFailure implements Exception {
-  const LoginFailure({required this.reason, required this.message});
+  const LoginFailure({
+    required this.reason,
+    required this.message,
+    this.email,
+    this.maskedEmail,
+  });
 
   final LoginFailureReason reason;
   final String message;
+  final String? email;
+  final String? maskedEmail;
 
   @override
   String toString() => 'LoginFailure($reason): $message';

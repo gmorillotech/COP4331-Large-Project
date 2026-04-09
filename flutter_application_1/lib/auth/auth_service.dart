@@ -7,8 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import 'auth_models.dart';
 
-// ── AuthService ── mirrors the web frontend's localStorage + fetch pattern ──
-
 class AuthService extends ChangeNotifier {
   AuthService({SharedPreferences? prefs, String? baseUrl})
       : _prefs = prefs,
@@ -25,8 +23,6 @@ class AuthService extends ChangeNotifier {
   AuthUser? get user => _user;
   bool get isAuthenticated => _token != null;
   bool get initializing => _initializing;
-
-  // ── Initialize (read from SharedPreferences, like web reads localStorage) ──
 
   Future<void> initialize() async {
     _prefs ??= await SharedPreferences.getInstance();
@@ -48,8 +44,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Login (mirrors doLogin in Login.tsx) ──
-
   Future<LoginResult> login({
     required String login,
     required String password,
@@ -63,15 +57,39 @@ class AuthService extends ChangeNotifier {
 
     if (!response.ok) {
       final errorMsg = res['error'] as String? ?? '';
-      if (errorMsg.toLowerCase().contains('verify')) {
+      final reason = (res['reason'] as String? ?? '').trim().toLowerCase();
+      final resolvedEmail = _normalizeEmail(res['email'] as String?);
+      final resolvedMaskedEmail =
+          (res['maskedEmail'] as String?)?.trim().isNotEmpty == true
+              ? (res['maskedEmail'] as String).trim()
+              : (resolvedEmail.isNotEmpty ? _maskEmail(resolvedEmail) : null);
+
+      if (reason == 'email_not_verified') {
         throw LoginFailure(
           reason: LoginFailureReason.emailNotVerified,
-          message:
-              'Your account is not verified. Please check your email for a verification code or request a new one.',
+          message: errorMsg.isNotEmpty
+              ? errorMsg
+              : 'Your account is not verified. Please check your email for a verification code or request a new one.',
+          email: resolvedEmail.isNotEmpty ? resolvedEmail : null,
+          maskedEmail: resolvedMaskedEmail,
         );
       }
+
+      if (reason == 'forced_reset') {
+        throw LoginFailure(
+          reason: LoginFailureReason.forcedReset,
+          message: errorMsg.isNotEmpty
+              ? errorMsg
+              : 'A password reset is required for this account.',
+          email: resolvedEmail.isNotEmpty ? resolvedEmail : null,
+          maskedEmail: resolvedMaskedEmail,
+        );
+      }
+
       throw LoginFailure(
-        reason: LoginFailureReason.invalidCredentials,
+        reason: response.statusCode >= 500
+            ? LoginFailureReason.serverError
+            : LoginFailureReason.invalidCredentials,
         message: errorMsg.isNotEmpty
             ? errorMsg
             : 'User/Password combination incorrect',
@@ -79,9 +97,6 @@ class AuthService extends ChangeNotifier {
     }
 
     final result = LoginResult.fromJson(res);
-
-    // localStorage.setItem('user_data', JSON.stringify(res.user));
-    // localStorage.setItem('token', res.accessToken);
     _token = result.accessToken;
     _user = result.user;
     await _prefs?.setString('token', result.accessToken);
@@ -90,8 +105,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
     return result;
   }
-
-  // ── Logout ──
 
   Future<void> logout() async {
     _token = null;
@@ -163,15 +176,14 @@ class AuthService extends ChangeNotifier {
     if (!response.ok) {
       if (response.statusCode == 401) {
         handleUnauthorized();
-        throw LoginFailure(
+        throw const LoginFailure(
           reason: LoginFailureReason.serverError,
           message: 'Session expired. Please log in again.',
         );
       }
       throw LoginFailure(
         reason: LoginFailureReason.serverError,
-        message:
-            response.body['error'] as String? ??
+        message: response.body['error'] as String? ??
             'Unable to save favorites right now.',
       );
     }
@@ -181,21 +193,83 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Forgot Password (mirrors doForgotPassword in Login.tsx) ──
-
   Future<String> forgotPassword({required String email}) async {
     final response = await _post('/api/auth/forgot-password', {
       'email': email,
     });
+
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: response.statusCode >= 500
+            ? LoginFailureReason.serverError
+            : LoginFailureReason.invalidCredentials,
+        message: response.body['error'] as String? ??
+            'Unable to send password reset code.',
+      );
+    }
+
     return response.body['message'] as String? ??
         'Password reset code sent to your email.';
   }
 
-  // ── Resend Verification (mirrors doResendVerification in Login.tsx) ──
+  Future<RegisterResult> register({
+    required String login,
+    required String email,
+    required String password,
+    String? firstName,
+    String? lastName,
+    String? displayName,
+  }) async {
+    final response = await _post('/api/auth/register', {
+      'firstName': firstName,
+      'lastName': lastName,
+      'displayName': displayName,
+      'login': login,
+      'email': email,
+      'password': password,
+    });
 
-  Future<String> resendVerification({required String email}) async {
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: response.statusCode >= 500
+            ? LoginFailureReason.serverError
+            : LoginFailureReason.invalidCredentials,
+        message: response.body['error'] as String? ??
+            'Registration failed. Please try again.',
+      );
+    }
+
+    return RegisterResult.fromJson(response.body);
+  }
+
+  Future<String> verifyEmail({
+    required String email,
+    required String code,
+  }) async {
+    final response = await _post('/api/auth/verify-email', {
+      'email': _normalizeEmail(email),
+      'code': code.trim(),
+    });
+
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: response.statusCode >= 500
+            ? LoginFailureReason.serverError
+            : LoginFailureReason.invalidCredentials,
+        message: response.body['error'] as String? ??
+            'Invalid or expired verification code.',
+      );
+    }
+
+    return response.body['message'] as String? ??
+        'Email verified successfully. You can now log in.';
+  }
+
+  Future<VerificationDelivery> resendVerification({
+    required String email,
+  }) async {
     final response = await _post('/api/auth/resend-verification', {
-      'email': email.trim().toLowerCase(),
+      'email': _normalizeEmail(email),
     });
 
     if (!response.ok) {
@@ -206,17 +280,12 @@ class AuthService extends ChangeNotifier {
       );
     }
 
-    return response.body['message'] as String? ??
-        'Verification code sent! Check your inbox.';
+    return VerificationDelivery.fromJson(response.body);
   }
-
-  // ── Handle 401 from any protected API call ──
 
   void handleUnauthorized() {
     logout();
   }
-
-  // ── HTTP helper (mirrors fetch() pattern from the web frontend) ──
 
   Future<_HttpResponse> _post(
     String path,
@@ -259,8 +328,10 @@ class AuthService extends ChangeNotifier {
         body: payload,
       );
     } catch (e) {
-      if (e is LoginFailure) rethrow;
-      throw LoginFailure(
+      if (e is LoginFailure) {
+        rethrow;
+      }
+      throw const LoginFailure(
         reason: LoginFailureReason.networkError,
         message: 'Unable to contact the server',
       );
@@ -282,9 +353,33 @@ class AuthService extends ChangeNotifier {
   }
 }
 
+String _normalizeEmail(String? email) {
+  return (email ?? '').trim().toLowerCase();
+}
+
+String _maskEmail(String email) {
+  final normalizedEmail = _normalizeEmail(email);
+  final atIndex = normalizedEmail.indexOf('@');
+  if (atIndex <= 0) {
+    return normalizedEmail;
+  }
+
+  final localPart = normalizedEmail.substring(0, atIndex);
+  final domain = normalizedEmail.substring(atIndex + 1);
+  final visiblePart =
+      localPart.length <= 2 ? localPart : localPart.substring(0, 2);
+  final maskedPart = List.filled(
+    localPart.length - visiblePart.length,
+    '*',
+  ).join();
+  return '$visiblePart$maskedPart@$domain';
+}
+
 class _HttpResponse {
   const _HttpResponse({required this.statusCode, required this.body});
+
   final int statusCode;
   final Map<String, dynamic> body;
+
   bool get ok => statusCode >= 200 && statusCode < 300;
 }
