@@ -17,10 +17,13 @@ const canonicalModelShapes = {
     userNoiseWF: "number",
     userOccupancyWF: "number",
     passwordHash: "string",
-    emailVerificationToken: "string | null",
+    role: "user | admin",
+    accountStatus: "active | forced_reset | suspended",
+    emailVerificationCode: "string | null",
+    emailVerificationExpiresAt: "Date | null",
     emailVerifiedAt: "Date | null",
-    passwordResetToken: "string | null",
-    passwordResetExpiresAt: "Date | null",
+    passwordResetCode: "string | null",
+    passwordResetCodeExpiresAt: "Date | null",
     createdAt: "Date",
     updatedAt: "Date",
   },
@@ -81,7 +84,7 @@ const legacyFieldAlignment = {
     currOccupancyLevel: "currentOccupancyLevel",
   },
   User: {
-    note: "Canonical auth field is passwordHash. Some legacy routes still read/write password directly and should be normalized to passwordHash.",
+    note: "Canonical auth field is passwordHash. Verification and password reset now use expiring six-digit codes instead of token links.",
   },
 };
 

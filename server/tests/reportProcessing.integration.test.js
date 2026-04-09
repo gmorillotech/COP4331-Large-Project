@@ -233,16 +233,19 @@ function installInMemoryModelPatches() {
       login: this.login,
       email: this.email,
       passwordHash: this.passwordHash,
+      role: this.role,
+      accountStatus: this.accountStatus,
       firstName: this.firstName,
       lastName: this.lastName,
       displayName: this.displayName,
       favorites: [...(this.favorites ?? [])],
       userNoiseWF: this.userNoiseWF,
       userOccupancyWF: this.userOccupancyWF,
+      emailVerificationCode: this.emailVerificationCode,
+      emailVerificationExpiresAt: this.emailVerificationExpiresAt,
       emailVerifiedAt: this.emailVerifiedAt,
-      emailVerificationToken: this.emailVerificationToken,
-      passwordResetToken: this.passwordResetToken,
-      passwordResetExpiresAt: this.passwordResetExpiresAt,
+      passwordResetCode: this.passwordResetCode,
+      passwordResetCodeExpiresAt: this.passwordResetCodeExpiresAt,
     };
     state.users.push(clone(document));
     return clone(document);

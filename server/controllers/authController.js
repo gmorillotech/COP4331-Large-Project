@@ -1,30 +1,56 @@
-const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-// const nodemailer = require("nodemailer"); // ── COMMENTED OUT: switched to SendGrid ──
-
-// ── SendGrid setup ────────────────────────────────────
-const sgMail = require('@sendgrid/mail');
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-// ─────────────────────────────────────────────────────
+const sgMail = require("@sendgrid/mail");
 
 const User = require("../models/User");
 const tokenService = require("../createJWT");
 
 const DEFAULT_PIN_COLOR = "#0F766E";
+const CODE_TTL_MS = 15 * 60 * 1000;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const sendgridConfigured =
+  typeof process.env.SENDGRID_API_KEY === "string" &&
+  process.env.SENDGRID_API_KEY.startsWith("SG.") &&
+  typeof process.env.EMAIL_FROM === "string" &&
+  process.env.EMAIL_FROM.trim().length > 0;
+
+if (sendgridConfigured) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 function normalizeDisplayName(displayName) {
   if (displayName === null) return null;
   if (displayName === undefined) return undefined;
   const trimmed = String(displayName).trim();
-  if (!trimmed) return "";
-  return trimmed;
+  return trimmed ? trimmed : "";
 }
 
 function normalizePinColor(pinColor) {
   if (pinColor === undefined) return undefined;
   const trimmed = String(pinColor).trim();
   return /^#([A-Fa-f0-9]{6})$/.test(trimmed) ? trimmed.toUpperCase() : "";
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function generateSixDigitCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendCodeEmail({ to, subject, intro, code }) {
+  if (!sendgridConfigured) {
+    console.warn(`Skipping email "${subject}" because SendGrid is not configured.`);
+    return;
+  }
+
+  await sgMail.send({
+    to,
+    from: process.env.EMAIL_FROM,
+    subject,
+    html: `<p>${intro}</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+  });
 }
 
 function serializeUser(user) {
@@ -47,17 +73,6 @@ function serializeUser(user) {
   };
 }
 
-// ── OLD nodemailer transporter — commented out ────────
-// const transporter = nodemailer.createTransport({
-//   service: "gmail",
-//   auth: {
-//     user: process.env.EMAIL_USER,
-//     pass: process.env.EMAIL_PASS,
-//   },
-// });
-// ─────────────────────────────────────────────────────
-
-// ── REGISTER ─────────────────────────────────────────
 const register = async (req, res) => {
   try {
     const { firstName, lastName, displayName, login, email, password } = req.body ?? {};
@@ -65,32 +80,29 @@ const register = async (req, res) => {
       return res.status(400).json({ error: "Please provide login, email, and password." });
     }
 
-    const normalizedLogin = login.trim().toLowerCase();
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedLogin = String(login).trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({ error: "Please provide a valid email address." });
+    }
+
     const existingUser = await User.findOne({
       $or: [{ login: normalizedLogin }, { email: normalizedEmail }],
     });
-
     if (existingUser) {
       return res.status(409).json({ error: "An account with that login or email already exists." });
     }
 
-    // ── OLD: hex token ────────────────────────────────
-    // const emailVerificationToken = crypto.randomBytes(32).toString("hex");
-    // ─────────────────────────────────────────────────
-
-    // ── NEW: 6-digit code ─────────────────────────────
-    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-    // ─────────────────────────────────────────────────
-
-    const passwordHash = await bcrypt.hash(password, 10);
+    const emailVerificationCode = generateSixDigitCode();
+    const passwordHash = await bcrypt.hash(String(password), 10);
 
     const newUser = new User({
       userId: crypto.randomUUID(),
       login: normalizedLogin,
       email: normalizedEmail,
       passwordHash,
+      role: "user",
+      accountStatus: "active",
       firstName: firstName ?? null,
       lastName: lastName ?? null,
       displayName: displayName ?? null,
@@ -99,43 +111,24 @@ const register = async (req, res) => {
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
-      // emailVerificationToken,  // ── OLD: commented out
-      emailVerificationCode,       // ── NEW
-      emailVerificationExpiresAt,  // ── NEW
+      emailVerificationCode,
+      emailVerificationExpiresAt: new Date(Date.now() + CODE_TTL_MS),
       emailVerifiedAt: null,
       passwordChangedAt: new Date(),
     });
 
     await newUser.save();
 
-    // ── OLD: nodemailer send ──────────────────────────
-    // if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    //   const verificationLink = `${getVerifyBaseUrl(registrationSource)}/verify?token=${emailVerificationToken}`;
-    //   try {
-    //     await transporter.sendMail({
-    //       to: normalizedEmail,
-    //       from: `Meta Location <${process.env.EMAIL_USER}>`,
-    //       subject: "Verify Your Account",
-    //       html: `<p>Welcome! Please click this link to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-    //     });
-    //   } catch (mailError) {
-    //     console.error("Failed to send verification email during registration:", mailError.message);
-    //   }
-    // }
-    // ─────────────────────────────────────────────────
-
-    // ── NEW: SendGrid code email ──────────────────────
     try {
-      await sgMail.send({
+      await sendCodeEmail({
         to: normalizedEmail,
-        from: process.env.EMAIL_FROM,
         subject: "Your StudySpot Verification Code",
-        html: `<p>Welcome to StudySpot!</p><p>Your verification code is: <strong style="font-size:24px;">${emailVerificationCode}</strong></p><p>This code expires in 15 minutes.</p>`,
+        intro: "Welcome to StudySpot. Your verification code is:",
+        code: emailVerificationCode,
       });
     } catch (mailError) {
       console.error("Failed to send verification email during registration:", mailError.message);
     }
-    // ─────────────────────────────────────────────────
 
     return res.status(201).json({
       userId: newUser.userId,
@@ -148,19 +141,25 @@ const register = async (req, res) => {
   }
 };
 
-// ── LOGIN ─────────────────────────────────────────────
 const login = async (req, res) => {
   try {
     const { login, password } = req.body ?? {};
     if (!login || !password) {
-      return res.status(400).json({ error: "Missing login or password" });
+      return res.status(400).json({ error: "Missing login or password." });
     }
 
-    const normalizedLogin = login.trim().toLowerCase();
+    const normalizedLogin = String(login).trim().toLowerCase();
     const user = await User.findOne({ login: normalizedLogin });
-
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user || !(await bcrypt.compare(String(password), user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    if (user.accountStatus === "suspended") {
+      return res.status(403).json({ error: "This account is suspended." });
+    }
+
+    if (user.accountStatus === "forced_reset") {
+      return res.status(403).json({ error: "A password reset is required for this account." });
     }
 
     if (!user.emailVerifiedAt) {
@@ -177,36 +176,21 @@ const login = async (req, res) => {
   }
 };
 
-// ── VERIFY EMAIL ──────────────────────────────────────
 const verifyEmail = async (req, res) => {
   try {
-    // ── OLD: token-based ──────────────────────────────
-    // const { token } = req.body ?? {};
-    // const user = await User.findOne({ emailVerificationToken: token });
-    // if (!user) {
-    //   return res.status(400).json({ error: "Invalid or expired verification token." });
-    // }
-    // ─────────────────────────────────────────────────
-
-    // ── NEW: code-based ───────────────────────────────
     const { email, code } = req.body ?? {};
     if (!email || !code) {
       return res.status(400).json({ error: "Email and verification code are required." });
     }
 
     const user = await User.findOne({
-      email: email.trim().toLowerCase(),
-      emailVerificationCode: code.trim(),
+      email: normalizeEmail(email),
+      emailVerificationCode: String(code).trim(),
       emailVerificationExpiresAt: { $gt: new Date() },
     });
-
     if (!user) {
       return res.status(400).json({ error: "Invalid or expired verification code." });
     }
-
-    user.emailVerificationCode = null;
-    user.emailVerificationExpiresAt = null;
-    // ─────────────────────────────────────────────────
 
     await user.verifyEmail();
     return res.status(200).json({ message: "Email verified successfully. You can now log in." });
@@ -215,64 +199,46 @@ const verifyEmail = async (req, res) => {
   }
 };
 
-// ── RESEND VERIFICATION ───────────────────────────────
 const resendVerification = async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email is required." });
+    const normalizedEmail = normalizeEmail(req.body?.email);
+    if (!normalizedEmail) {
+      return res.status(400).json({ error: "Email is required." });
+    }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) return res.status(400).json({ error: "User not found." });
-    if (user.emailVerifiedAt) return res.status(400).json({ error: "Account already verified." });
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(400).json({ error: "User not found." });
+    }
+    if (user.emailVerifiedAt) {
+      return res.status(400).json({ error: "Account already verified." });
+    }
 
-    // ── OLD: hex token ────────────────────────────────
-    // const token = crypto.randomBytes(32).toString("hex");
-    // user.emailVerificationToken = token;
-    // await user.save();
-    // const verificationLink = `${getVerifyBaseUrl(user.registrationSource)}/verify?token=${token}`;
-    // try {
-    //   await transporter.sendMail({
-    //     to: user.email,
-    //     from: `Meta Location <${process.env.EMAIL_USER}>`,
-    //     subject: "Verify Your Account",
-    //     html: `<p>Click here to verify your account: <a href="${verificationLink}">${verificationLink}</a></p>`,
-    //   });
-    // } catch (mailError) {
-    //   console.error("Failed to send verification email:", mailError.message);
-    //   return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
-    // }
-    // ─────────────────────────────────────────────────
-
-    // ── NEW: fresh 6-digit code ───────────────────────
-    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    user.emailVerificationCode = emailVerificationCode;
-    user.emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    user.emailVerificationCode = generateSixDigitCode();
+    user.emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
     try {
-      await sgMail.send({
+      await sendCodeEmail({
         to: user.email,
-        from: process.env.EMAIL_FROM,
         subject: "Your StudySpot Verification Code",
-        html: `<p>Your new verification code is: <strong style="font-size:24px;">${emailVerificationCode}</strong></p><p>This code expires in 15 minutes.</p>`,
+        intro: "Your new verification code is:",
+        code: user.emailVerificationCode,
       });
     } catch (mailError) {
       console.error("Failed to send verification email:", mailError.message);
       return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
     }
-    // ─────────────────────────────────────────────────
 
-    return res.json({ message: "Verification code sent! Check your inbox." });
+    return res.status(200).json({ message: "Verification code sent! Check your inbox." });
   } catch (error) {
     return res.status(500).json({ error: "Server error." });
   }
 };
 
-// ── FORGOT PASSWORD ───────────────────────────────────
 const forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body ?? {};
-    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    const normalizedEmail = normalizeEmail(req.body?.email);
     const user = normalizedEmail ? await User.findOne({ email: normalizedEmail }) : null;
 
     if (!user) {
@@ -281,29 +247,20 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    // ── OLD: link-based ───────────────────────────────
-    // const resetToken = crypto.randomBytes(32).toString("hex");
-    // user.passwordResetToken = resetToken;
-    // user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
-    // ─────────────────────────────────────────────────
-
-    // ── NEW: code-based ───────────────────────────────
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    user.passwordResetCode = resetCode;
-    user.passwordResetCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    user.passwordResetCode = generateSixDigitCode();
+    user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
     try {
-      await sgMail.send({
+      await sendCodeEmail({
         to: user.email,
-        from: process.env.EMAIL_FROM,
         subject: "Your StudySpot Password Reset Code",
-        html: `<p>Your password reset code is: <strong style="font-size:24px;">${resetCode}</strong></p><p>This code expires in 15 minutes.</p>`,
+        intro: "Your password reset code is:",
+        code: user.passwordResetCode,
       });
     } catch (mailError) {
       console.error("Failed to send password reset email:", mailError.message);
     }
-    // ─────────────────────────────────────────────────
 
     return res.status(200).json({
       message: "If an account with that email exists, a reset code has been sent.",
@@ -313,49 +270,34 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-// ── RESET PASSWORD ────────────────────────────────────
 const resetPassword = async (req, res) => {
   try {
-    const { token, email, code, newPassword } = req.body ?? {};
+    const { email, code, newPassword } = req.body ?? {};
+    if (!email || !code) {
+      return res.status(400).json({ error: "Email and reset code are required." });
+    }
 
     const trimmedNewPassword = String(newPassword || "").trim();
     if (trimmedNewPassword.length < 8) {
       return res.status(400).json({ error: "New password must be at least 8 characters long." });
     }
 
-    let user;
-
-    if (code && email) {
-      // ── NEW: code-based (web) ─────────────────────────
-      user = await User.findOne({
-        email: email.trim().toLowerCase(),
-        passwordResetCode: code.trim(),
-        passwordResetCodeExpiresAt: { $gt: new Date() },
-      });
-      if (!user) {
-        return res.status(400).json({ error: "Invalid or expired reset code." });
-      }
-      user.passwordResetCode = null;
-      user.passwordResetCodeExpiresAt = null;
-      // ─────────────────────────────────────────────────
-    } else if (token) {
-      // ── OLD: token-based (mobile/backwards compat) ────
-      user = await User.findOne({
-        passwordResetToken: token,
-        passwordResetExpiresAt: { $gt: new Date() },
-      });
-      if (!user) {
-        return res.status(400).json({ error: "Password reset token is invalid or has expired." });
-      }
-      user.passwordResetToken = null;
-      user.passwordResetExpiresAt = null;
-      // ─────────────────────────────────────────────────
-    } else {
-      return res.status(400).json({ error: "Reset code or token is required." });
+    const user = await User.findOne({
+      email: normalizeEmail(email),
+      passwordResetCode: String(code).trim(),
+      passwordResetCodeExpiresAt: { $gt: new Date() },
+    });
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired reset code." });
     }
 
+    user.passwordResetCode = null;
+    user.passwordResetCodeExpiresAt = null;
     user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
     user.passwordChangedAt = new Date();
+    if (user.accountStatus === "forced_reset") {
+      user.accountStatus = "active";
+    }
     await user.save();
 
     return res.status(200).json({ message: "Password has been successfully reset." });
@@ -364,25 +306,24 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// ── GET PROFILE ───────────────────────────────────────
 const getProfile = async (req, res) => {
   try {
     const user = await User.findOne({ userId: req.user.userId });
-    if (!user) return res.status(404).json({ error: "User not found." });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
     return res.status(200).json(serializeUser(user));
   } catch (error) {
     return res.status(500).json({ error: "Server error while fetching profile." });
   }
 };
 
-// ── UPDATE PROFILE ────────────────────────────────────
 const updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, displayName, hideLocation, pinColor, favorites } = req.body ?? {};
+    const { firstName, lastName, displayName, hideLocation, pinColor, favorites, email } = req.body ?? {};
     const user = await User.findOne({ userId: req.user.userId });
-
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: "User not found." });
     }
 
     const normalizedDisplayName = normalizeDisplayName(displayName);
@@ -395,6 +336,29 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ error: "Pin color must be a valid 6-digit hex value." });
     }
 
+    let verificationCodeToSend = null;
+
+    if (email !== undefined) {
+      const normalizedEmail = normalizeEmail(email);
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
+        return res.status(400).json({ error: "Please provide a valid email address." });
+      }
+      if (normalizedEmail !== user.email) {
+        const existing = await User.findOne({
+          email: normalizedEmail,
+          userId: { $ne: user.userId },
+        });
+        if (existing) {
+          return res.status(409).json({ error: "That email address is already in use." });
+        }
+        user.email = normalizedEmail;
+        user.emailVerifiedAt = null;
+        user.emailVerificationCode = generateSixDigitCode();
+        user.emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
+        verificationCodeToSend = user.emailVerificationCode;
+      }
+    }
+
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
     if (normalizedDisplayName !== undefined) user.displayName = normalizedDisplayName;
@@ -403,13 +367,26 @@ const updateProfile = async (req, res) => {
     if (favorites !== undefined && Array.isArray(favorites)) user.favorites = favorites;
 
     const updatedUser = await user.save();
+
+    if (verificationCodeToSend) {
+      try {
+        await sendCodeEmail({
+          to: updatedUser.email,
+          subject: "Your StudySpot Verification Code",
+          intro: "Your email was changed. Your new verification code is:",
+          code: verificationCodeToSend,
+        });
+      } catch (mailError) {
+        console.error("Failed to send verification email after profile update:", mailError.message);
+      }
+    }
+
     return res.status(200).json(serializeUser(updatedUser));
   } catch (error) {
     return res.status(500).json({ error: "Server error while updating profile." });
   }
 };
 
-// ── CHANGE PASSWORD ───────────────────────────────────
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body ?? {};
@@ -423,7 +400,9 @@ const changePassword = async (req, res) => {
     }
 
     const user = await User.findOne({ userId: req.user.userId });
-    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
 
     const passwordMatches = await bcrypt.compare(String(currentPassword), user.passwordHash);
     if (!passwordMatches) {
@@ -432,6 +411,9 @@ const changePassword = async (req, res) => {
 
     user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
     user.passwordChangedAt = new Date();
+    if (user.accountStatus === "forced_reset") {
+      user.accountStatus = "active";
+    }
     await user.save();
 
     return res.status(200).json({ message: "Password updated successfully." });

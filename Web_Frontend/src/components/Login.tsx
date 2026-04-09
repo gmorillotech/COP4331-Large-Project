@@ -63,8 +63,6 @@ function Login() {
   const [verifiedEmail, setVerifiedEmail] = useState('');
 
   // Forgot / reset password
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotSent, setForgotSent] = useState(false);
   const [forgotStep, setForgotStep] = useState<'email' | 'code' | 'newpass'>('email');
   const [resetEmail, setResetEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
@@ -92,7 +90,6 @@ function Login() {
     setMessage('');
     setIsError(false);
     setShowVerifyBox(false);
-    setForgotSent(false);
     setForgotStep('email');   // ← add
     setResetEmail('');         // ← add
     setResetCode('');          // ← add
@@ -180,29 +177,6 @@ function Login() {
 
 
   // ── FORGOT PASSWORD ───────────────────────────────────
-  async function doForgotPassword(event: MouseEvent<HTMLInputElement>): Promise<void> {
-    event.preventDefault();
-
-    if (!forgotEmail) {
-      showError('Please enter your email address.');
-      return;
-    }
-
-    try {
-      const response = await fetch(apiUrl('/api/auth/forgot-password'), {
-        method: 'POST',
-        body: JSON.stringify({ email: forgotEmail }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const res: GenericResponse = await response.json();
-      showSuccess(res.message || 'Password reset link sent to your email.');
-      setForgotSent(true);
-    } catch (error) {
-      showError(error instanceof Error ? error.message : 'Unable to contact the server');
-    }
-  }
-
   async function doVerifyResetCode(event: MouseEvent<HTMLInputElement>): Promise<void> {
   event.preventDefault();
   if (!resetCode.trim()) {
@@ -269,7 +243,7 @@ async function doResetPassword(event: MouseEvent<HTMLInputElement>): Promise<voi
       const res: GenericResponse = await response.json();
 
       if (!response.ok) {
-        showError(res.error || 'Unable to resend verification email.');
+        showError(res.error || 'Unable to resend verification code.');
         return;
       }
 
@@ -361,7 +335,6 @@ async function doVerifyCode(event: MouseEvent<HTMLInputElement>): Promise<void> 
                 setLoginView('forgot-password');
                 setMessage('');
                 setIsError(false);
-                setForgotSent(false);
               }}
             >
               Forgot Password?

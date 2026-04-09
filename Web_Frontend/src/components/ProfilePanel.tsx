@@ -231,7 +231,7 @@ function ProfilePanel() {
         return;
       }
 
-      showSuccess('Email updated! A verification link has been sent to your new email. Please verify it before logging in again.');
+      showSuccess('Email updated! A verification code has been sent to your new email. Please verify it before logging in again.');
       const updatedUser = { ...user!, email: newEmail.trim().toLowerCase() };
       setUser(updatedUser);
       localStorage.setItem('user_data', JSON.stringify(updatedUser));

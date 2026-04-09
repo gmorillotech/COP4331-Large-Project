@@ -1,15 +1,12 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:flutter_application_1/auth/login_page.dart';
-import 'package:flutter_application_1/auth/reset_password_page.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -38,36 +35,17 @@ class MainApp extends StatefulWidget {
 
 class _MainAppState extends State<MainApp> {
   late final AuthService _authService;
-  late final AppLinks _appLinks;
-  StreamSubscription<Uri>? _linkSubscription;
-  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
     _authService = AuthService(prefs: widget.prefs)..initialize();
-    _appLinks = AppLinks();
-    _linkSubscription = _appLinks.uriLinkStream.listen(_handleDeepLink);
   }
 
   @override
   void dispose() {
-    _linkSubscription?.cancel();
     _authService.dispose();
     super.dispose();
-  }
-
-  void _handleDeepLink(Uri uri) {
-    if (uri.path == '/reset-password') {
-      final token = uri.queryParameters['token'];
-      if (token != null && token.isNotEmpty) {
-        _navigatorKey.currentState?.push(
-          MaterialPageRoute<void>(
-            builder: (_) => ResetPasswordPage(token: token),
-          ),
-        );
-      }
-    }
   }
 
   @override
@@ -77,7 +55,6 @@ class _MainAppState extends State<MainApp> {
       child: Consumer<AuthService>(
         builder: (context, auth, _) {
           return MaterialApp(
-            navigatorKey: _navigatorKey,
             debugShowCheckedModeBanner: false,
             title: 'Study Space Map',
             theme: ThemeData(useMaterial3: true),

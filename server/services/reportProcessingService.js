@@ -421,6 +421,8 @@ class ReportProcessingService {
       login: `collector-${safeLogin}`,
       email: `${safeLogin}@local.invalid`,
       passwordHash,
+      role: "user",
+      accountStatus: "active",
       firstName: "Local",
       lastName: "Collector",
       displayName: "Local Collector",
@@ -429,10 +431,11 @@ class ReportProcessingService {
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
+      emailVerificationCode: null,
+      emailVerificationExpiresAt: null,
       emailVerifiedAt: new Date(),
-      emailVerificationToken: null,
-      passwordResetToken: null,
-      passwordResetExpiresAt: null,
+      passwordResetCode: null,
+      passwordResetCodeExpiresAt: null,
       passwordChangedAt: new Date(),
     }).save();
 

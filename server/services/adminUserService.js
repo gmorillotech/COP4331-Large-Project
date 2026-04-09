@@ -1,19 +1,39 @@
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
+const sgMail = require("@sendgrid/mail");
 
 const User = require("../models/User");
 const Report = require("../models/Report");
 const AuditLog = require("../models/AuditLog");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CODE_TTL_MS = 15 * 60 * 1000;
+const sendgridConfigured =
+  typeof process.env.SENDGRID_API_KEY === "string" &&
+  process.env.SENDGRID_API_KEY.startsWith("SG.") &&
+  typeof process.env.EMAIL_FROM === "string" &&
+  process.env.EMAIL_FROM.trim().length > 0;
+
+if (sendgridConfigured) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
+
+function generateSixDigitCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendForcedResetCode(email, code) {
+  if (!sendgridConfigured) {
+    console.warn("Skipping forced password reset email because SendGrid is not configured.");
+    return;
+  }
+
+  await sgMail.send({
+    to: email,
+    from: process.env.EMAIL_FROM,
+    subject: "Password Reset Required",
+    html: `<p>An administrator has required you to reset your password.</p><p>Your password reset code is:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+  });
+}
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -64,7 +84,6 @@ async function writeAuditLog({ adminUserId, actionType, targetType, targetId, be
   await entry.save();
 }
 
-// ── LIST USERS ───────────────────────────────────────
 async function listUsers(queryTerm) {
   let filter = {};
   if (queryTerm) {
@@ -81,13 +100,12 @@ async function listUsers(queryTerm) {
   }
 
   const users = await User.find({ ...filter, userId: { $exists: true, $ne: null } })
-    .select("-passwordHash -passwordResetToken -passwordResetExpiresAt -emailVerificationToken")
+    .select("-passwordHash -passwordResetCode -passwordResetCodeExpiresAt -emailVerificationCode -emailVerificationExpiresAt")
     .sort({ createdAt: -1 });
 
   return users.map(serializeUserForAdmin);
 }
 
-// ── EDIT USER ────────────────────────────────────────
 async function editUser(userId, updates, adminUserId) {
   const user = await User.findOne({ userId });
   if (!user) {
@@ -154,7 +172,6 @@ async function editUser(userId, updates, adminUserId) {
   return { user: serializeUserForAdmin(user) };
 }
 
-// ── FORCE PASSWORD RESET ─────────────────────────────
 async function forcePasswordReset(userId, adminUserId) {
   const user = await User.findOne({ userId });
   if (!user) {
@@ -162,23 +179,15 @@ async function forcePasswordReset(userId, adminUserId) {
   }
 
   user.passwordChangedAt = new Date();
-  user.emailVerifiedAt = null;
-  user.emailVerificationToken = crypto.randomBytes(32).toString("hex");
+  user.passwordResetCode = generateSixDigitCode();
+  user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
   user.accountStatus = "forced_reset";
   await user.save();
 
-  if (process.env.FRONTEND_URL && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    const verificationLink = `${process.env.FRONTEND_URL}/verify?token=${user.emailVerificationToken}`;
-    try {
-      await transporter.sendMail({
-        to: user.email,
-        from: `Meta Location <${process.env.EMAIL_USER}>`,
-        subject: "Password Reset Required",
-        html: `<p>An administrator has required you to reset your password. Please click this link to verify your account and set a new password: <a href="${verificationLink}">${verificationLink}</a></p>`,
-      });
-    } catch (mailError) {
-      console.error("Failed to send forced password reset email:", mailError.message);
-    }
+  try {
+    await sendForcedResetCode(user.email, user.passwordResetCode);
+  } catch (mailError) {
+    console.error("Failed to send forced password reset email:", mailError.message);
   }
 
   await writeAuditLog({
@@ -191,7 +200,6 @@ async function forcePasswordReset(userId, adminUserId) {
   return { userId };
 }
 
-// ── DELETE USER ──────────────────────────────────────
 async function deleteUser(userId, adminUserId) {
   const user = await User.findOne({ userId });
   if (!user) {

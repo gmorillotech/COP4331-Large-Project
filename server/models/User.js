@@ -82,11 +82,6 @@ const userSchema = new Schema(
       default: 1,
       min: 0,
     },
-    emailVerificationToken: {
-      type: String,
-      default: null,
-      index: true,
-    },
     emailVerificationCode: {
       type: String,
       default: null,
@@ -96,15 +91,6 @@ const userSchema = new Schema(
       default: null,
     },
     emailVerifiedAt: {
-      type: Date,
-      default: null,
-    },
-    passwordResetToken: {
-      type: String,
-      default: null,
-      index: true,
-    },
-    passwordResetExpiresAt: {
       type: Date,
       default: null,
     },
@@ -127,7 +113,7 @@ const userSchema = new Schema(
   },
 );
 
-userSchema.methods.getProfile = function () {
+userSchema.methods.getProfile = function getProfile() {
   return {
     userId: this.userId,
     login: this.login,
@@ -142,7 +128,7 @@ userSchema.methods.getProfile = function () {
   };
 };
 
-userSchema.methods.updateProfile = function (updates) {
+userSchema.methods.updateProfile = function updateProfile(updates) {
   if (updates.firstName !== undefined) this.firstName = updates.firstName;
   if (updates.lastName !== undefined) this.lastName = updates.lastName;
   if (updates.displayName !== undefined) this.displayName = updates.displayName;
@@ -152,9 +138,10 @@ userSchema.methods.updateProfile = function (updates) {
   return this.save();
 };
 
-userSchema.methods.verifyEmail = function () {
+userSchema.methods.verifyEmail = function verifyEmail() {
   this.emailVerifiedAt = new Date();
-  this.emailVerificationToken = null;
+  this.emailVerificationCode = null;
+  this.emailVerificationExpiresAt = null;
   return this.save();
 };
 
