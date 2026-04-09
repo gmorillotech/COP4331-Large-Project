@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+require("dotenv").config({
+  path: process.env.NODE_ENV === "test" ? ".env.test" : ".env",
+});
 const connectDB = require("./config/db");
 
 // Import all route files
@@ -104,6 +106,12 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminSearchRoutes);
 app.use("/api/admin", adminLocationRoutes);
 app.use("/api/admin/users", adminUserRoutes);
+
+// Test-only routes — never mounted in production
+if (process.env.NODE_ENV === "test") {
+  const testRoutes = require("./routes/testRoutes");
+  app.use("/api/test", testRoutes);
+}
 
 
 const PORT = process.env.PORT || 5050;

@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "test:integration": "node tests/reportProcessing.integration.test.js && node tests/reportRoutes.integration.test.js && node tests/locationRoutes.integration.test.js"
+    "test:integration": "node tests/reportProcessing.integration.test.js && node tests/reportRoutes.integration.test.js && node tests/locationRoutes.integration.test.js",
+    "e2e:server": "NODE_ENV=test node server.js"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "jest": "^29.7.0",
+    "mongodb-memory-server": "^11.0.1",
     "nodemon": "^3.1.14",
     "supertest": "^7.2.2"
   }
