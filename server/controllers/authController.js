@@ -1,4 +1,3 @@
-const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 // const nodemailer = require("nodemailer"); // ── COMMENTED OUT: switched to SendGrid ──
@@ -12,6 +11,13 @@ const User = require("../models/User");
 const tokenService = require("../createJWT");
 
 const DEFAULT_PIN_COLOR = "#0F766E";
+const CODE_TTL_MS = 15 * 60 * 1000;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const sendgridConfigured = Boolean(process.env.SENDGRID_API_KEY);
+if (sendgridConfigured) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 function normalizeDisplayName(displayName) {
   if (displayName === null) return null;
@@ -25,6 +31,14 @@ function normalizePinColor(pinColor) {
   if (pinColor === undefined) return undefined;
   const trimmed = String(pinColor).trim();
   return /^#([A-Fa-f0-9]{6})$/.test(trimmed) ? trimmed.toUpperCase() : "";
+}
+
+function normalizeEmail(email) {
+  return String(email ?? "").trim().toLowerCase();
+}
+
+function generateSixDigitCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 function serializeUser(user) {
@@ -57,7 +71,6 @@ function serializeUser(user) {
 // });
 // ─────────────────────────────────────────────────────
 
-// ── REGISTER ─────────────────────────────────────────
 const register = async (req, res) => {
   try {
     const { firstName, lastName, displayName, login, email, password } = req.body ?? {};
@@ -66,7 +79,7 @@ const register = async (req, res) => {
     }
 
     const normalizedLogin = login.trim().toLowerCase();
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const existingUser = await User.findOne({
       $or: [{ login: normalizedLogin }, { email: normalizedEmail }],
     });
@@ -80,8 +93,8 @@ const register = async (req, res) => {
     // ─────────────────────────────────────────────────
 
     // ── NEW: 6-digit code ─────────────────────────────
-    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const emailVerificationCode = generateSixDigitCode();
+    const emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     // ─────────────────────────────────────────────────
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -148,7 +161,6 @@ const register = async (req, res) => {
   }
 };
 
-// ── LOGIN ─────────────────────────────────────────────
 const login = async (req, res) => {
   try {
     const { login, password } = req.body ?? {};
@@ -161,6 +173,16 @@ const login = async (req, res) => {
 
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    if (user.accountStatus === "suspended") {
+      return res.status(403).json({ error: "Your account is suspended. Please contact an administrator." });
+    }
+
+    if (user.accountStatus === "forced_reset") {
+      return res.status(403).json({
+        error: "Password reset required. Use the reset code sent to your email before logging in.",
+      });
     }
 
     if (!user.emailVerifiedAt) {
@@ -177,7 +199,6 @@ const login = async (req, res) => {
   }
 };
 
-// ── VERIFY EMAIL ──────────────────────────────────────
 const verifyEmail = async (req, res) => {
   try {
     // ── OLD: token-based ──────────────────────────────
@@ -215,13 +236,14 @@ const verifyEmail = async (req, res) => {
   }
 };
 
-// ── RESEND VERIFICATION ───────────────────────────────
 const resendVerification = async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email is required." });
+    const { email } = req.body ?? {};
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: normalizeEmail(email) });
     if (!user) return res.status(400).json({ error: "User not found." });
     if (user.emailVerifiedAt) return res.status(400).json({ error: "Account already verified." });
 
@@ -244,9 +266,9 @@ const resendVerification = async (req, res) => {
     // ─────────────────────────────────────────────────
 
     // ── NEW: fresh 6-digit code ───────────────────────
-    const emailVerificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const emailVerificationCode = generateSixDigitCode();
     user.emailVerificationCode = emailVerificationCode;
-    user.emailVerificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    user.emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
     try {
@@ -258,7 +280,7 @@ const resendVerification = async (req, res) => {
       });
     } catch (mailError) {
       console.error("Failed to send verification email:", mailError.message);
-      return res.status(500).json({ error: "Unable to send verification email. Please try again later." });
+      return res.status(500).json({ error: "Unable to send verification code. Please try again later." });
     }
     // ─────────────────────────────────────────────────
 
@@ -268,11 +290,10 @@ const resendVerification = async (req, res) => {
   }
 };
 
-// ── FORGOT PASSWORD ───────────────────────────────────
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body ?? {};
-    const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+    const normalizedEmail = normalizeEmail(email);
     const user = normalizedEmail ? await User.findOne({ email: normalizedEmail }) : null;
 
     if (!user) {
@@ -288,9 +309,9 @@ const forgotPassword = async (req, res) => {
     // ─────────────────────────────────────────────────
 
     // ── NEW: code-based ───────────────────────────────
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCode = generateSixDigitCode();
     user.passwordResetCode = resetCode;
-    user.passwordResetCodeExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    user.passwordResetCodeExpiresAt = new Date(Date.now() + CODE_TTL_MS);
     await user.save();
 
     try {
@@ -313,7 +334,6 @@ const forgotPassword = async (req, res) => {
   }
 };
 
-// ── RESET PASSWORD ────────────────────────────────────
 const resetPassword = async (req, res) => {
   try {
     const { token, email, code, newPassword } = req.body ?? {};
@@ -356,6 +376,9 @@ const resetPassword = async (req, res) => {
 
     user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
     user.passwordChangedAt = new Date();
+    if (user.accountStatus === "forced_reset") {
+      user.accountStatus = "active";
+    }
     await user.save();
 
     return res.status(200).json({ message: "Password has been successfully reset." });
@@ -364,7 +387,6 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// ── GET PROFILE ───────────────────────────────────────
 const getProfile = async (req, res) => {
   try {
     const user = await User.findOne({ userId: req.user.userId });
@@ -375,10 +397,9 @@ const getProfile = async (req, res) => {
   }
 };
 
-// ── UPDATE PROFILE ────────────────────────────────────
 const updateProfile = async (req, res) => {
   try {
-    const { firstName, lastName, displayName, hideLocation, pinColor, favorites } = req.body ?? {};
+    const { firstName, lastName, displayName, email, hideLocation, pinColor, favorites } = req.body ?? {};
     const user = await User.findOne({ userId: req.user.userId });
 
     if (!user) {
@@ -395,6 +416,38 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ error: "Pin color must be a valid 6-digit hex value." });
     }
 
+    if (email !== undefined) {
+      const normalizedEmail = normalizeEmail(email);
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
+        return res.status(400).json({ error: "Please provide a valid email address." });
+      }
+
+      const existing = await User.findOne({
+        email: normalizedEmail,
+        userId: { $ne: req.user.userId },
+      });
+      if (existing) {
+        return res.status(409).json({ error: "An account with that email already exists." });
+      }
+
+      if (normalizedEmail !== user.email) {
+        user.email = normalizedEmail;
+        user.emailVerifiedAt = null;
+        user.emailVerificationCode = generateSixDigitCode();
+        user.emailVerificationExpiresAt = new Date(Date.now() + CODE_TTL_MS);
+
+        try {
+          await sendCodeEmail({
+            to: normalizedEmail,
+            subject: "Your StudySpot Verification Code",
+            html: `<p>Your verification code is: <strong style="font-size:24px;">${user.emailVerificationCode}</strong></p><p>This code expires in 15 minutes.</p>`,
+          });
+        } catch (mailError) {
+          console.error("Failed to send verification email after profile update:", mailError.message);
+        }
+      }
+    }
+
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
     if (normalizedDisplayName !== undefined) user.displayName = normalizedDisplayName;
@@ -409,7 +462,6 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// ── CHANGE PASSWORD ───────────────────────────────────
 const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body ?? {};
@@ -432,6 +484,9 @@ const changePassword = async (req, res) => {
 
     user.passwordHash = await bcrypt.hash(trimmedNewPassword, 10);
     user.passwordChangedAt = new Date();
+    if (user.accountStatus === "forced_reset") {
+      user.accountStatus = "active";
+    }
     await user.save();
 
     return res.status(200).json({ message: "Password updated successfully." });

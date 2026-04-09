@@ -82,10 +82,13 @@ const userSchema = new Schema(
       default: 1,
       min: 0,
     },
-    emailVerificationToken: {
+    emailVerificationCode: {
       type: String,
       default: null,
-      index: true,
+    },
+    emailVerificationExpiresAt: {
+      type: Date,
+      default: null,
     },
     emailVerificationCode: {
       type: String,
@@ -99,12 +102,11 @@ const userSchema = new Schema(
       type: Date,
       default: null,
     },
-    passwordResetToken: {
+    passwordResetCode: {
       type: String,
       default: null,
-      index: true,
     },
-    passwordResetExpiresAt: {
+    passwordResetCodeExpiresAt: {
       type: Date,
       default: null,
     },
@@ -154,7 +156,8 @@ userSchema.methods.updateProfile = function (updates) {
 
 userSchema.methods.verifyEmail = function () {
   this.emailVerifiedAt = new Date();
-  this.emailVerificationToken = null;
+  this.emailVerificationCode = null;
+  this.emailVerificationExpiresAt = null;
   return this.save();
 };
 

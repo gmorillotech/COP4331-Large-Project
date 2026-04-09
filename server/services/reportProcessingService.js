@@ -429,10 +429,13 @@ class ReportProcessingService {
       favorites: [],
       userNoiseWF: 1,
       userOccupancyWF: 1,
+      role: "user",
+      accountStatus: "active",
       emailVerifiedAt: new Date(),
-      emailVerificationToken: null,
-      passwordResetToken: null,
-      passwordResetExpiresAt: null,
+      emailVerificationCode: null,
+      emailVerificationExpiresAt: null,
+      passwordResetCode: null,
+      passwordResetCodeExpiresAt: null,
       passwordChangedAt: new Date(),
     }).save();
 
