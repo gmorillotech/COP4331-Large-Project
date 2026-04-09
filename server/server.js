@@ -139,7 +139,11 @@ const startServer = async () => {
   });
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { app };
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
