@@ -13,53 +13,6 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function searchLocations(q) {
-  if (!q || !q.trim()) {
-    return { groups: [], studyLocations: [] };
-  }
-
-  const regex = new RegExp(escapeRegex(q.trim()), "i");
-
-  const [groups, studyLocations] = await Promise.all([
-    LocationGroup.find({ name: regex }).lean(),
-    StudyLocation.find({
-      $or: [
-        { name: regex },
-        { floorLabel: regex },
-        { sublocationLabel: regex },
-      ],
-    }).lean(),
-  ]);
-
-  const mappedGroups = groups.map((g) => ({
-    locationGroupId: g.locationGroupId,
-    name: g.name,
-    center: g.centerLatitude != null && g.centerLongitude != null
-      ? { lat: g.centerLatitude, lng: g.centerLongitude }
-      : undefined,
-    radius: g.radiusMeters,
-  }));
-
-  const groupMap = new Map();
-  const groupIds = [...new Set(studyLocations.map((l) => l.locationGroupId))];
-  if (groupIds.length > 0) {
-    const parentGroups = await LocationGroup.find({ locationGroupId: { $in: groupIds } }).select("locationGroupId name").lean();
-    parentGroups.forEach((pg) => groupMap.set(pg.locationGroupId, pg.name));
-  }
-
-  const mappedLocations = studyLocations.map((l) => ({
-    studyLocationId: l.studyLocationId,
-    name: l.name,
-    groupName: groupMap.get(l.locationGroupId) || null,
-    lat: l.latitude,
-    lng: l.longitude,
-    floorLabel: l.floorLabel,
-    sublocationLabel: l.sublocationLabel,
-  }));
-
-  return { groups: mappedGroups, studyLocations: mappedLocations };
-}
-
 async function getActiveReports({ groupId, locationId, q, page = 1, limit = 50 }) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
@@ -230,4 +183,4 @@ async function deleteReport(reportId, adminUserId) {
   return { message: "Report deleted", reportId };
 }
 
-module.exports = { searchLocations, getActiveReports, deleteReport };
+module.exports = { getActiveReports, deleteReport };

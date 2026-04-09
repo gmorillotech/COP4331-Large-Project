@@ -1,16 +1,22 @@
 const express = require("express");
-const router = express.Router();
 const { protect, requireAdmin } = require("../middleware/authMiddleware");
-const {
-  search,
-  getActiveReports,
-  deleteReport,
-} = require("../controllers/adminSearchController");
+const adminSearchController = require("../controllers/adminSearchController");
 
-router.use(protect, requireAdmin);
+function createAdminSearchRouter({
+  protectMiddleware = protect,
+  requireAdminMiddleware = requireAdmin,
+  controller = adminSearchController,
+} = {}) {
+  const router = express.Router();
 
-router.get("/search", search);
-router.get("/reports/active", getActiveReports);
-router.delete("/reports/:reportId", deleteReport);
+  router.use(protectMiddleware, requireAdminMiddleware);
 
-module.exports = router;
+  router.get("/search", controller.search);
+  router.get("/reports/active", controller.getActiveReports);
+  router.delete("/reports/:reportId", controller.deleteReport);
+
+  return router;
+}
+
+module.exports = createAdminSearchRouter();
+module.exports.createAdminSearchRouter = createAdminSearchRouter;
