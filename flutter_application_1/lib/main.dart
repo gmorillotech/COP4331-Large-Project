@@ -404,6 +404,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
     SearchSort.distance,
     null,
   ];
+  static const double _maxRadiusMetersCeiling = 500;
   double _maxRadiusMeters = 300;
   double? _minNoise;
   double? _maxNoise;
@@ -420,7 +421,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
   List<MapNode> get _locations =>
       _records.where((n) => !n.isGroup).toList(growable: false);
   List<MapNode> get _visibleNodes =>
-      _filtered(_showGroups ? _groups : _locations);
+      _withinRadius(_filtered(_showGroups ? _groups : _locations));
   List<_FavoriteSheetEntry> get _favoriteEntries => _favoriteIds
       .map(
         (favoriteId) => _FavoriteSheetEntry(
@@ -431,11 +432,13 @@ class _MapSearchPageState extends State<MapSearchPage> {
       .toList(growable: false);
   List<MapNode> get _results {
     if (_query.isEmpty) return _visibleNodes;
-    return _filtered(
-      [
-        ..._groups,
-        ..._locations,
-      ].where((n) => n.searchTerms.contains(_query)).toList(),
+    return _withinRadius(
+      _filtered(
+        [
+          ..._groups,
+          ..._locations,
+        ].where((n) => n.searchTerms.contains(_query)).toList(),
+      ),
     );
   }
 
@@ -795,7 +798,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
       sortTerms: sortTerms,
       includeGroups: includeGroups,
       includeLocations: includeLocations,
-      maxRadiusMeters: _maxRadiusMeters,
+      maxRadiusMeters: null,
       query: _query,
       minNoise: _minNoise,
       maxNoise: _maxNoise,
@@ -967,7 +970,15 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   List<MapNode> _filtered(List<MapNode> nodes) => _filter == null
       ? nodes
-      : nodes.where((n) => n.severity == _filter).toList();
+      : nodes.where((n) => n.severity == _filter).toList(growable: false);
+
+  List<MapNode> _withinRadius(List<MapNode> nodes) {
+    if (_maxRadiusMeters >= _maxRadiusMetersCeiling) return nodes;
+    return nodes
+        .where((n) =>
+            n.distanceMeters == null || n.distanceMeters! <= _maxRadiusMeters)
+        .toList(growable: false);
+  }
 
   void _onSearch(String value) {
     _debounce?.cancel();
@@ -1027,7 +1038,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   void _setRadius(double value) {
     setState(() => _maxRadiusMeters = value);
-    unawaited(_runSearch());
   }
 
   void _onNoiseChanged() {
