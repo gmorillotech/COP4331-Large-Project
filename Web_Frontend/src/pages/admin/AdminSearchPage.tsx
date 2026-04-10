@@ -51,19 +51,18 @@ function AdminSearchPage() {
   }, [searchInput]);
 
   const fetchResults = useCallback(async (query: string) => {
-    if (!query) {
-      setResults([]);
-      return;
-    }
-
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const params = new URLSearchParams({
+        includeGroups: 'true',
+        includeLocations: 'true',
+        sortBy: 'relevance',
+      });
+      if (query) params.set('q', query);
       const res = await fetch(
-        apiUrl(
-          `/api/admin/search?q=${encodeURIComponent(query)}&includeGroups=true&includeLocations=true&sortBy=relevance`,
-        ),
+        apiUrl(`/api/admin/search?${params.toString()}`),
         { headers },
       );
       const data = (await res.json()) as SearchApiResponse;

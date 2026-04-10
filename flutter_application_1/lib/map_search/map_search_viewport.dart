@@ -18,7 +18,7 @@ Map<String, String> buildMapSearchQueryParameters({
   required List<String> sortTerms,
   required bool includeGroups,
   required bool includeLocations,
-  required double maxRadiusMeters,
+  double? maxRadiusMeters,
   String query = '',
   double? minNoise,
   double? maxNoise,
@@ -30,12 +30,14 @@ Map<String, String> buildMapSearchQueryParameters({
     'includeLocations': '$includeLocations',
     'lat': viewport.center.latitude.toStringAsFixed(6),
     'lng': viewport.center.longitude.toStringAsFixed(6),
-    'maxRadiusMeters': maxRadiusMeters.round().toString(),
   };
 
   final normalizedQuery = query.trim();
   if (normalizedQuery.isNotEmpty) {
     queryParameters['q'] = normalizedQuery;
+  }
+  if (maxRadiusMeters != null) {
+    queryParameters['maxRadiusMeters'] = maxRadiusMeters.round().toString();
   }
   if (minNoise != null) {
     queryParameters['minNoise'] = minNoise.toStringAsFixed(0);
