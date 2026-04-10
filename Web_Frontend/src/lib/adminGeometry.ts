@@ -371,3 +371,101 @@ export function polygonFromCircle(
     };
   });
 }
+
+export function findParentVertexIndex(
+  point: Vertex,
+  polygon: Vertex[],
+  epsilon = EPSILON,
+): number {
+  for (let i = 0; i < polygon.length; i++) {
+    if (pointsEqual(point, polygon[i], epsilon)) return i;
+  }
+  return -1;
+}
+
+export function snapToVertex(
+  point: Vertex,
+  polygon: Vertex[],
+  thresholdDeg = 0.0001,
+): Vertex | null {
+  let bestDist = Infinity;
+  let bestVertex: Vertex | null = null;
+
+  for (const v of polygon) {
+    const dist = Math.sqrt(
+      (point.latitude - v.latitude) ** 2 + (point.longitude - v.longitude) ** 2,
+    );
+    if (dist < bestDist && dist < thresholdDeg) {
+      bestDist = dist;
+      bestVertex = v;
+    }
+  }
+
+  return bestVertex;
+}
+
+export function validateSplitLineClient(
+  splitLine: Vertex[],
+  parentPolygon: Vertex[],
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (splitLine.length < 2) {
+    errors.push('Split line must have at least 2 points.');
+    return { valid: false, errors };
+  }
+
+  const ring = closePolygon(parentPolygon);
+
+  const startIdx = findParentVertexIndex(splitLine[0], ring);
+  if (startIdx === -1) {
+    errors.push('Split line must start at a parent polygon vertex.');
+  }
+
+  const endIdx = findParentVertexIndex(splitLine[splitLine.length - 1], ring);
+  if (endIdx === -1) {
+    errors.push('Split line must end at a parent polygon vertex.');
+  }
+
+  if (startIdx !== -1 && endIdx !== -1 && startIdx === endIdx) {
+    errors.push('Split line start and end must be different vertices.');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+export function buildChildPolygonsFromSplit(
+  parentPolygon: Vertex[],
+  splitLine: Vertex[],
+): [Vertex[], Vertex[]] | null {
+  const ring = closePolygon(parentPolygon);
+  const n = ring.length - 1;
+
+  const startIdx = findParentVertexIndex(splitLine[0], ring);
+  const endIdx = findParentVertexIndex(splitLine[splitLine.length - 1], ring);
+
+  if (startIdx === -1 || endIdx === -1 || startIdx === endIdx) return null;
+
+  const arcA: Vertex[] = [];
+  let i = startIdx;
+  while (true) {
+    arcA.push(ring[i]);
+    if (i === endIdx) break;
+    i = (i + 1) % n;
+  }
+
+  const arcB: Vertex[] = [];
+  i = endIdx;
+  while (true) {
+    arcB.push(ring[i]);
+    if (i === startIdx) break;
+    i = (i + 1) % n;
+  }
+
+  const splitInterior = splitLine.slice(1, -1);
+
+  const childA = closePolygon([...arcA, ...splitInterior.slice().reverse()]);
+  const childB = closePolygon([...arcB, ...splitInterior]);
+
+  return [childA, childB];
+}
