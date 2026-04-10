@@ -8,6 +8,7 @@ import AdminSearchPage from './pages/admin/AdminSearchPage.tsx';
 import ManageUsersPage from './pages/admin/ManageUsersPage.tsx';
 import LocationEditPage from './pages/admin/LocationEditPage.tsx';
 import RedrawGroupPage from './pages/admin/RedrawGroupPage.tsx';
+import SplitGroupPage from './pages/admin/SplitGroupPage.tsx';
 import DataCollectionPage from './pages/DataCollectionPage.tsx';
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
             <Route index element={<AdminSearchPage />} />
             <Route path="users" element={<ManageUsersPage />} />
             <Route path="redraw/:groupId" element={<RedrawGroupPage />} />
+            <Route path="split/:groupId" element={<SplitGroupPage />} />
             <Route path="locations" element={<LocationEditPage />} />
           </Route>
         </Route>

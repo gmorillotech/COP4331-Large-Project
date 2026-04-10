@@ -505,3 +505,140 @@
   font-size: 0.75em;
   font-weight: 700;
 }
+
+/* ── SPLIT GROUP PAGE ─────────────────────────────── */
+
+.split-page {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.split-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.split-topbar__title {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #222;
+  margin: 0;
+}
+
+.split-topbar__actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.split-map-container {
+  width: 100%;
+  height: 100%;
+}
+
+.split-error {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: #ffebee;
+  color: #c62828;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.split-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  font-size: 1.1em;
+  color: #555;
+}
+
+/* ── SPLIT NAMES PANEL ────────────────────────────── */
+
+.split-names-panel {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 260px;
+}
+
+.split-names-panel__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.split-names-panel__label {
+  font-size: 0.75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #999;
+}
+
+.split-names-panel__input {
+  width: 100%;
+  padding: 9px 14px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.9em;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.split-names-panel__input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.12);
+}
+
+.split-names-panel__count {
+  font-size: 0.8em;
+  color: #666;
+}
+
+/* ── SPLIT BUTTON in GroupSelector ────────────────── */
+
+.group-selector__split-btn {
+  background: none;
+  border: 1px solid #e91e63;
+  color: #e91e63;
+  font-size: 0.78em;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.group-selector__split-btn:hover {
+  background-color: #e91e63;
+  color: white;
+}
