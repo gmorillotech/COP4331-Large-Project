@@ -1,24 +1,95 @@
-.mic-nav-btn {
+/* ── PAGE WRAPPER ───────────────────────────────────── */
+.home-wrapper {
   position: fixed;
-  width: 60px;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #0C1A49;
+  z-index: 0;
+}
+
+/* ── DASHBOARD BAR ──────────────────────────────────── */
+.dashboard-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
   height: 60px;
-  top: 20px;
-  left: 90%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  background: #007bff;
+  min-height: 60px;
+  background-color: #0C1A49;
   color: white;
+  z-index: 999;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.dash-welcome {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.15em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── ICON BUTTONS + DIVIDERS ───────────────────────── */
+.dash-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.dash-icon-btn {
+  background: none;
   border: none;
-  border-radius: 50%;
-  padding: 0;
-  font-size: 26px;
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  padding: 8px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  line-height: 1;
 }
 
-.mic-nav-btn:hover {
-  background: #0056b3;
+.dash-icon-btn:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.dash-divider {
+  display: block;
+  width: 1px;
+  height: 20px;
+  background-color: rgba(255, 255, 255, 0.25);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ── MAP CONTAINER ──────────────────────────────────── */
+.home-map-container {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Belt-and-suspenders: hide the ProfilePanel's internal floating button */
+.home-wrapper .profile-icon-btn {
+  display: none !important;
+}
+
+/* Override map-page margin/border-radius so it fills the container flush */
+.home-map-container .map-page {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  height: 100%;
+  box-shadow: none;
 }

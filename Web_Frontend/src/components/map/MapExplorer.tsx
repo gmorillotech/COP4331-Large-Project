@@ -69,7 +69,12 @@ function sortByNoise(locations: MapLocation[], direction: 'asc' | 'desc'): MapLo
 
 // ---- Component --------------------------------------------------------------
 
-function MapExplorer() {
+type MapExplorerProps = {
+  favoritesOpen?: boolean;
+  onFavoritesClose?: () => void;
+};
+
+function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   // ---- State ----------------------------------------------------------------
 
   // Raw location list from the API — never modified after fetch
@@ -195,14 +200,7 @@ function MapExplorer() {
       {/* ---- Controls bar: title, search, sort, filter chips ---- */}
       <header className="map-controls-bar">
 
-        {/* Left side: title and subtitle */}
-        <div className="map-controls-title">
-          <p className="map-controls-eyebrow">SpotStudy</p>
-          <h2>Study Space Search</h2>
-          <p className="map-controls-subtitle">Search from the current map center</p>
-        </div>
-
-        {/* Right side: search + sort + filter chips */}
+        {/* Search + sort + filter chips — full width */}
         <div className="map-controls-right">
 
           {/* Search input + clear button */}
@@ -328,14 +326,14 @@ function MapExplorer() {
 
       </div>
 
-      {/* Favorites drawer */}
+      {/* Favorites drawer — controlled from HomePage dashboard */}
       <FavoritesDrawer
         locations={locations}
         isFavorite={isFavorite}
         onToggleFavorite={toggleFavorite}
-        onSelectLocation={(id) => {
-          setSelectedId(id);
-        }}
+        onSelectLocation={(id) => { setSelectedId(id); }}
+        isOpen={favoritesOpen}
+        onClose={onFavoritesClose}
       />
 
     </section>

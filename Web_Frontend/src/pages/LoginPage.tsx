@@ -3,10 +3,12 @@ import Login from '../components/Login.tsx';
 const LoginPage = () =>
 {
     return(
+        <main>
         <div>
             <PageTitle />
             <Login />
         </div>
+        </main>
     );
 };
 

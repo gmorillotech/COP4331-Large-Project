@@ -56,8 +56,20 @@ function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) 
   );
 }
 
-function ProfilePanel() {
-  const [isOpen, setIsOpen] = useState(false);
+type ProfilePanelProps = {
+  externalOpen?: boolean;
+  onExternalClose?: () => void;
+};
+
+function ProfilePanel({ externalOpen, onExternalClose }: ProfilePanelProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  const controlled = externalOpen !== undefined;
+  const isOpen  = controlled ? (externalOpen ?? false) : internalOpen;
+  function setIsOpen(val: boolean) {
+    if (!controlled) setInternalOpen(val);
+    if (!val && onExternalClose) onExternalClose();
+  }
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<'profile' | 'editDisplay' | 'editEmail' | 'forgotSent'>('profile');
   const [displayName, setDisplayName] = useState('');
@@ -275,54 +287,19 @@ function ProfilePanel() {
     }
   }
 
-  // ── UPDATE EMAIL ──────────────────────────────────────
-  async function doUpdateEmail() {
-    if (!newEmail.trim()) {
-      showError('Please enter a new email address.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(apiUrl('/api/auth/profile'), {
-        method: 'PUT',
-        body: JSON.stringify({ email: newEmail.trim().toLowerCase() }),
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const res = await response.json();
-
-      if (!response.ok) {
-        showError(res.error || 'Failed to update email.');
-        return;
-      }
-
-      showSuccess('Email updated! If verification is required for this account, use the latest 6-digit code sent to your new email before logging in again.');
-      const updatedUser = { ...user!, email: newEmail.trim().toLowerCase() };
-      setUser(updatedUser);
-      localStorage.setItem('user_data', JSON.stringify(updatedUser));
-      setNewEmail('');
-      setTimeout(() => { setView('profile'); setMessage(''); }, 3000);
-    } catch (error) {
-      showError(error instanceof Error ? error.message : 'Unable to contact the server');
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <>
-      {/* Profile Icon Button */}
-      <button
-        className="profile-icon-btn"
-        onClick={() => setIsOpen(true)}
-        aria-label="Open profile"
-      >
-        <span className="profile-initials">{getInitials()}</span>
-      </button>
+      {/* Profile Icon Button — hidden when controlled from dashboard */}
+      {!controlled && (
+        <button
+          className="profile-icon-btn"
+          onClick={() => setIsOpen(true)}
+          aria-label="Open profile"
+        >
+          <span className="profile-initials">{getInitials()}</span>
+        </button>
+      )}
 
       {/* Overlay */}
       {isOpen && <div className="profile-overlay" onClick={handleClose} />}
@@ -355,7 +332,7 @@ function ProfilePanel() {
             <div className="profile-section">
               <span className="profile-label">Display Name</span>
               <div className="profile-field-row">
-                <span className="profile-value">{user?.displayName || 'Not set'}</span>
+                <span className="profile-value1">{user?.displayName || 'Not set'}</span>
                 <button
                   className="profile-edit-btn"
                   onClick={() => { setView('editDisplay'); setMessage(''); setDisplayName(user?.displayName || ''); }}
@@ -369,12 +346,6 @@ function ProfilePanel() {
               <span className="profile-label">Email</span>
               <div className="profile-field-row">
                 <span className="profile-value">{user?.email}</span>
-                <button
-                  className="profile-edit-btn"
-                  onClick={() => { setView('editEmail'); setMessage(''); }}
-                >
-                  Edit
-                </button>
               </div>
             </div>
 
@@ -395,7 +366,7 @@ function ProfilePanel() {
             <div className="profile-section">
               <span className="profile-label">Password</span>
               <div className="profile-field-row">
-                <span className="profile-value">••••••••</span>
+                <span className="profile-value1">••••••••</span>
                 <button
                   className="profile-edit-btn"
                   onClick={doResetPassword}
@@ -433,30 +404,7 @@ function ProfilePanel() {
           </div>
         )}
 
-        {/* ── EDIT EMAIL ── */}
-        {view === 'editEmail' && (
-          <div className="profile-panel-body">
-            <button className="profile-back-btn" onClick={() => { setView('profile'); setMessage(''); }}>
-              ← Back
-            </button>
-            <h3 className="profile-edit-title">Edit Email</h3>
-            <p className="profile-edit-info">Enter a new email address for your account.</p>
-            <input
-              type="email"
-              className="profile-input"
-              placeholder="New Email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-            />
-            <button
-              className="profile-save-btn"
-              onClick={doUpdateEmail}
-              disabled={loading}
-            >
-              {loading ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
-        )}
+        {/* editEmail view removed — email is read-only */}
 
         {/* ── CHANGE PASSWORD FLOW ── */}
         {view === 'forgotSent' && (
@@ -553,7 +501,7 @@ function ProfilePanel() {
                   onClick={doSubmitNewPassword}
                   disabled={loading}
                 >
-                  {loading ? 'Saving…' : 'Reset Password'}
+                  {loading ? 'Resetting…' : 'Reset Password'}
                 </button>
               </>
             )}
