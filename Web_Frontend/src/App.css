@@ -72,7 +72,7 @@
 
 #next-steps {
   display: flex;
-  border-top: 1px solid var(--border);
+   /*border-top: 1px solid var(--border); */
   text-align: left;
 
   & > div {
@@ -96,7 +96,7 @@
 }
 
 #docs {
-  border-right: 1px solid var(--border);
+  /* border-right: 1px solid var(--border); */ 
 
   @media (max-width: 1024px) {
     border-right: none;
@@ -155,7 +155,7 @@
 
 #spacer {
   height: 88px;
-  border-top: 1px solid var(--border);
+  /* border-top: 1px solid var(--border); */ 
   @media (max-width: 1024px) {
     height: 48px;
   }
@@ -181,4 +181,20 @@
     right: 0;
     border-right-color: var(--border);
   }
+}
+
+body {
+  background-image: url('./assets/background.png');
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed; 
+  background-position: center;
+}
+
+/* In your App.css where you added the background */
+html, body {
+  background-image: url('./assets/background.png');
+  background-size: cover;
+  background-attachment: fixed;
+  background-position: center;
 }
