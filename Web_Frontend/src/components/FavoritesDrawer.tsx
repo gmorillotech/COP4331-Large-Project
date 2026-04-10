@@ -1,5 +1,7 @@
-import { useState} from 'react';
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { MapLocation } from '../types/mapAnnotations';
+import { formatLocationHeading } from '../lib/mapUtils';
 import './FavoritesDrawer.css';
 
 type FavoritesDrawerProps = {
@@ -7,41 +9,44 @@ type FavoritesDrawerProps = {
   isFavorite: (id: string) => boolean;
   onToggleFavorite: (id: string) => void;
   onSelectLocation?: (id: string) => void;
+  // External control — when provided the drawer is fully controlled from outside
+  isOpen?: boolean;
+  onClose?: () => void;
 };
 
-function FavoritesDrawer({ locations, isFavorite, onToggleFavorite, onSelectLocation }: FavoritesDrawerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function FavoritesDrawer({
+  locations,
+  isFavorite,
+  onToggleFavorite,
+  onSelectLocation,
+  isOpen: externalOpen,
+  onClose: externalClose,
+}: FavoritesDrawerProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  // If external props are provided, use them; otherwise manage state internally
+  const controlled = externalOpen !== undefined;
+  const isOpen  = controlled ? (externalOpen ?? false) : internalOpen;
+  const onClose = controlled ? (externalClose ?? (() => {})) : () => setInternalOpen(false);
 
   const favoriteLocations = locations.filter((loc) => isFavorite(loc.id));
 
-  return (
+  // Portal to document.body so no ancestor overflow:hidden / transform can clip it
+  return createPortal(
     <>
-      {/* Floating toggle button */}
-      <button
-        type="button"
-        className="favorites-toggle-btn"
-        onClick={() => setIsOpen(true)}
-        aria-label="Open favorites"
-      >
-        ♥
-        {favoriteLocations.length > 0 && (
-          <span className="favorites-toggle-btn__count">{favoriteLocations.length}</span>
-        )}
-      </button>
-
       {/* Overlay */}
       {isOpen && (
-        <div className="favorites-overlay" onClick={() => setIsOpen(false)} />
+        <div className="favorites-overlay" onClick={onClose} />
       )}
 
-      {/* Drawer */}
+      {/* Drawer — slides from the RIGHT */}
       <div className={`favorites-drawer ${isOpen ? 'open' : ''}`}>
         <div className="favorites-drawer__header">
           <h2>My Favorites</h2>
           <button
             type="button"
             className="favorites-drawer__close"
-            onClick={() => setIsOpen(false)}
+            onClick={onClose}
           >
             ✕
           </button>
@@ -62,12 +67,12 @@ function FavoritesDrawer({ locations, isFavorite, onToggleFavorite, onSelectLoca
                     className="favorites-drawer__item-info"
                     onClick={() => {
                       onSelectLocation?.(loc.id);
-                      setIsOpen(false);
+                      onClose();
                     }}
                   >
-                    <strong>{loc.buildingName ?? loc.title}</strong>
+                    <strong>{formatLocationHeading(loc)}</strong>
                     {loc.sublocationLabel && (
-                      <span>{loc.sublocationLabel}</span>
+                      <span className="favorites-drawer__sub">{loc.sublocationLabel}</span>
                     )}
                     {loc.noiseText && (
                       <span className="favorites-drawer__noise">{loc.noiseText}</span>
@@ -87,7 +92,8 @@ function FavoritesDrawer({ locations, isFavorite, onToggleFavorite, onSelectLoca
           )}
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 

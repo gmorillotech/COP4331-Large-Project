@@ -6,21 +6,21 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background-color: #007bff;
+  background-color: #0C1A49;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 10px rgba(0, 123, 255, 0.35);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
   z-index: 1000;
 }
 
 .profile-icon-btn:hover {
-  background-color: #0056b3;
+  background-color: #091232;
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 123, 255, 0.45);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .profile-initials {
@@ -34,7 +34,7 @@
 .profile-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.35);
   z-index: 1001;
   animation: fadeIn 0.2s ease;
 }
@@ -51,8 +51,8 @@
   right: -380px;
   width: 360px;
   height: 100vh;
-  background-color: #ffffff;
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.12);
+  background-color: #0C1A49;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
   z-index: 1002;
   transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
@@ -70,7 +70,8 @@
   align-items: center;
   gap: 14px;
   padding: 24px 20px 20px;
-  background-color: #007bff;
+  background-color: #0C1A49;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   position: relative;
 }
 
@@ -78,12 +79,12 @@
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.25);
+  background-color: rgba(255, 255, 255, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 2px solid rgba(255, 255, 255, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.4);
 }
 
 .profile-avatar-large span {
@@ -109,7 +110,7 @@
 }
 
 .profile-header-info p {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 0.82em;
   margin: 0;
 }
@@ -117,7 +118,7 @@
 .profile-close-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.8);
   font-size: 1.1em;
   cursor: pointer;
   padding: 4px 6px;
@@ -127,7 +128,7 @@
 }
 
 .profile-close-btn:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.15);
   color: white;
 }
 
@@ -140,15 +141,15 @@
 }
 
 .profile-message.success {
-  background-color: #e8f5e9;
-  color: #2e7d32;
-  border-bottom: 1px solid #c8e6c9;
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  border-bottom: 1px solid rgba(34, 197, 94, 0.25);
 }
 
 .profile-message.error {
-  background-color: #ffebee;
-  color: #c62828;
-  border-bottom: 1px solid #ffcdd2;
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
 }
 
 /* ── PANEL BODY ──────────────────────────────────────── */
@@ -159,12 +160,13 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  background-color: #0C1A49;
 }
 
 /* ── PROFILE SECTIONS ────────────────────────────────── */
 .profile-section {
   padding: 14px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .profile-section:last-child {
@@ -177,7 +179,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #999;
+  color: rgba(255, 255, 255, 0.5);
   margin-bottom: 5px;
 }
 
@@ -190,31 +192,39 @@
 
 .profile-value {
   font-size: 0.95em;
-  color: #333;
+  color: white;
   word-break: break-word;
   flex: 1;
 }
 
+.profile-value1 {
+  font-size: 0.95em;
+  color: white;
+  word-break: break-word;
+  flex: 1;
+  margin-left: 60px;
+}
+
 .profile-edit-btn {
   background: none;
-  border: 1px solid #007bff;
-  color: #007bff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 0.78em;
   font-weight: 600;
   padding: 4px 12px;
   border-radius: 20px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .profile-edit-btn:hover {
-  background-color: #007bff;
-  color: white;
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.7);
 }
 
 .profile-edit-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -222,7 +232,7 @@
 .profile-back-btn {
   background: none;
   border: none;
-  color: #007bff;
+  color: rgba(255, 255, 255, 0.8);
   font-size: 0.88em;
   cursor: pointer;
   padding: 0;
@@ -232,19 +242,20 @@
 }
 
 .profile-back-btn:hover {
+  color: white;
   text-decoration: underline;
 }
 
 .profile-edit-title {
   font-size: 1.05em;
   font-weight: 700;
-  color: #222;
+  color: white;
   margin: 0 0 8px;
 }
 
 .profile-edit-info {
   font-size: 0.83em;
-  color: #777;
+  color: rgba(255, 255, 255, 0.6);
   margin: 0 0 16px;
   line-height: 1.5;
 }
@@ -252,26 +263,32 @@
 .profile-input {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 10px;
   font-size: 0.95em;
   outline: none;
   box-sizing: border-box;
   margin-bottom: 14px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.profile-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .profile-input:focus {
-  border-color: #007bff;
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
 .profile-save-btn {
   width: 100%;
   padding: 11px;
-  background-color: #007bff;
+  background-color: rgba(255, 255, 255, 0.15);
   color: white;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 10px;
   font-size: 0.95em;
   font-weight: 700;
@@ -280,20 +297,20 @@
 }
 
 .profile-save-btn:hover {
-  background-color: #0056b3;
+  background-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
 }
 
 .profile-save-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
 }
 
 /* ── INFO BOX (password reset sent) ─────────────────── */
 .profile-info-box {
-  background-color: #e8f4fd;
-  border: 1px solid #b3d9f7;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   padding: 20px;
   text-align: center;
@@ -303,26 +320,23 @@
 .profile-info-icon {
   display: block;
   font-size: 1.8em;
-  color: #007bff;
+  color: rgba(255, 255, 255, 0.8);
   margin-bottom: 10px;
 }
 
 .profile-info-box p {
   font-size: 0.88em;
-  color: #333;
+  color: rgba(255, 255, 255, 0.8);
   line-height: 1.6;
   margin: 0;
 }
 
 /* ── FIELD VALIDATION WRAPPERS ───────────────────────── */
-
-/* Wraps a single field + its error message + its rules list */
 .field-wrap {
   width: 100%;
   margin-bottom: 0;
 }
 
-/* Password field + eye icon side-by-side */
 .password-input-wrap {
   position: relative;
   display: flex;
@@ -331,18 +345,17 @@
 }
 
 .password-input-wrap .profile-input {
-  padding-right: 42px; /* make room for eye icon */
+  padding-right: 42px;
   margin-bottom: 0;
 }
 
-/* Eye toggle button */
 .eye-toggle {
   position: absolute;
   right: 10px;
   background: none;
   border: none;
   cursor: pointer;
-  color: #888;
+  color: rgba(255, 255, 255, 0.5);
   display: flex;
   align-items: center;
   padding: 0;
@@ -351,32 +364,29 @@
 }
 
 .eye-toggle:hover {
-  color: #333;
+  color: white;
 }
 
-/* Red border on invalid field */
 .profile-input.input-error {
-  border-color: #e53e3e !important;
-  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.2) !important;
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25) !important;
 }
 
-/* Inline error text below a field */
 .field-error-msg {
-  color: #e53e3e;
+  color: #f87171;
   font-size: 0.78em;
   margin: 3px 0 4px;
   padding: 0;
   line-height: 1.4;
 }
 
-/* Live rules checklist */
 .field-rules {
   list-style: none;
   padding: 6px 10px;
   margin: 2px 0 10px;
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.07);
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   font-size: 0.78em;
   line-height: 1.7;
 }
@@ -386,10 +396,10 @@
 }
 
 .rule-ok {
-  color: #22863a;
+  color: #86efac;
   font-weight: 600;
 }
 
 .rule-pending {
-  color: #888;
+  color: rgba(255, 255, 255, 0.5);
 }
