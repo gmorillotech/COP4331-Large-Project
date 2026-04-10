@@ -1036,10 +1036,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
     unawaited(_runSearch());
   }
 
-  void _setRadius(double value) {
-    setState(() => _maxRadiusMeters = value);
-  }
-
   void _onNoiseChanged() {
     setState(() {
       _minNoise = double.tryParse(_noiseMinController.text.trim());
@@ -1244,7 +1240,6 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selected = _selected;
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7FB),
       appBar: AppBar(
@@ -1304,464 +1299,634 @@ class _MapSearchPageState extends State<MapSearchPage> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final topPanelHeight = math.min(
-              360.0,
-              math.max(260.0, constraints.maxHeight * 0.36),
-            );
-            return Column(
-              children: [
-                SizedBox(
-                  height: topPanelHeight,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Search from the current map center',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Backend search supports ordered sorting, numeric noise bounds, occupancy caps, distance limits, and result visibility toggles.',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: const Color(0xFF486581)),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _searchController,
-                          onChanged: (value) {
-                            setState(() {});
-                            _onSearch(value);
-                          },
-                          decoration: InputDecoration(
-                            hintText: 'Search Library or Quiet Study',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: _searchController.text.isEmpty
-                                ? null
-                                : IconButton(
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() {});
-                                      _onSearch('');
-                                    },
-                                    icon: const Icon(Icons.close),
-                                  ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(20),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(color: const Color(0xFFD8E1EB)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _sectionLabel('Sort Order'),
-                              const SizedBox(height: 8),
-                              _sortDropdown('1st by', 0),
-                              const SizedBox(height: 8),
-                              _sortDropdown('2nd by', 1),
-                              const SizedBox(height: 8),
-                              _sortDropdown('3rd by', 2),
-                              const SizedBox(height: 14),
-                              _sectionLabel('Distance'),
-                              Slider(
-                                value: _maxRadiusMeters,
-                                min: 100,
-                                max: 500,
-                                divisions: 8,
-                                label: '${_maxRadiusMeters.round()} m',
-                                onChanged: (value) =>
-                                    setState(() => _maxRadiusMeters = value),
-                                onChangeEnd: _setRadius,
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  'Up to ${_maxRadiusMeters.round()} m',
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: const Color(0xFF486581),
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              _sectionLabel('Noise (dB)'),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _numberField(
-                                      controller: _noiseMinController,
-                                      label: 'Min',
-                                      onChanged: (_) => _onNoiseChanged(),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _numberField(
-                                      controller: _noiseMaxController,
-                                      label: 'Max',
-                                      onChanged: (_) => _onNoiseChanged(),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              _sectionLabel('Max Occupancy'),
-                              const SizedBox(height: 8),
-                              _numberField(
-                                controller: _occupancyMaxController,
-                                label: '0.0 to 5.0',
-                                onChanged: _onOccupancyChanged,
-                              ),
-                              const SizedBox(height: 14),
-                              _sectionLabel('Show'),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 6,
-                                children: [
-                                  _showCheckbox(
-                                    label: 'All results',
-                                    value: _showAllResults,
-                                    onChanged: (value) =>
-                                        _toggleShowAll(value ?? false),
-                                  ),
-                                  _showCheckbox(
-                                    label: 'Buildings',
-                                    value: _showBuildings,
-                                    onChanged: (value) => _toggleShowItem(
-                                      value: value ?? false,
-                                      assign: (next) => _showBuildings = next,
-                                    ),
-                                  ),
-                                  _showCheckbox(
-                                    label: 'Spots',
-                                    value: _showSpots,
-                                    onChanged: (value) => _toggleShowItem(
-                                      value: value ?? false,
-                                      assign: (next) => _showSpots = next,
-                                    ),
-                                  ),
-                                  _showCheckbox(
-                                    label: 'Users',
-                                    value: _showUsers,
-                                    onChanged: (value) => _toggleShowItem(
-                                      value: value ?? false,
-                                      assign: (next) => _showUsers = next,
-                                    ),
-                                  ),
-                                ],
-                              ),
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildMapStack(context)),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: SafeArea(
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 4,
+                child: IconButton(
+                  tooltip: 'Search & filters',
+                  icon: const Icon(Icons.search, color: Color(0xFF102A43)),
+                  onPressed: _openSearchSheet,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapStack(BuildContext context) {
+    final visibleNodes = _visibleNodes;
+    final selected = _selected;
+    return Stack(
+      children: [
+        RepaintBoundary(
+          key: _mapViewportKey,
+          child: GoogleMap(
+            initialCameraPosition: _defaultCamera,
+            markers: const <Marker>{},
+            myLocationButtonEnabled: false,
+            mapToolbarEnabled: false,
+            zoomControlsEnabled: false,
+            onMapCreated: (controller) {
+              _mapController = controller;
+              _scheduleProjectionRefresh();
+            },
+            onCameraMove: _onCameraMove,
+            onCameraIdle: () {
+              _scheduleProjectionRefresh();
+              unawaited(_runSearch());
+            },
+            onTap: (_) => setState(() {
+              _selectedId = null;
+              _detailsExpanded = false;
+            }),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Stack(
+              children: visibleNodes
+                  .map((node) {
+                    final point = _screenPoints[node.id];
+                    if (point == null) return const SizedBox.shrink();
+                    final size = _heatSize(node, _zoom);
+                    final heat = _heatColor(node);
+                    return Positioned(
+                      left: point.dx - (size / 2),
+                      top: point.dy - (size / 2),
+                      width: size,
+                      height: size,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              heat.withValues(alpha: 0.34),
+                              heat.withValues(alpha: 0.2),
+                              heat.withValues(alpha: 0.08),
+                              Colors.transparent,
                             ],
+                            stops: const [0.0, 0.28, 0.58, 1.0],
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: heat.withValues(alpha: 0.2),
+                              blurRadius: 28,
+                              spreadRadius: 8,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '$_status ${_favoriteIds.isEmpty ? '' : '| ${_favoriteIds.length} favorite${_favoriteIds.length == 1 ? '' : 's'} saved'}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: const Color(0xFF64748B)),
+                      ),
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Stack(
+            children: visibleNodes
+                .map((node) {
+                  final point = _screenPoints[node.id];
+                  if (point == null) return const SizedBox.shrink();
+                  return _overlayMarker(node, point);
+                })
+                .toList(growable: false),
+          ),
+        ),
+        if (_loading)
+          const ColoredBox(
+            color: Color(0x55FFFFFF),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        if (selected != null)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              child: _detailCard(context, selected),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _openSearchSheet() async {
+    final theme = Theme.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final maxSheetHeight =
+            MediaQuery.of(sheetContext).size.height * 0.9;
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            void refresh(VoidCallback fn) {
+              setState(fn);
+              setSheetState(() {});
+            }
+
+            Future<void> handleCardTap(MapNode node) async {
+              Navigator.of(sheetContext).pop();
+              await _focusNode(node);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFDFDFD),
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 26,
+                          offset: Offset(0, 14),
                         ),
                       ],
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(28),
-                      child: Stack(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          RepaintBoundary(
-                            key: _mapViewportKey,
-                            child: GoogleMap(
-                              initialCameraPosition: _defaultCamera,
-                              markers: const <Marker>{},
-                              myLocationButtonEnabled: false,
-                              mapToolbarEnabled: false,
-                              zoomControlsEnabled: false,
-                              onMapCreated: (controller) {
-                                _mapController = controller;
-                                _scheduleProjectionRefresh();
-                              },
-                              onCameraMove: _onCameraMove,
-                              onCameraIdle: () {
-                                _scheduleProjectionRefresh();
-                                unawaited(_runSearch());
-                              },
-                              onTap: (_) => setState(() {
-                                _selectedId = null;
-                                _detailsExpanded = false;
-                              }),
-                            ),
+                          Row(
+                            children: [
+                              Text(
+                                'Search',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF102A43),
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                tooltip: 'Close search',
+                                onPressed: () =>
+                                    Navigator.of(sheetContext).pop(),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ],
                           ),
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: Stack(
-                                children: _visibleNodes
-                                    .map((node) {
-                                      final point = _screenPoints[node.id];
-                                      if (point == null)
-                                        return const SizedBox.shrink();
-                                      final size = _heatSize(node, _zoom);
-                                      return Positioned(
-                                        left: point.dx - (size / 2),
-                                        top: point.dy - (size / 2),
-                                        width: size,
-                                        height: size,
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            gradient: RadialGradient(
-                                              colors: [
-                                                _heatColor(
-                                                  node,
-                                                ).withValues(alpha: 0.34),
-                                                _heatColor(
-                                                  node,
-                                                ).withValues(alpha: 0.2),
-                                                _heatColor(
-                                                  node,
-                                                ).withValues(alpha: 0.08),
-                                                Colors.transparent,
-                                              ],
-                                              stops: const [
-                                                0.0,
-                                                0.28,
-                                                0.58,
-                                                1.0,
-                                              ],
+                          const SizedBox(height: 8),
+                          Flexible(
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  TextField(
+                                    controller: _searchController,
+                                    onChanged: (value) {
+                                      setSheetState(() {});
+                                      _onSearch(value);
+                                    },
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'Search Library or Quiet Study',
+                                      prefixIcon: const Icon(Icons.search),
+                                      suffixIcon:
+                                          _searchController.text.isEmpty
+                                          ? null
+                                          : IconButton(
+                                              onPressed: () {
+                                                _searchController.clear();
+                                                setSheetState(() {});
+                                                _onSearch('');
+                                              },
+                                              icon: const Icon(Icons.close),
                                             ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: _heatColor(
-                                                  node,
-                                                ).withValues(alpha: 0.2),
-                                                blurRadius: 28,
-                                                spreadRadius: 8,
-                                              ),
-                                            ],
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(20),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(22),
+                                      border: Border.all(
+                                        color: const Color(0xFFD8E1EB),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _sectionLabel('Sort Order'),
+                                        const SizedBox(height: 8),
+                                        _sortDropdown('1st by', 0),
+                                        const SizedBox(height: 8),
+                                        _sortDropdown('2nd by', 1),
+                                        const SizedBox(height: 8),
+                                        _sortDropdown('3rd by', 2),
+                                        const SizedBox(height: 14),
+                                        _sectionLabel('Distance'),
+                                        Slider(
+                                          value: _maxRadiusMeters,
+                                          min: 100,
+                                          max: _maxRadiusMetersCeiling,
+                                          divisions: 8,
+                                          label:
+                                              '${_maxRadiusMeters.round()} m',
+                                          onChanged: (value) => refresh(
+                                            () => _maxRadiusMeters = value,
                                           ),
                                         ),
-                                      );
-                                    })
-                                    .toList(growable: false),
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text(
+                                            'Up to ${_maxRadiusMeters.round()} m',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: const Color(
+                                                    0xFF486581,
+                                                  ),
+                                                ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _sectionLabel('Noise (dB)'),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: _numberField(
+                                                controller:
+                                                    _noiseMinController,
+                                                label: 'Min',
+                                                onChanged: (_) =>
+                                                    _onNoiseChanged(),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: _numberField(
+                                                controller:
+                                                    _noiseMaxController,
+                                                label: 'Max',
+                                                onChanged: (_) =>
+                                                    _onNoiseChanged(),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _sectionLabel('Max Occupancy'),
+                                        const SizedBox(height: 8),
+                                        _numberField(
+                                          controller: _occupancyMaxController,
+                                          label: '0.0 to 5.0',
+                                          onChanged: _onOccupancyChanged,
+                                        ),
+                                        const SizedBox(height: 14),
+                                        _sectionLabel('Show'),
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 10,
+                                          runSpacing: 6,
+                                          children: [
+                                            _showCheckbox(
+                                              label: 'All results',
+                                              value: _showAllResults,
+                                              onChanged: (value) {
+                                                _toggleShowAll(value ?? false);
+                                                setSheetState(() {});
+                                              },
+                                            ),
+                                            _showCheckbox(
+                                              label: 'Buildings',
+                                              value: _showBuildings,
+                                              onChanged: (value) {
+                                                _toggleShowItem(
+                                                  value: value ?? false,
+                                                  assign: (next) =>
+                                                      _showBuildings = next,
+                                                );
+                                                setSheetState(() {});
+                                              },
+                                            ),
+                                            _showCheckbox(
+                                              label: 'Spots',
+                                              value: _showSpots,
+                                              onChanged: (value) {
+                                                _toggleShowItem(
+                                                  value: value ?? false,
+                                                  assign: (next) =>
+                                                      _showSpots = next,
+                                                );
+                                                setSheetState(() {});
+                                              },
+                                            ),
+                                            _showCheckbox(
+                                              label: 'Users',
+                                              value: _showUsers,
+                                              onChanged: (value) {
+                                                _toggleShowItem(
+                                                  value: value ?? false,
+                                                  assign: (next) =>
+                                                      _showUsers = next,
+                                                );
+                                                setSheetState(() {});
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    '$_status ${_favoriteIds.isEmpty ? '' : '| ${_favoriteIds.length} favorite${_favoriteIds.length == 1 ? '' : 's'} saved'}',
+                                    style: theme.textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: const Color(0xFF64748B),
+                                        ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    height: 210,
+                                    child: _loading
+                                        ? const Center(
+                                            child: CircularProgressIndicator(),
+                                          )
+                                        : _results.isEmpty
+                                        ? Center(
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.all(24),
+                                              child: Text(
+                                                _query.isEmpty
+                                                    ? 'No study spots in this area yet. Pan the map to explore.'
+                                                    : 'No building or location matches your search and filters.',
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                          )
+                                        : ListView.separated(
+                                            padding:
+                                                const EdgeInsets.fromLTRB(
+                                                  4,
+                                                  4,
+                                                  4,
+                                                  8,
+                                                ),
+                                            scrollDirection: Axis.horizontal,
+                                            itemCount: _results.length,
+                                            separatorBuilder: (_, _) =>
+                                                const SizedBox(width: 12),
+                                            itemBuilder: (context, index) {
+                                              final node = _results[index];
+                                              final selectedNode =
+                                                  node.id == _selectedId;
+                                              final favoriteCount =
+                                                  _favoriteCountForNode(node);
+                                              final isFavorite =
+                                                  _isFavoriteNode(node);
+                                              return SizedBox(
+                                                width: 300,
+                                                child: Material(
+                                                  color: selectedNode
+                                                      ? node.color.withValues(
+                                                          alpha: 0.14,
+                                                        )
+                                                      : Colors.white,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        22,
+                                                      ),
+                                                  child: InkWell(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          22,
+                                                        ),
+                                                    onTap: () =>
+                                                        handleCardTap(node),
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            16,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              22,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: selectedNode
+                                                              ? node.color
+                                                              : const Color(
+                                                                  0xFFD5DEEA,
+                                                                ),
+                                                        ),
+                                                      ),
+                                                      child: Row(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Column(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              CircleAvatar(
+                                                                backgroundColor:
+                                                                    node.color,
+                                                                foregroundColor:
+                                                                    Colors
+                                                                        .white,
+                                                                child: Text(
+                                                                  node.badge,
+                                                                ),
+                                                              ),
+                                                              if (isFavorite) ...[
+                                                                const SizedBox(
+                                                                  height: 8,
+                                                                ),
+                                                                const Icon(
+                                                                  Icons
+                                                                      .favorite_rounded,
+                                                                  size: 18,
+                                                                  color: Color(
+                                                                    0xFFB45309,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ],
+                                                          ),
+                                                          const SizedBox(
+                                                            width: 12,
+                                                          ),
+                                                          Expanded(
+                                                            child: Column(
+                                                              crossAxisAlignment:
+                                                                  CrossAxisAlignment
+                                                                      .start,
+                                                              children: [
+                                                                Row(
+                                                                  children: [
+                                                                    Expanded(
+                                                                      child: Text(
+                                                                        _title(
+                                                                          node,
+                                                                        ),
+                                                                        maxLines:
+                                                                            2,
+                                                                        overflow:
+                                                                            TextOverflow.ellipsis,
+                                                                        style: const TextStyle(
+                                                                          fontWeight:
+                                                                              FontWeight.w700,
+                                                                          color: Color(
+                                                                            0xFF102A43,
+                                                                          ),
+                                                                        ),
+                                                                      ),
+                                                                    ),
+                                                                    const SizedBox(
+                                                                      width: 8,
+                                                                    ),
+                                                                    _pill(
+                                                                      node.isGroup
+                                                                          ? 'Building'
+                                                                          : 'Spot',
+                                                                    ),
+                                                                  ],
+                                                                ),
+                                                                const SizedBox(
+                                                                  height: 6,
+                                                                ),
+                                                                Text(
+                                                                  node.isGroup
+                                                                      ? '${node.locationCount} study areas'
+                                                                      : (node.sublocationLabel ??
+                                                                            ''),
+                                                                  maxLines: 1,
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                  style: const TextStyle(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                    color: Color(
+                                                                      0xFF0F766E,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                                const SizedBox(
+                                                                  height: 6,
+                                                                ),
+                                                                Text(
+                                                                  node.summary,
+                                                                  maxLines: 3,
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
+                                                                  style: const TextStyle(
+                                                                    color: Color(
+                                                                      0xFF486581,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                                if (node.isGroup &&
+                                                                    favoriteCount >
+                                                                        0) ...[
+                                                                  const SizedBox(
+                                                                    height: 10,
+                                                                  ),
+                                                                  Text(
+                                                                    '$favoriteCount saved spot${favoriteCount == 1 ? '' : 's'} in this building',
+                                                                    style: const TextStyle(
+                                                                      color: Color(
+                                                                        0xFFB45309,
+                                                                      ),
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ],
+                                                            ),
+                                                          ),
+                                                          if (!node.isGroup)
+                                                            IconButton(
+                                                              tooltip:
+                                                                  isFavorite
+                                                                  ? 'Remove from favorites'
+                                                                  : 'Add to favorites',
+                                                              onPressed:
+                                                                  _savingFavorites
+                                                                  ? null
+                                                                  : () async {
+                                                                      await _toggleFavorite(
+                                                                        node,
+                                                                      );
+                                                                      setSheetState(
+                                                                        () {},
+                                                                      );
+                                                                    },
+                                                              icon: Icon(
+                                                                isFavorite
+                                                                    ? Icons
+                                                                          .favorite_rounded
+                                                                    : Icons
+                                                                          .favorite_border_rounded,
+                                                                color:
+                                                                    isFavorite
+                                                                    ? const Color(
+                                                                        0xFFB91C1C,
+                                                                      )
+                                                                    : const Color(
+                                                                        0xFF64748B,
+                                                                      ),
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                          Positioned.fill(
-                            child: Stack(
-                              children: _visibleNodes
-                                  .map((node) {
-                                    final point = _screenPoints[node.id];
-                                    if (point == null)
-                                      return const SizedBox.shrink();
-                                    return _overlayMarker(node, point);
-                                  })
-                                  .toList(growable: false),
-                            ),
-                          ),
-                          if (_loading)
-                            const ColoredBox(
-                              color: Color(0x55FFFFFF),
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                          if (selected != null)
-                            Align(
-                              alignment: Alignment.bottomCenter,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: _detailCard(context, selected),
-                              ),
-                            ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                SizedBox(
-                  height: 210,
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _results.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              _query.isEmpty
-                                  ? 'No map results match this filter.'
-                                  : 'No building or location matches your search and filters.',
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                          scrollDirection: Axis.horizontal,
-                          itemCount: _results.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final node = _results[index];
-                            final selectedNode = node.id == _selectedId;
-                            final favoriteCount = _favoriteCountForNode(node);
-                            final isFavorite = _isFavoriteNode(node);
-                            return SizedBox(
-                              width: 300,
-                              child: Material(
-                                color: selectedNode
-                                    ? node.color.withValues(alpha: 0.14)
-                                    : Colors.white,
-                                borderRadius: BorderRadius.circular(22),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(22),
-                                  onTap: () => _focusNode(node),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: selectedNode
-                                            ? node.color
-                                            : const Color(0xFFD5DEEA),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            CircleAvatar(
-                                              backgroundColor: node.color,
-                                              foregroundColor: Colors.white,
-                                              child: Text(node.badge),
-                                            ),
-                                            if (isFavorite) ...[
-                                              const SizedBox(height: 8),
-                                              const Icon(
-                                                Icons.favorite_rounded,
-                                                size: 18,
-                                                color: Color(0xFFB45309),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      _title(node),
-                                                      maxLines: 2,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        color: Color(
-                                                          0xFF102A43,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  _pill(
-                                                    node.isGroup
-                                                        ? 'Building'
-                                                        : 'Spot',
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                node.isGroup
-                                                    ? '${node.locationCount} study areas'
-                                                    : (node.sublocationLabel ??
-                                                          ''),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Color(0xFF0F766E),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                node.summary,
-                                                maxLines: 3,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Color(0xFF486581),
-                                                ),
-                                              ),
-                                              if (node.isGroup &&
-                                                  favoriteCount > 0) ...[
-                                                const SizedBox(height: 10),
-                                                Text(
-                                                  '$favoriteCount saved spot${favoriteCount == 1 ? '' : 's'} in this building',
-                                                  style: const TextStyle(
-                                                    color: Color(0xFFB45309),
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                        if (!node.isGroup)
-                                          IconButton(
-                                            tooltip: isFavorite
-                                                ? 'Remove from favorites'
-                                                : 'Add to favorites',
-                                            onPressed: _savingFavorites
-                                                ? null
-                                                : () => _toggleFavorite(node),
-                                            icon: Icon(
-                                              isFavorite
-                                                  ? Icons.favorite_rounded
-                                                  : Icons
-                                                        .favorite_border_rounded,
-                                              color: isFavorite
-                                                  ? const Color(0xFFB91C1C)
-                                                  : const Color(0xFF64748B),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+              ),
             );
           },
-        ),
-      ),
+        );
+      },
     );
   }
 
