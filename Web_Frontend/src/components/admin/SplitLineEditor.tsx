@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useMap, AdvancedMarker } from '@vis.gl/react-google-maps';
-import { snapToVertex } from '../../lib/adminGeometry.ts';
+import {
+  snapToPolygonBoundary,
+  isPointOnPolygonEdge,
+  pointInPolygon,
+  canAddSplitPoint,
+} from '../../lib/adminGeometry.ts';
 import './RedrawMerge.css';
 
 type Vertex = { latitude: number; longitude: number };
@@ -45,11 +50,11 @@ function SplitLineEditor({
   onSplitLineChangeRef.current = onSplitLineChange;
 
   // Determine whether the split line is "complete" — starts and ends on
-  // different parent vertices.
+  // different points of the parent polygon boundary.
   const isComplete =
     splitLine.length >= 2 &&
-    snapToVertex(splitLine[0], parentVertices) !== null &&
-    snapToVertex(splitLine[splitLine.length - 1], parentVertices) !== null &&
+    isPointOnPolygonEdge(splitLine[0], parentVertices) &&
+    isPointOnPolygonEdge(splitLine[splitLine.length - 1], parentVertices) &&
     !verticesEqual(splitLine[0], splitLine[splitLine.length - 1]);
 
   // ── Parent polygon (read-only) ──────────────────────────────────────
@@ -158,6 +163,8 @@ function SplitLineEditor({
   }, [map, childB]);
 
   // ── Map click handler — build split line ────────────────────────────
+  // Enforces: only boundary snaps for start/end, interior must be inside
+  // parent, no self-intersection, no parent boundary crossing.
   useEffect(() => {
     if (!map) return;
 
@@ -171,35 +178,38 @@ function SplitLineEditor({
 
       const currentLine = splitLineRef.current;
       const parent = parentVerticesRef.current;
-      const snapped = snapToVertex(clicked, parent);
+
+      // If line is already complete, ignore all clicks
+      if (
+        currentLine.length >= 2 &&
+        isPointOnPolygonEdge(currentLine[0], parent) &&
+        isPointOnPolygonEdge(currentLine[currentLine.length - 1], parent) &&
+        !verticesEqual(currentLine[0], currentLine[currentLine.length - 1])
+      ) {
+        return;
+      }
+
+      const snapped = snapToPolygonBoundary(clicked, parent);
 
       if (currentLine.length === 0) {
-        // First point must snap to a parent vertex
+        // First point must snap to polygon boundary (vertex or edge)
         if (!snapped) return;
         onSplitLineChangeRef.current([snapped]);
         return;
       }
 
-      // Line already started — check if this click should finalize
+      // Line started — try to finalize if click snaps to boundary
       if (snapped) {
-        // Only finalize if snapped vertex differs from the first point
-        if (!verticesEqual(snapped, currentLine[0])) {
-          onSplitLineChangeRef.current([...currentLine, snapped]);
-          return;
-        }
-        // Snapped to same vertex as start — ignore
+        if (verticesEqual(snapped, currentLine[0])) return; // Same as start
+        if (!canAddSplitPoint(currentLine, snapped, parent)) return;
+        onSplitLineChangeRef.current([...currentLine, snapped]);
         return;
       }
 
-      // Interior point — only add if line isn't already complete
-      const lineComplete =
-        currentLine.length >= 2 &&
-        snapToVertex(currentLine[0], parent) !== null &&
-        snapToVertex(currentLine[currentLine.length - 1], parent) !== null &&
-        !verticesEqual(currentLine[0], currentLine[currentLine.length - 1]);
-
-      if (lineComplete) return;
-
+      // Interior point — must be inside parent polygon
+      if (!pointInPolygon(clicked, parent)) return;
+      // Must not cause self-intersection or cross parent boundary
+      if (!canAddSplitPoint(currentLine, clicked, parent)) return;
       onSplitLineChangeRef.current([...currentLine, clicked]);
     });
 
@@ -240,9 +250,9 @@ function SplitLineEditor({
   // ── Hint message ────────────────────────────────────────────────────
   let hint = '';
   if (splitLine.length === 0) {
-    hint = 'Click a parent polygon vertex to start the split line.';
+    hint = 'Click the parent polygon boundary to start the split line.';
   } else if (!isComplete) {
-    hint = 'Click to add points, then click another parent vertex to finish.';
+    hint = 'Click inside the polygon to add points, then click the boundary to finish.';
   }
 
   return (

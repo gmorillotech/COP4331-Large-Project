@@ -629,7 +629,41 @@ function unionPolygons(polyA, polyB) {
     keptSegments.set(segmentMapKey(a, b), [a, b]);
   }
 
-  return stitchSegmentsToPolygon([...keptSegments.values()]);
+  const result = stitchSegmentsToPolygon([...keptSegments.values()]);
+  if (result) return result;
+
+  // Fallback for adjacent polygons that share a clean boundary (e.g. after
+  // a split): collect all edges, remove those that appear in both polygons,
+  // and stitch the unique outer edges into the union ring.
+  return unionBySharedEdgeRemoval(ringA, ringB);
+}
+
+function unionBySharedEdgeRemoval(ringA, ringB) {
+  const edgesA = [];
+  for (let i = 0; i < ringA.length - 1; i++) {
+    edgesA.push([ringA[i], ringA[i + 1]]);
+  }
+  const edgesB = [];
+  for (let i = 0; i < ringB.length - 1; i++) {
+    edgesB.push([ringB[i], ringB[i + 1]]);
+  }
+
+  const keysA = new Set(edgesA.map(([a, b]) => segmentMapKey(a, b)));
+  const keysB = new Set(edgesB.map(([a, b]) => segmentMapKey(a, b)));
+
+  const kept = [];
+  for (const edge of edgesA) {
+    if (!keysB.has(segmentMapKey(edge[0], edge[1]))) {
+      kept.push(edge);
+    }
+  }
+  for (const edge of edgesB) {
+    if (!keysA.has(segmentMapKey(edge[0], edge[1]))) {
+      kept.push(edge);
+    }
+  }
+
+  return stitchSegmentsToPolygon(kept);
 }
 
 /**
@@ -667,7 +701,7 @@ function validatePolygon(vertices, otherGroupPolygons, childLocationPoints) {
     // Check overlap with other groups
     if (Array.isArray(otherGroupPolygons)) {
       for (let i = 0; i < otherGroupPolygons.length; i++) {
-        if (polygonsOverlap(ring, otherGroupPolygons[i])) {
+        if (polygonsHaveAreaOverlap(ring, otherGroupPolygons[i])) {
           errors.push(`Polygon overlaps with another group's polygon (index ${i}).`);
           break;
         }
@@ -776,6 +810,54 @@ function bufferPolygon(vertices, meters) {
 }
 
 /**
+ * Project a point onto a line segment and return the closest point on that segment.
+ */
+function closestPointOnSegment(point, a, b) {
+  const dx = b.latitude - a.latitude;
+  const dy = b.longitude - a.longitude;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < EPSILON * EPSILON) return a;
+  let t = ((point.latitude - a.latitude) * dx + (point.longitude - a.longitude) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return {
+    latitude: a.latitude + t * dx,
+    longitude: a.longitude + t * dy,
+  };
+}
+
+function isPointOnSegmentTolerant(point, a, b, epsilon = 1e-7) {
+  const closest = closestPointOnSegment(point, a, b);
+  const dist = Math.sqrt(
+    (point.latitude - closest.latitude) ** 2 +
+    (point.longitude - closest.longitude) ** 2,
+  );
+  return dist < epsilon;
+}
+
+/**
+ * Insert a point into a closed polygon ring. If the point matches an existing
+ * vertex, returns its index. If it lies on an edge, inserts it as a new vertex.
+ * Returns { ring, index } or null if the point is not on the boundary.
+ */
+function insertPointOnPolygonEdge(ring, point, epsilon = 1e-7) {
+  const n = ring.length - 1;
+  for (let i = 0; i < n; i++) {
+    if (pointsEqual(point, ring[i], epsilon)) {
+      return { ring: [...ring], index: i };
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    if (isPointOnSegmentTolerant(point, ring[i], ring[i + 1], epsilon)) {
+      const openVerts = ring.slice(0, -1);
+      const newOpen = [...openVerts.slice(0, i + 1), point, ...openVerts.slice(i + 1)];
+      const closed = isClosedPolygon(newOpen).vertices;
+      return { ring: closed, index: i + 1 };
+    }
+  }
+  return null;
+}
+
+/**
  * Search the open vertices of a closed polygon ring for a vertex matching the
  * given point within epsilon tolerance. Excludes the closing vertex.
  * Returns the index of the matching vertex, or -1 if not found.
@@ -790,36 +872,36 @@ function findVertexIndex(vertex, polygon, epsilon = EPSILON) {
 
 /**
  * Validate that a split polyline is valid for splitting the parent polygon.
- * Returns { valid: boolean, errors: string[], startIndex: number, endIndex: number }.
+ * Endpoints may be on vertices or anywhere along polygon edges.
+ * Returns { valid: boolean, errors: string[] }.
  */
 function validateSplitLine(splitLine, parentPolygon) {
   const errors = [];
-  let startIndex = -1;
-  let endIndex = -1;
 
   if (!Array.isArray(splitLine) || splitLine.length < 2) {
     errors.push("Split line must have at least 2 points.");
-    return { valid: false, errors, startIndex, endIndex };
+    return { valid: false, errors };
   }
 
-  startIndex = findVertexIndex(splitLine[0], parentPolygon);
-  if (startIndex === -1) {
-    errors.push("Split line start point must be a vertex of the parent polygon.");
+  const startOnBoundary = insertPointOnPolygonEdge(parentPolygon, splitLine[0]);
+  if (!startOnBoundary) {
+    errors.push("Split line start point must be on the parent polygon boundary.");
   }
 
-  endIndex = findVertexIndex(splitLine[splitLine.length - 1], parentPolygon);
-  if (endIndex === -1) {
-    errors.push("Split line end point must be a vertex of the parent polygon.");
+  const endOnBoundary = insertPointOnPolygonEdge(parentPolygon, splitLine[splitLine.length - 1]);
+  if (!endOnBoundary) {
+    errors.push("Split line end point must be on the parent polygon boundary.");
   }
 
-  if (startIndex !== -1 && endIndex !== -1 && startIndex === endIndex) {
-    errors.push("Split line start and end must be different polygon vertices.");
+  if (startOnBoundary && endOnBoundary && pointsEqual(splitLine[0], splitLine[splitLine.length - 1], 1e-7)) {
+    errors.push("Split line start and end must be different points.");
   }
 
   if (errors.length > 0) {
-    return { valid: false, errors, startIndex, endIndex };
+    return { valid: false, errors };
   }
 
+  // Self-intersection check
   if (splitLine.length > 2) {
     const numSegs = splitLine.length - 1;
     for (let i = 0; i < numSegs; i++) {
@@ -833,6 +915,7 @@ function validateSplitLine(splitLine, parentPolygon) {
     }
   }
 
+  // Interior points must be inside parent
   for (let i = 1; i < splitLine.length - 1; i++) {
     if (!pointInPolygon(splitLine[i], parentPolygon)) {
       errors.push("All interior points of the split line must be inside the parent polygon.");
@@ -840,8 +923,8 @@ function validateSplitLine(splitLine, parentPolygon) {
     }
   }
 
-  // Split line segments must not cross parent polygon edges except at start/end vertices
-  const n = parentPolygon.length - 1; // number of parent edges
+  // Split line segments must not cross parent edges except at the start/end points
+  const n = parentPolygon.length - 1;
   const numSplitSegs = splitLine.length - 1;
   let hasCrossing = false;
 
@@ -850,49 +933,62 @@ function validateSplitLine(splitLine, parentPolygon) {
       if (!segmentsIntersect(splitLine[si], splitLine[si + 1], parentPolygon[pi], parentPolygon[pi + 1])) {
         continue;
       }
-
-      // Allow intersection if this is the first split segment touching startIndex vertex edges
-      if (si === 0 && (pi === startIndex || pi === ((startIndex - 1 + n) % n))) {
-        continue;
+      // Allow if the crossing point is at the split line's start or end
+      const startOnThisEdge = isPointOnSegmentTolerant(splitLine[0], parentPolygon[pi], parentPolygon[pi + 1]);
+      const endOnThisEdge = isPointOnSegmentTolerant(splitLine[splitLine.length - 1], parentPolygon[pi], parentPolygon[pi + 1]);
+      if (!startOnThisEdge && !endOnThisEdge) {
+        errors.push("Split line must not cross parent polygon edges except at start and end points.");
+        hasCrossing = true;
+        break;
       }
-
-      // Allow intersection if this is the last split segment touching endIndex vertex edges
-      if (si === numSplitSegs - 1 && (pi === endIndex || pi === ((endIndex - 1 + n) % n))) {
-        continue;
-      }
-
-      errors.push("Split line must not cross parent polygon edges except at start and end vertices.");
-      hasCrossing = true;
-      break;
     }
   }
 
-  return { valid: errors.length === 0, errors, startIndex, endIndex };
+  return { valid: errors.length === 0, errors };
 }
 
 /**
- * Given a valid closed parent polygon, split line, and vertex indices,
- * produce two child polygons by walking the polygon arcs and combining
- * with the split line.
+ * Given a valid closed parent polygon and split line, produce two child
+ * polygons. Endpoints may be on vertices or edges — they are inserted
+ * into the ring before walking arcs.
  * Returns [childA, childB].
  */
-function splitPolygonByPolyline(parentPolygon, splitLine, startIndex, endIndex) {
-  const ring = isClosedPolygon(parentPolygon).vertices;
-  const n = ring.length - 1; // open vertex count
+function splitPolygonByPolyline(parentPolygon, splitLine) {
+  let ring = isClosedPolygon(parentPolygon).vertices;
+  const startPoint = splitLine[0];
+  const endPoint = splitLine[splitLine.length - 1];
+
+  const startResult = insertPointOnPolygonEdge(ring, startPoint);
+  if (!startResult) return [null, null];
+  ring = startResult.ring;
+
+  const endResult = insertPointOnPolygonEdge(ring, endPoint);
+  if (!endResult) return [null, null];
+  ring = endResult.ring;
+
+  const n = ring.length - 1;
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let idx = 0; idx < n; idx++) {
+    if (startIdx === -1 && pointsEqual(ring[idx], startPoint, 1e-7)) startIdx = idx;
+    if (endIdx === -1 && pointsEqual(ring[idx], endPoint, 1e-7)) endIdx = idx;
+  }
+
+  if (startIdx === -1 || endIdx === -1 || startIdx === endIdx) return [null, null];
 
   const arcA = [];
-  let i = startIndex;
+  let i = startIdx;
   while (true) {
     arcA.push(ring[i]);
-    if (i === endIndex) break;
+    if (i === endIdx) break;
     i = (i + 1) % n;
   }
 
   const arcB = [];
-  i = endIndex;
+  i = endIdx;
   while (true) {
     arcB.push(ring[i]);
-    if (i === startIndex) break;
+    if (i === startIdx) break;
     i = (i + 1) % n;
   }
 
@@ -967,20 +1063,25 @@ function validateSplitGeometry(parentPolygon, splitLine, otherGroupPolygons, chi
   }
 
   // 5. Split the polygon
-  const children = splitPolygonByPolyline(parentRing, splitLine, splitResult.startIndex, splitResult.endIndex);
+  const children = splitPolygonByPolyline(parentRing, splitLine);
   childA = children[0];
   childB = children[1];
+
+  if (!childA || !childB) {
+    errors.push("Could not derive child polygons from the split line.");
+    return { valid: false, errors, childA, childB, classification };
+  }
 
   // 6. Check each child against other group polygons for overlap
   if (Array.isArray(otherGroupPolygons)) {
     for (let i = 0; i < otherGroupPolygons.length; i++) {
-      if (polygonsOverlap(childA, otherGroupPolygons[i])) {
+      if (polygonsHaveAreaOverlap(childA, otherGroupPolygons[i])) {
         errors.push(`Child polygon A overlaps with another group's polygon (index ${i}).`);
         break;
       }
     }
     for (let i = 0; i < otherGroupPolygons.length; i++) {
-      if (polygonsOverlap(childB, otherGroupPolygons[i])) {
+      if (polygonsHaveAreaOverlap(childB, otherGroupPolygons[i])) {
         errors.push(`Child polygon B overlaps with another group's polygon (index ${i}).`);
         break;
       }
@@ -993,14 +1094,22 @@ function validateSplitGeometry(parentPolygon, splitLine, otherGroupPolygons, chi
     if (classification === null) {
       errors.push("One or more child location points fall outside both child polygons.");
     }
+  } else {
+    classification = { groupA: [], groupB: [] };
   }
 
-  // 8. Check minimum vertices on each child
+  // 8. Check minimum vertices and self-intersection on each child
   if (childA && !hasMinVertices(childA, 3)) {
     errors.push("Child polygon A must have at least 3 distinct vertices.");
   }
   if (childB && !hasMinVertices(childB, 3)) {
     errors.push("Child polygon B must have at least 3 distinct vertices.");
+  }
+  if (childA && hasSelfIntersection(isClosedPolygon(childA).vertices)) {
+    errors.push("Child polygon A self-intersects. The split line may cross the parent boundary.");
+  }
+  if (childB && hasSelfIntersection(isClosedPolygon(childB).vertices)) {
+    errors.push("Child polygon B self-intersects. The split line may cross the parent boundary.");
   }
 
   return { valid: errors.length === 0, errors, childA, childB, classification };

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
+import { APIProvider, Map } from '@vis.gl/react-google-maps';
 import { apiUrl } from '../../config';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAP_ID } from '../../lib/googleMaps.ts';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../lib/adminGeometry.ts';
 import PolygonEditor from '../../components/admin/PolygonEditor.tsx';
 import SplitLineEditor from '../../components/admin/SplitLineEditor.tsx';
+import GroupBoundaryOverlays from '../../components/admin/GroupBoundaryOverlays.tsx';
 import '../../components/admin/RedrawMerge.css';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -91,77 +92,6 @@ function buildDefaultRedrawPolygon(
   return workingPolygon;
 }
 
-// ── GroupBoundaryOverlays — renders all groups on the map ─────────────
-type GroupBoundaryOverlayProps = {
-  groups: LocationGroup[];
-  activeGroupId?: string;
-};
-
-function GroupBoundaryOverlays({ groups, activeGroupId }: GroupBoundaryOverlayProps) {
-  const map = useMap();
-  const overlaysRef = useRef<Array<google.maps.Polygon | google.maps.Circle>>([]);
-
-  useEffect(() => {
-    if (!map) return;
-
-    overlaysRef.current.forEach((overlay) => overlay.setMap(null));
-    overlaysRef.current = [];
-
-    for (const group of groups) {
-      const isActive = group.locationGroupId === activeGroupId;
-      const strokeColor = isActive ? '#f59e0b' : '#64748b';
-      const fillColor = isActive ? '#f59e0b' : '#94a3b8';
-
-      if (group.shapeType === 'polygon' && (group.polygon?.length ?? 0) >= 3) {
-        const polygon = new google.maps.Polygon({
-          map,
-          paths: group.polygon!.map((vertex) => ({
-            lat: vertex.latitude,
-            lng: vertex.longitude,
-          })),
-          clickable: false,
-          editable: false,
-          draggable: false,
-          strokeColor,
-          strokeOpacity: isActive ? 0.8 : 0.55,
-          strokeWeight: isActive ? 3 : 2,
-          fillColor,
-          fillOpacity: isActive ? 0.08 : 0.04,
-          zIndex: isActive ? 2 : 1,
-        });
-        overlaysRef.current.push(polygon);
-        continue;
-      }
-
-      if (
-        group.centerLatitude != null &&
-        group.centerLongitude != null &&
-        group.radiusMeters != null
-      ) {
-        const circle = new google.maps.Circle({
-          map,
-          center: { lat: group.centerLatitude, lng: group.centerLongitude },
-          radius: group.radiusMeters,
-          clickable: false,
-          strokeColor,
-          strokeOpacity: isActive ? 0.8 : 0.55,
-          strokeWeight: isActive ? 3 : 2,
-          fillColor,
-          fillOpacity: isActive ? 0.08 : 0.04,
-          zIndex: isActive ? 2 : 1,
-        });
-        overlaysRef.current.push(circle);
-      }
-    }
-
-    return () => {
-      overlaysRef.current.forEach((overlay) => overlay.setMap(null));
-      overlaysRef.current = [];
-    };
-  }, [map, groups, activeGroupId]);
-
-  return null;
-}
 
 // ── SplitGroupPage ────────────────────────────────────────────────────
 function SplitGroupPage() {

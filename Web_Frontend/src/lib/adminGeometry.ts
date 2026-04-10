@@ -176,6 +176,28 @@ function segmentLengthSquared(a: Vertex, b: Vertex): number {
   return dLat * dLat + dLng * dLng;
 }
 
+function closestPointOnSegment(point: Vertex, a: Vertex, b: Vertex): Vertex {
+  const dx = b.latitude - a.latitude;
+  const dy = b.longitude - a.longitude;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < EPSILON * EPSILON) return a;
+  let t = ((point.latitude - a.latitude) * dx + (point.longitude - a.longitude) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return {
+    latitude: a.latitude + t * dx,
+    longitude: a.longitude + t * dy,
+  };
+}
+
+function isPointOnSegment(point: Vertex, a: Vertex, b: Vertex, epsilon = 1e-6): boolean {
+  const closest = closestPointOnSegment(point, a, b);
+  const dist = Math.sqrt(
+    (point.latitude - closest.latitude) ** 2 +
+    (point.longitude - closest.longitude) ** 2,
+  );
+  return dist < epsilon;
+}
+
 function midpoint(a: Vertex, b: Vertex): Vertex {
   return {
     latitude: (a.latitude + b.latitude) / 2,
@@ -372,6 +394,57 @@ export function polygonFromCircle(
   });
 }
 
+function edgesShareSegment(a1: Vertex, a2: Vertex, b1: Vertex, b2: Vertex): boolean {
+  // Both edges must be collinear (all four orientations are 0)
+  if (
+    orientation(a1, a2, b1) !== 0 ||
+    orientation(a1, a2, b2) !== 0
+  ) {
+    return false;
+  }
+
+  // Project onto the longer axis to find overlap range
+  const dLat = Math.abs(a2.latitude - a1.latitude);
+  const dLng = Math.abs(a2.longitude - a1.longitude);
+  const useLatitude = dLat >= dLng;
+
+  const aMin = useLatitude ? Math.min(a1.latitude, a2.latitude) : Math.min(a1.longitude, a2.longitude);
+  const aMax = useLatitude ? Math.max(a1.latitude, a2.latitude) : Math.max(a1.longitude, a2.longitude);
+  const bMin = useLatitude ? Math.min(b1.latitude, b2.latitude) : Math.min(b1.longitude, b2.longitude);
+  const bMax = useLatitude ? Math.max(b1.latitude, b2.latitude) : Math.max(b1.longitude, b2.longitude);
+
+  const overlapMin = Math.max(aMin, bMin);
+  const overlapMax = Math.min(aMax, bMax);
+
+  // Overlap must be a segment (length > epsilon), not just a point
+  return overlapMax - overlapMin > EPSILON;
+}
+
+export function polygonsAdjacent(polyA: Vertex[], polyB: Vertex[]): boolean {
+  // True area overlap: a vertex of one is strictly inside the other
+  for (const v of polyA) {
+    if (pointInPolygon(v, polyB) && !pointOnPolygonBoundary(v, polyB)) return true;
+  }
+  for (const v of polyB) {
+    if (pointInPolygon(v, polyA) && !pointOnPolygonBoundary(v, polyA)) return true;
+  }
+
+  // Shared edge: two edges that are collinear and overlap along a segment
+  // (not just a single shared vertex)
+  const ringA = closePolygon(polyA);
+  const ringB = closePolygon(polyB);
+
+  for (let i = 0; i < ringA.length - 1; i++) {
+    for (let j = 0; j < ringB.length - 1; j++) {
+      if (edgesShareSegment(ringA[i], ringA[i + 1], ringB[j], ringB[j + 1])) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function findParentVertexIndex(
   point: Vertex,
   polygon: Vertex[],
@@ -404,6 +477,107 @@ export function snapToVertex(
   return bestVertex;
 }
 
+/**
+ * Generate discrete snap nodes along every edge of a polygon.
+ * Includes original vertices plus evenly-spaced intermediate points.
+ */
+function generateEdgeNodes(polygon: Vertex[]): Vertex[] {
+  const ring = closePolygon(polygon);
+  const nodes: Vertex[] = [];
+  const METERS_PER_DEGREE = 111_320;
+  const NODE_SPACING_METERS = 12;
+
+  for (let i = 0; i < ring.length - 1; i++) {
+    nodes.push(ring[i]);
+    const a = ring[i];
+    const b = ring[i + 1];
+    const dLat = b.latitude - a.latitude;
+    const dLng = b.longitude - a.longitude;
+    const edgeLengthMeters = Math.sqrt(dLat * dLat + dLng * dLng) * METERS_PER_DEGREE;
+    const numSegments = Math.max(1, Math.floor(edgeLengthMeters / NODE_SPACING_METERS));
+    for (let j = 1; j < numSegments; j++) {
+      const t = j / numSegments;
+      nodes.push({
+        latitude: a.latitude + t * dLat,
+        longitude: a.longitude + t * dLng,
+      });
+    }
+  }
+
+  return nodes;
+}
+
+/**
+ * Snap a click to the nearest discrete node along the polygon boundary.
+ * Nodes include original vertices plus intermediate points every ~12 meters.
+ */
+export function snapToPolygonBoundary(
+  point: Vertex,
+  polygon: Vertex[],
+  thresholdDeg = 0.0005,
+): Vertex | null {
+  const nodes = generateEdgeNodes(polygon);
+  let bestDist = Infinity;
+  let bestNode: Vertex | null = null;
+
+  for (const node of nodes) {
+    const dist = Math.sqrt(
+      (point.latitude - node.latitude) ** 2 +
+      (point.longitude - node.longitude) ** 2,
+    );
+    if (dist < bestDist && dist < thresholdDeg) {
+      bestDist = dist;
+      bestNode = node;
+    }
+  }
+
+  return bestNode;
+}
+
+export function isPointOnPolygonEdge(
+  point: Vertex,
+  polygon: Vertex[],
+  epsilon = 1e-7,
+): boolean {
+  const ring = closePolygon(polygon);
+  for (let i = 0; i < ring.length - 1; i++) {
+    if (isPointOnSegment(point, ring[i], ring[i + 1], epsilon)) return true;
+  }
+  return false;
+}
+
+export function canAddSplitPoint(
+  currentLine: Vertex[],
+  newPoint: Vertex,
+  parentPolygon: Vertex[],
+): boolean {
+  if (currentLine.length === 0) return true;
+
+  const lastPoint = currentLine[currentLine.length - 1];
+
+  // Self-intersection check
+  if (currentLine.length >= 2) {
+    for (let i = 0; i < currentLine.length - 2; i++) {
+      if (segmentsIntersect(lastPoint, newPoint, currentLine[i], currentLine[i + 1])) {
+        return false;
+      }
+    }
+  }
+
+  // Parent boundary crossing check — the new segment must not cross a parent
+  // edge unless the crossing point is at lastPoint or newPoint (endpoints that
+  // are on the boundary).
+  const ring = closePolygon(parentPolygon);
+  for (let i = 0; i < ring.length - 1; i++) {
+    if (!segmentsIntersect(lastPoint, newPoint, ring[i], ring[i + 1])) continue;
+    const lastOnEdge = isPointOnSegment(lastPoint, ring[i], ring[i + 1]);
+    const newOnEdge = isPointOnSegment(newPoint, ring[i], ring[i + 1]);
+    if (!lastOnEdge && !newOnEdge) return false;
+  }
+
+  return true;
+}
+
 export function validateSplitLineClient(
   splitLine: Vertex[],
   parentPolygon: Vertex[],
@@ -415,34 +589,67 @@ export function validateSplitLineClient(
     return { valid: false, errors };
   }
 
-  const ring = closePolygon(parentPolygon);
-
-  const startIdx = findParentVertexIndex(splitLine[0], ring);
-  if (startIdx === -1) {
-    errors.push('Split line must start at a parent polygon vertex.');
+  if (!isPointOnPolygonEdge(splitLine[0], parentPolygon)) {
+    errors.push('Split line must start on the parent polygon boundary.');
   }
 
-  const endIdx = findParentVertexIndex(splitLine[splitLine.length - 1], ring);
-  if (endIdx === -1) {
-    errors.push('Split line must end at a parent polygon vertex.');
+  if (!isPointOnPolygonEdge(splitLine[splitLine.length - 1], parentPolygon)) {
+    errors.push('Split line must end on the parent polygon boundary.');
   }
 
-  if (startIdx !== -1 && endIdx !== -1 && startIdx === endIdx) {
-    errors.push('Split line start and end must be different vertices.');
+  if (errors.length === 0 && pointsEqual(splitLine[0], splitLine[splitLine.length - 1], 1e-7)) {
+    errors.push('Split line start and end must be different points.');
   }
 
   return { valid: errors.length === 0, errors };
+}
+
+function insertPointOnPolygonEdge(
+  ring: Vertex[],
+  point: Vertex,
+  epsilon = 1e-7,
+): { ring: Vertex[]; index: number } | null {
+  const n = ring.length - 1;
+  for (let i = 0; i < n; i++) {
+    if (pointsEqual(point, ring[i], epsilon)) {
+      return { ring: [...ring], index: i };
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    if (isPointOnSegment(point, ring[i], ring[i + 1], epsilon)) {
+      const openVerts = ring.slice(0, -1);
+      const newOpen = [...openVerts.slice(0, i + 1), point, ...openVerts.slice(i + 1)];
+      return { ring: closePolygon(newOpen), index: i + 1 };
+    }
+  }
+  return null;
 }
 
 export function buildChildPolygonsFromSplit(
   parentPolygon: Vertex[],
   splitLine: Vertex[],
 ): [Vertex[], Vertex[]] | null {
-  const ring = closePolygon(parentPolygon);
-  const n = ring.length - 1;
+  if (splitLine.length < 2) return null;
 
-  const startIdx = findParentVertexIndex(splitLine[0], ring);
-  const endIdx = findParentVertexIndex(splitLine[splitLine.length - 1], ring);
+  let ring = closePolygon(parentPolygon);
+  const startPoint = splitLine[0];
+  const endPoint = splitLine[splitLine.length - 1];
+
+  const startResult = insertPointOnPolygonEdge(ring, startPoint);
+  if (!startResult) return null;
+  ring = startResult.ring;
+
+  const endResult = insertPointOnPolygonEdge(ring, endPoint);
+  if (!endResult) return null;
+  ring = endResult.ring;
+
+  const n = ring.length - 1;
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let idx = 0; idx < n; idx++) {
+    if (startIdx === -1 && pointsEqual(ring[idx], startPoint, 1e-7)) startIdx = idx;
+    if (endIdx === -1 && pointsEqual(ring[idx], endPoint, 1e-7)) endIdx = idx;
+  }
 
   if (startIdx === -1 || endIdx === -1 || startIdx === endIdx) return null;
 

@@ -3,16 +3,22 @@ import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 import { apiUrl } from '../../config';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAP_ID } from '../../lib/googleMaps.ts';
 import GroupSelector from '../../components/admin/GroupSelector.tsx';
+import GroupBoundaryOverlays from '../../components/admin/GroupBoundaryOverlays.tsx';
 import MergeDialog from '../../components/admin/MergeDialog.tsx';
 import '../../components/admin/RedrawMerge.css';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
+
+type Vertex = { latitude: number; longitude: number };
 
 type LocationGroup = {
   locationGroupId: string;
   name: string;
   centerLatitude: number | null;
   centerLongitude: number | null;
+  shapeType?: string;
+  radiusMeters?: number | null;
+  polygon?: Vertex[];
 };
 
 type GroupSearchResult = {
@@ -160,6 +166,10 @@ function LocationEditPage() {
             disableDefaultUI={true}
             style={{ width: '100%', height: '100%' }}
           >
+            <GroupBoundaryOverlays
+              groups={groups}
+              activeGroupId={selectedIds[0]}
+            />
             {groups
               .filter((g) => g.centerLatitude != null && g.centerLongitude != null)
               .map((group) => {
