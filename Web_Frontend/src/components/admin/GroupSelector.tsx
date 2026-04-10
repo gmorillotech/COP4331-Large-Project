@@ -61,6 +61,16 @@ function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
               >
                 Redraw
               </button>
+              <button
+                type="button"
+                className="group-selector__split-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/admin/split/${group.locationGroupId}`);
+                }}
+              >
+                Split
+              </button>
             </li>
           );
         })}
