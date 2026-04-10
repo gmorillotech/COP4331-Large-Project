@@ -775,6 +775,237 @@ function bufferPolygon(vertices, meters) {
   });
 }
 
+/**
+ * Search the open vertices of a closed polygon ring for a vertex matching the
+ * given point within epsilon tolerance. Excludes the closing vertex.
+ * Returns the index of the matching vertex, or -1 if not found.
+ */
+function findVertexIndex(vertex, polygon, epsilon = EPSILON) {
+  const n = polygon.length - 1; // exclude closing vertex
+  for (let i = 0; i < n; i++) {
+    if (pointsEqual(vertex, polygon[i], epsilon)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Validate that a split polyline is valid for splitting the parent polygon.
+ * Returns { valid: boolean, errors: string[], startIndex: number, endIndex: number }.
+ */
+function validateSplitLine(splitLine, parentPolygon) {
+  const errors = [];
+  let startIndex = -1;
+  let endIndex = -1;
+
+  if (!Array.isArray(splitLine) || splitLine.length < 2) {
+    errors.push("Split line must have at least 2 points.");
+    return { valid: false, errors, startIndex, endIndex };
+  }
+
+  startIndex = findVertexIndex(splitLine[0], parentPolygon);
+  if (startIndex === -1) {
+    errors.push("Split line start point must be a vertex of the parent polygon.");
+  }
+
+  endIndex = findVertexIndex(splitLine[splitLine.length - 1], parentPolygon);
+  if (endIndex === -1) {
+    errors.push("Split line end point must be a vertex of the parent polygon.");
+  }
+
+  if (startIndex !== -1 && endIndex !== -1 && startIndex === endIndex) {
+    errors.push("Split line start and end must be different polygon vertices.");
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors, startIndex, endIndex };
+  }
+
+  if (splitLine.length > 2) {
+    const numSegs = splitLine.length - 1;
+    for (let i = 0; i < numSegs; i++) {
+      for (let j = i + 2; j < numSegs; j++) {
+        if (segmentsIntersect(splitLine[i], splitLine[i + 1], splitLine[j], splitLine[j + 1])) {
+          errors.push("Split line must not self-intersect.");
+          break;
+        }
+      }
+      if (errors.length > 0) break;
+    }
+  }
+
+  for (let i = 1; i < splitLine.length - 1; i++) {
+    if (!pointInPolygon(splitLine[i], parentPolygon)) {
+      errors.push("All interior points of the split line must be inside the parent polygon.");
+      break;
+    }
+  }
+
+  // Split line segments must not cross parent polygon edges except at start/end vertices
+  const n = parentPolygon.length - 1; // number of parent edges
+  const numSplitSegs = splitLine.length - 1;
+  let hasCrossing = false;
+
+  for (let si = 0; si < numSplitSegs && !hasCrossing; si++) {
+    for (let pi = 0; pi < n; pi++) {
+      if (!segmentsIntersect(splitLine[si], splitLine[si + 1], parentPolygon[pi], parentPolygon[pi + 1])) {
+        continue;
+      }
+
+      // Allow intersection if this is the first split segment touching startIndex vertex edges
+      if (si === 0 && (pi === startIndex || pi === ((startIndex - 1 + n) % n))) {
+        continue;
+      }
+
+      // Allow intersection if this is the last split segment touching endIndex vertex edges
+      if (si === numSplitSegs - 1 && (pi === endIndex || pi === ((endIndex - 1 + n) % n))) {
+        continue;
+      }
+
+      errors.push("Split line must not cross parent polygon edges except at start and end vertices.");
+      hasCrossing = true;
+      break;
+    }
+  }
+
+  return { valid: errors.length === 0, errors, startIndex, endIndex };
+}
+
+/**
+ * Given a valid closed parent polygon, split line, and vertex indices,
+ * produce two child polygons by walking the polygon arcs and combining
+ * with the split line.
+ * Returns [childA, childB].
+ */
+function splitPolygonByPolyline(parentPolygon, splitLine, startIndex, endIndex) {
+  const ring = isClosedPolygon(parentPolygon).vertices;
+  const n = ring.length - 1; // open vertex count
+
+  const arcA = [];
+  let i = startIndex;
+  while (true) {
+    arcA.push(ring[i]);
+    if (i === endIndex) break;
+    i = (i + 1) % n;
+  }
+
+  const arcB = [];
+  i = endIndex;
+  while (true) {
+    arcB.push(ring[i]);
+    if (i === startIndex) break;
+    i = (i + 1) % n;
+  }
+
+  const splitInterior = splitLine.slice(1, -1);
+
+  const childAOpen = [...arcA, ...splitInterior.slice().reverse()];
+  const childA = [...childAOpen, { latitude: childAOpen[0].latitude, longitude: childAOpen[0].longitude }];
+
+  const childBOpen = [...arcB, ...splitInterior];
+  const childB = [...childBOpen, { latitude: childBOpen[0].latitude, longitude: childBOpen[0].longitude }];
+
+  return [childA, childB];
+}
+
+/**
+ * Assign each point to child A or B using pointInPolygon.
+ * Returns { groupA: number[], groupB: number[] } (arrays of indices into points),
+ * or null if any point falls outside both children.
+ */
+function classifyPointsForSplit(points, childA, childB) {
+  const groupA = [];
+  const groupB = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const inA = pointInPolygon(points[i], childA);
+    const inB = pointInPolygon(points[i], childB);
+
+    if (inA) {
+      // If in A (including boundary/both case), assign to groupA
+      groupA.push(i);
+    } else if (inB) {
+      groupB.push(i);
+    } else {
+      // Point is outside both children — error
+      return null;
+    }
+  }
+
+  return { groupA, groupB };
+}
+
+/**
+ * Top-level orchestrator for split geometry validation.
+ * Returns { valid, errors, childA, childB, classification }.
+ */
+function validateSplitGeometry(parentPolygon, splitLine, otherGroupPolygons, childLocationPoints) {
+  const errors = [];
+  let childA = null;
+  let childB = null;
+  let classification = null;
+
+  // 1. Auto-close parent
+  const closeResult = isClosedPolygon(parentPolygon);
+  const parentRing = closeResult.vertices;
+
+  // 2. Check minimum vertices
+  if (!hasMinVertices(parentRing, 3)) {
+    errors.push("Parent polygon must have at least 3 distinct vertices.");
+    return { valid: false, errors, childA, childB, classification };
+  }
+
+  // 3. Check self-intersection
+  if (hasSelfIntersection(parentRing)) {
+    errors.push("Parent polygon must not self-intersect.");
+    return { valid: false, errors, childA, childB, classification };
+  }
+
+  // 4. Validate the split line
+  const splitResult = validateSplitLine(splitLine, parentRing);
+  if (!splitResult.valid) {
+    return { valid: false, errors: splitResult.errors, childA, childB, classification };
+  }
+
+  // 5. Split the polygon
+  const children = splitPolygonByPolyline(parentRing, splitLine, splitResult.startIndex, splitResult.endIndex);
+  childA = children[0];
+  childB = children[1];
+
+  // 6. Check each child against other group polygons for overlap
+  if (Array.isArray(otherGroupPolygons)) {
+    for (let i = 0; i < otherGroupPolygons.length; i++) {
+      if (polygonsOverlap(childA, otherGroupPolygons[i])) {
+        errors.push(`Child polygon A overlaps with another group's polygon (index ${i}).`);
+        break;
+      }
+    }
+    for (let i = 0; i < otherGroupPolygons.length; i++) {
+      if (polygonsOverlap(childB, otherGroupPolygons[i])) {
+        errors.push(`Child polygon B overlaps with another group's polygon (index ${i}).`);
+        break;
+      }
+    }
+  }
+
+  // 7. Classify child location points
+  if (Array.isArray(childLocationPoints) && childLocationPoints.length > 0) {
+    classification = classifyPointsForSplit(childLocationPoints, childA, childB);
+    if (classification === null) {
+      errors.push("One or more child location points fall outside both child polygons.");
+    }
+  }
+
+  // 8. Check minimum vertices on each child
+  if (childA && !hasMinVertices(childA, 3)) {
+    errors.push("Child polygon A must have at least 3 distinct vertices.");
+  }
+  if (childB && !hasMinVertices(childB, 3)) {
+    errors.push("Child polygon B must have at least 3 distinct vertices.");
+  }
+
+  return { valid: errors.length === 0, errors, childA, childB, classification };
+}
+
 module.exports = {
   isClosedPolygon,
   hasMinVertices,
@@ -792,4 +1023,9 @@ module.exports = {
   computeConvexHull,
   bufferPolygon,
   unionPolygons,
+  findVertexIndex,
+  validateSplitLine,
+  splitPolygonByPolyline,
+  classifyPointsForSplit,
+  validateSplitGeometry,
 };
