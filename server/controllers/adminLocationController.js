@@ -7,6 +7,7 @@ const {
   validatePolygon,
   polygonsTouchOrOverlap,
   unionPolygons,
+  validateSplitGeometry,
 } = require("../services/geometryValidation");
 
 /**
@@ -265,7 +266,152 @@ async function mergeGroups(req, res) {
   }
 }
 
+async function splitGroup(req, res) {
+  try {
+    const { groupId } = req.params;
+    const { parentPolygon, splitLine, destinationGroups } = req.body;
+
+    // Input validation
+    if (!Array.isArray(parentPolygon) || parentPolygon.length < 3) {
+      return res.status(400).json({ error: "parentPolygon must be an array of at least 3 vertices." });
+    }
+    if (!Array.isArray(splitLine) || splitLine.length < 2) {
+      return res.status(400).json({ error: "splitLine must be an array of at least 2 points." });
+    }
+    if (!Array.isArray(destinationGroups) || destinationGroups.length !== 2) {
+      return res.status(400).json({ error: "destinationGroups must be an array of exactly 2 objects." });
+    }
+
+    const nameA = destinationGroups[0]?.name;
+    const nameB = destinationGroups[1]?.name;
+    if (!nameA || typeof nameA !== "string" || nameA.trim() === "") {
+      return res.status(400).json({ error: "destinationGroups[0].name must be a non-empty string." });
+    }
+    if (!nameB || typeof nameB !== "string" || nameB.trim() === "") {
+      return res.status(400).json({ error: "destinationGroups[1].name must be a non-empty string." });
+    }
+
+    // Load data in parallel
+    const [group, childLocations, otherPolygons] = await Promise.all([
+      LocationGroup.findOne({ locationGroupId: groupId }),
+      StudyLocation.find({ locationGroupId: groupId }),
+      loadOtherGroupPolygons([groupId]),
+    ]);
+
+    if (!group) {
+      return res.status(404).json({ error: "Location group not found." });
+    }
+
+    // Geometry validation
+    const childPoints = extractChildPoints(childLocations);
+    const validation = validateSplitGeometry(parentPolygon, splitLine, otherPolygons, childPoints);
+    if (!validation.valid) {
+      return res.status(400).json({ errors: validation.errors });
+    }
+
+    const { childA, childB, classification } = validation;
+
+    // Create new groups
+    const groupAId = crypto.randomUUID();
+    const groupBId = crypto.randomUUID();
+
+    const locsA = classification.groupA.map((idx) => childLocations[idx]);
+    const locsB = classification.groupB.map((idx) => childLocations[idx]);
+
+    const centroidA = childA.length >= 4 ? polygonCentroid(childA) : computeCentroid(extractChildPoints(locsA));
+    const centroidB = childB.length >= 4 ? polygonCentroid(childB) : computeCentroid(extractChildPoints(locsB));
+
+    const avgNoiseA = averageFinite(locsA.map((l) => l.currentNoiseLevel));
+    const avgOccupancyA = averageFinite(locsA.map((l) => l.currentOccupancyLevel));
+    const avgNoiseB = averageFinite(locsB.map((l) => l.currentNoiseLevel));
+    const avgOccupancyB = averageFinite(locsB.map((l) => l.currentOccupancyLevel));
+
+    // Reassign locations
+    const reassignOps = [];
+    if (locsA.length > 0) {
+      reassignOps.push(
+        StudyLocation.updateMany(
+          { studyLocationId: { $in: locsA.map((l) => l.studyLocationId) } },
+          { locationGroupId: groupAId },
+        ),
+      );
+    }
+    if (locsB.length > 0) {
+      reassignOps.push(
+        StudyLocation.updateMany(
+          { studyLocationId: { $in: locsB.map((l) => l.studyLocationId) } },
+          { locationGroupId: groupBId },
+        ),
+      );
+    }
+    await Promise.all(reassignOps);
+
+    const now = new Date();
+
+    const [groupA, groupB] = await Promise.all([
+      LocationGroup.create({
+        locationGroupId: groupAId,
+        name: nameA.trim(),
+        shapeType: "polygon",
+        polygon: childA,
+        shapeUpdatedAt: now,
+        centerLatitude: centroidA.latitude,
+        centerLongitude: centroidA.longitude,
+        radiusMeters: null,
+        currentNoiseLevel: avgNoiseA,
+        currentOccupancyLevel: avgOccupancyA,
+        updatedAt: now,
+      }),
+      LocationGroup.create({
+        locationGroupId: groupBId,
+        name: nameB.trim(),
+        shapeType: "polygon",
+        polygon: childB,
+        shapeUpdatedAt: now,
+        centerLatitude: centroidB.latitude,
+        centerLongitude: centroidB.longitude,
+        radiusMeters: null,
+        currentNoiseLevel: avgNoiseB,
+        currentOccupancyLevel: avgOccupancyB,
+        updatedAt: now,
+      }),
+    ]);
+
+    // Delete parent group and create audit log
+    await Promise.all([
+      LocationGroup.deleteOne({ locationGroupId: groupId }),
+      AuditLog.create({
+        auditId: crypto.randomUUID(),
+        adminUserId: req.user.userId,
+        actionType: "group_split",
+        targetType: "location_group",
+        targetId: groupId,
+        beforeSnapshot: group.toObject(),
+        afterSnapshot: {
+          groupA: groupA.toObject(),
+          groupB: groupB.toObject(),
+          classification: {
+            groupA: classification.groupA.length,
+            groupB: classification.groupB.length,
+          },
+        },
+      }),
+    ]);
+
+    return res.status(200).json({
+      message: "Group split",
+      groupA,
+      groupB,
+      deletedGroupId: groupId,
+    });
+  } catch (error) {
+    console.error("Error splitting group:", error);
+    return res.status(500).json({ error: "Server error splitting location group." });
+  }
+}
+
 module.exports = {
   updateGroupShape,
   mergeGroups,
+  splitGroup,
 };
