@@ -260,9 +260,9 @@ input[type="email"]:focus {
   list-style: none;
   padding: 6px 10px;
   margin: 4px 0 0;
-  background: #e2e8f0ee;
+  background: #0C1A49;
   border-radius: 8px;
-  border: 1px solid #e2e8f0ee;
+  border: 1px solid #0C1A49;
   font-size: 0.78em;
 }
 
@@ -286,7 +286,7 @@ input[type="email"]:focus {
 }
 
 .rule-ok {
-  color: #228639d5;
+  color: #1aa039d5;
   font-weight: 600;
 }
 

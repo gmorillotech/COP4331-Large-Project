@@ -750,7 +750,7 @@ function SessionManager() {
       {/* ── Main Data Collection UI ───────────────────────── */}
       <div className="dc-container">
 
-        {/* Session location banner */}
+        {/* Active-session location banner */}
         {sessionState.isActive && (
           <div className="dc-location-banner">
             <span className="dc-location-banner__pin">📍</span>
@@ -766,94 +766,97 @@ function SessionManager() {
           </div>
         )}
 
-        {/* ── Noise Meter (vertical thermometer) ──────────── */}
-        <div className="dc-panel">
-          <p className="dc-panel__label">NOISE LEVEL</p>
-          <div className="dc-noise-meter">
-            <span className="dc-noise-meter__db">
-              {currentDb !== null ? `${currentDb.toFixed(1)} dB` : '-- dB'}
-            </span>
-            <div className="dc-noise-meter__bar-outer">
-              <div className="dc-noise-meter__bar-track">
-                <div
-                  className="dc-noise-meter__bar-fill"
-                  style={{ height: `${noiseBarPosition}%` }}
-                />
-              </div>
-            </div>
-            <span className="dc-noise-meter__qualitative">{qualitativeLabel}</span>
-          </div>
-          {micPermission !== 'granted' && (
-            <p className="dc-panel__sublabel">Microphone access needed</p>
-          )}
-        </div>
+        {/* ── Three-column layout ──────────────────────────── */}
+        <div className="dc-three-col">
 
-        {/* ── Mic Button ──────────────────────────────────── */}
-        <div className="session-mic-container">
-          <p className="session-mic-hint">
-            {sessionState.isActive
-              ? 'Tap to end session and submit'
-              : 'Tap the microphone to start a session'}
-          </p>
-          <button
-            type="button"
-            className={`session-mic-btn ${sessionState.isActive ? 'session-mic-btn--active' : ''}`}
-            onClick={handleMicClick}
-            disabled={
-              isSubmitting ||
-              (micPermission === 'denied') ||
-              (locationPermission === 'denied')
-            }
-            aria-label={sessionState.isActive ? 'End Session' : 'Start Session'}
-          >
-            🎙️
-          </button>
-          <p className="session-mic-label">
-            {isSubmitting ? 'Submitting...' : sessionState.isActive ? 'End Session' : 'Start Session'}
-          </p>
-        </div>
-
-        {/* ── Occupancy Bar ─────────────────────────────────── */}
-        <div className="dc-panel dc-panel--row">
-          <div className="dc-occupancy-wrap">
-            <p className="dc-panel__label">OCCUPANCY</p>
-            <p className="dc-occupancy-current" style={{ color: selectedOccupancy?.color ?? '#94a3b8' }}>
-              {selectedOccupancy?.label ?? '—'}
-            </p>
-            <p className="dc-occupancy-sub">Choose Occupancy Level before recording session</p>
-            <div className="dc-occupancy-layout">
-              {/* Draggable/tappable gradient bar */}
-              <div className="dc-occupancy-bar-wrap">
-                <div
-                  className="dc-occupancy-bar"
-                  onPointerDown={handleBarPointerDown}
-                  onPointerMove={handleBarPointerMove}
-                >
-                  {occupancyDotPosition !== null && (
+          {/* LEFT — Noise Level */}
+          <div className="dc-col">
+            <p className="dc-col__title">Noise Level</p>
+            <div className="dc-card">
+              <div className="dc-noise-meter">
+                <span className="dc-noise-meter__db">
+                  {currentDb !== null ? `${currentDb.toFixed(1)} dB` : '-- dB'}
+                </span>
+                <div className="dc-noise-meter__bar-outer">
+                  <div className="dc-noise-meter__bar-track">
                     <div
-                      className="dc-occupancy-bar__dot"
-                      style={{ top: `${occupancyDotPosition}%` }}
+                      className="dc-noise-meter__bar-fill"
+                      style={{ height: `${noiseBarPosition}%` }}
                     />
-                  )}
+                  </div>
+                </div>
+                <span className="dc-noise-meter__qualitative">{qualitativeLabel}</span>
+              </div>
+              {micPermission !== 'granted' && (
+                <p className="dc-card__note">Mic needed</p>
+              )}
+            </div>
+          </div>
+
+          {/* CENTER — Start Session */}
+          <div className="dc-col">
+            <p className="dc-col__title">
+              {sessionState.isActive ? 'Recording' : 'Start Session'}
+            </p>
+            <div className="dc-card dc-card--session">
+              <p className="session-mic-hint">
+                {sessionState.isActive
+                  ? 'Tap to end & submit'
+                  : 'Tap to start recording'}
+              </p>
+              <button
+                type="button"
+                className={`session-mic-btn ${sessionState.isActive ? 'session-mic-btn--active' : ''}`}
+                onClick={handleMicClick}
+                disabled={isSubmitting || micPermission === 'denied' || locationPermission === 'denied'}
+                aria-label={sessionState.isActive ? 'End Session' : 'Start Session'}
+              >
+                🎙️
+              </button>
+              <p className="session-mic-label">
+                {isSubmitting ? 'Submitting…' : sessionState.isActive ? 'End Session' : 'Start Session'}
+              </p>
+            </div>
+          </div>
+
+          {/* RIGHT — Occupancy */}
+          <div className="dc-col">
+            <p className="dc-col__title">Occupancy</p>
+            <div className="dc-card">
+              <p className="dc-occupancy-sub">Choose level before recording</p>
+              <div className="dc-occupancy-layout">
+                <div className="dc-occupancy-bar-wrap">
+                  <div
+                    className="dc-occupancy-bar"
+                    onPointerDown={handleBarPointerDown}
+                    onPointerMove={handleBarPointerMove}
+                  >
+                    {occupancyDotPosition !== null && (
+                      <div
+                        className="dc-occupancy-bar__dot"
+                        style={{ top: `${occupancyDotPosition}%` }}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="dc-occupancy-labels">
+                  {OCCUPANCY_LEVELS.map(({ level, label, color }) => (
+                    <button
+                      key={level}
+                      type="button"
+                      className={`dc-occupancy-label-btn ${occupancyLevel === level ? 'active' : ''}`}
+                      style={{ color: occupancyLevel === level ? color : '#94a3b8' }}
+                      onClick={() => setOccupancyLevel(level)}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
-              {/* Labels — tap to select, colored only when active */}
-              <div className="dc-occupancy-labels">
-                {OCCUPANCY_LEVELS.map(({ level, label, color }) => (
-                  <button
-                    key={level}
-                    type="button"
-                    className={`dc-occupancy-label-btn ${occupancyLevel === level ? 'active' : ''}`}
-                    style={{ color: occupancyLevel === level ? color : '#94a3b8' }}
-                    onClick={() => setOccupancyLevel(level)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
-        </div>
+
+        </div>{/* end .dc-three-col */}
 
         {/* ── Status Message ────────────────────────────────── */}
         {message && (

@@ -1,6 +1,10 @@
+/* ── PAGE — fills exactly the viewport, no scroll ───── */
 .datacollection-page {
-  min-height: 100vh;
-  background: #f8fafc;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #0C1A49;
   position: relative;
 }
 
@@ -10,45 +14,47 @@
   top: 16px;
   left: 16px;
   z-index: 100;
-  background: white;
-  border: 1.5px solid #e2e8f0;
+  background: #0C1A49;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
   border-radius: 10px;
   padding: 8px 16px;
   font-size: 14px;
   font-weight: 600;
-  color: #007bff;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   transition: all 0.15s ease;
 }
 
 .datacollection-back-btn:hover {
-  background: #f0faf9;
-  border-color: #007bff;
-  transform: translateX(-2px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: white;
 }
 
-/* ── PAGE CONTENT — centered ─────────────────────────── */
+/* ── PAGE CONTENT — flex column, fills remaining height ─ */
 .datacollection-content {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 80px 24px 40px;
+  padding: 56px 12px 12px;
   text-align: center;
+  overflow: hidden;
 }
 
 .datacollection-title {
   font-size: 26px;
   font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 8px;
+  color: white;
+  margin-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .datacollection-subtitle {
-  font-size: 15px;
-  color: #64748b;
-  margin-bottom: 40px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 16px;
   max-width: 400px;
+  flex-shrink: 0;
 }
