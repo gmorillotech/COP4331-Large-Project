@@ -7,7 +7,7 @@ const ReportTagMetadata = require("../models/ReportTagMetadata");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 
-const REPORT_STALE_MINUTES = Number(process.env.REPORT_STALE_MINUTES || 15);
+const REPORT_STALE_MINUTES = Number(process.env.REPORT_STALE_MINUTES || 180);
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1,6 +1,12 @@
 // Noise/crowding severity level for a study location
 export type AnnotationSeverity = 'low' | 'medium' | 'high';
 
+// Marker kind distinguishes group markers from individual study-location markers
+export type MarkerKind = 'group' | 'location';
+
+// Qualitative noise band (1 = very quiet … 5 = loud)
+export type NoiseBand = 1 | 2 | 3 | 4 | 5;
+
 // One study location returned by GET /api/map-annotations
 export type MapLocation = {
   id: string;
@@ -21,6 +27,14 @@ export type MapLocation = {
   isFavorite?: boolean;
   studyAreaCount?: number;     // e.g. 4 → "4 study areas in this building"
   quietOptionCount?: number;   // e.g. 2 → "2 quiet options"
+
+  // Marker animation state — driven by explicit API fields, not parsed from text
+  kind?: MarkerKind;           // "group" or "location"
+  locationGroupId?: string;    // which group this marker belongs to (both kinds carry this)
+  noiseBand?: NoiseBand | null; // 1..5 qualitative band, null when noise is unknown
+  hasRecentData?: boolean;     // true when updatedAt is within the stale window
+  isAnimated?: boolean;        // true when the marker should show animated frames
+  updatedAtIso?: string | null; // ISO-8601 timestamp for debugging / future UX
 };
 
 // Shape of the API response from GET /api/map-annotations

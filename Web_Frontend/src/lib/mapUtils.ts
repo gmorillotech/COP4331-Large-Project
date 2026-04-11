@@ -1,7 +1,7 @@
 // Shared color and noise utilities used by both MapMarkers and MapHeatOverlay.
 // Keeping them here avoids duplicating code and circular import issues.
 
-import type { MapLocation } from '../types/mapAnnotations.ts';
+import type { MapLocation, NoiseBand } from '../types/mapAnnotations.ts';
 
 // ---- Helpers ----------------------------------------------------------------
 
@@ -35,6 +35,25 @@ function mixHex(a: string, b: string, ratio: number): string {
 }
 
 // ---- Exports ----------------------------------------------------------------
+
+// Desaturated / darkened versions of the marker body colors per noise band.
+// Band 1 (#16D0D0 teal) → Band 5 (#210061 purple), muted for use as a map wash.
+const BAND_HEAT_COLORS: Record<NoiseBand, string> = {
+  1: 'rgb(30, 148, 148)',  // muted teal  (from pin #16D0D0)
+  2: 'rgb(24, 112, 170)',  // muted blue  (from pin #0C95EE)
+  3: 'rgb(34, 52, 150)',   // muted deep blue (from pin #001AD2)
+  4: 'rgb(30, 30, 110)',   // muted indigo (from pin #000487)
+  5: 'rgb(48, 26, 88)',    // muted purple (from pin #210061)
+};
+const BAND_DEFAULT_COLOR = 'rgb(80, 80, 100)'; // neutral fallback when band is unknown
+
+/**
+ * Returns a desaturated/darkened color matching the marker pin for a given noise band.
+ * Used by the heatmap overlay so wash colors track the pin icon colors.
+ */
+export function buildBandColor(band: NoiseBand | null | undefined): string {
+  return band != null ? BAND_HEAT_COLORS[band] : BAND_DEFAULT_COLOR;
+}
 
 /**
  * Converts a 0–1 noise intensity into an rgb() color string.
@@ -73,12 +92,12 @@ export function inferNoiseValue(location: MapLocation): number {
  * The opacity values get larger as intensity increases, making loud spots glow more.
  */
 export function buildHeatGradient(color: string, intensity: number): string {
-  const core = 0.18 + intensity * 0.28;  // center of the blob
-  const mid  = 0.12 + intensity * 0.14;  // middle ring
-  const edge = 0.03 + intensity * 0.08;  // outer fade
+  const core = 0.35 + intensity * 0.30;  // center of the blob
+  const mid  = 0.24 + intensity * 0.20;  // middle ring
+  const edge = 0.10 + intensity * 0.14;  // outer fade
   // Insert alpha into the rgb() string to make rgba()
   const rgba = (op: number) => color.replace('rgb', 'rgba').replace(')', `, ${op})`);
-  return `radial-gradient(circle, ${rgba(core)} 0%, ${rgba(mid)} 34%, ${rgba(edge)} 58%, rgba(0,0,0,0) 76%)`;
+  return `radial-gradient(circle, ${rgba(core)} 0%, ${rgba(mid)} 30%, ${rgba(edge)} 60%, rgba(0,0,0,0) 100%)`;
 }
 
 /**

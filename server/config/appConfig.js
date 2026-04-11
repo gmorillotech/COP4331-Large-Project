@@ -1,3 +1,3 @@
 module.exports = {
-  REPORT_STALE_MINUTES: Number(process.env.REPORT_STALE_MINUTES) || 15,
+  REPORT_STALE_MINUTES: Number(process.env.REPORT_STALE_MINUTES) || 180,
 };

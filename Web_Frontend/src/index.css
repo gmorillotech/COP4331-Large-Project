@@ -437,15 +437,14 @@ code {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  mix-blend-mode: screen;
 }
 
 .map-heatmap-layer__spot {
   position: absolute;
   transform: translate(-50%, -50%);
   border-radius: 999px;
-  filter: blur(22px);
-  opacity: 0.95;
+  filter: blur(16px);
+  opacity: 0.92;
 }
 
 .map-popup--empty {
@@ -812,17 +811,65 @@ code {
 
 /* ---- Status line ---- */
 /* Shows loading state, error, or result count */
-.map-status {
+.map-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 6px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-status {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.6);
   margin: 0;
-  background: #0C1A49;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .map-status--error {
   color: #dc2626;           /* red for errors */
+}
+
+.map-refresh-btn {
+  margin-left: auto;
+  padding: 4px 14px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.map-refresh-btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.map-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Marker visuals ---- */
+.marker-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+
+.marker-visual.is-selected {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.3));
+}
+
+.marker-visual--cluster {
+  cursor: pointer;
+}
+
+.cluster-badge {
+  user-select: none;
+  z-index: 1;
 }
 
 /* ---- Body row: map + sidebar ---- */
