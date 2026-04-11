@@ -262,6 +262,7 @@ function Login() {
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      showError('Please fill in all required fields.');
       return;
     }
 
@@ -481,7 +482,7 @@ function Login() {
 
       {/* ── Global message (all views except main login form, where it's shown inline) ── */}
       {message && !isLoginForm && (
-        <span id="loginResult" className={isError ? '' : 'success'}>
+        <span id="loginResult" className={isError ? 'error' : 'success'}>
           {message}
         </span>
       )}
@@ -493,6 +494,7 @@ function Login() {
         <div className="tab-panel">
           <span id="inner-title">Welcome Back</span>
           <input
+            id="loginName"
             type="text"
             placeholder="Username"
             value={loginName}
@@ -503,6 +505,7 @@ function Login() {
           <div className="field-wrap">
             <div className="password-input-wrap">
               <input
+                id="loginPassword"
                 type={showLoginPassword ? 'text' : 'password'}
                 placeholder="Password"
                 value={loginPassword}
@@ -514,7 +517,7 @@ function Login() {
           </div>
           {/* Inline error — between password and button */}
           {message && (
-            <span id="loginResult" className={isError ? '' : 'success'}>
+            <span id="loginResult" className={isError ? 'error' : 'success'}>
               {message}
             </span>
           )}
@@ -539,6 +542,7 @@ function Login() {
           <span id="inner-title">Reset Password</span>
           <p className="auth-info">Enter your username to receive a reset code.</p>
           <input
+            id="forgotEmail"
             type="text"
             placeholder="Username"
             value={resetIdentifier}
@@ -689,6 +693,7 @@ function Login() {
           {/* First Name */}
           <div className="field-wrap">
             <input
+              id="regFirstName"
               type="text"
               placeholder="First Name"
               className={fieldErrors.regFirstName ? 'input-error' : ''}
@@ -701,6 +706,7 @@ function Login() {
           {/* Last Name */}
           <div className="field-wrap">
             <input
+              id="regLastName"
               type="text"
               placeholder="Last Name"
               className={fieldErrors.regLastName ? 'input-error' : ''}
@@ -713,6 +719,7 @@ function Login() {
           {/* Display Name */}
           <div className="field-wrap">
             <input
+              id="regDisplayName"
               type="text"
               placeholder="Display Name"
               className={fieldErrors.regDisplayName ? 'input-error' : ''}
@@ -725,6 +732,7 @@ function Login() {
           {/* Email */}
           <div className="field-wrap">
             <input
+              id="regEmail"
               type="email"
               placeholder="Email"
               className={fieldErrors.regEmail ? 'input-error' : ''}
@@ -737,6 +745,7 @@ function Login() {
           {/* Username */}
           <div className="field-wrap">
             <input
+              id="regUsername"
               type="text"
               placeholder="Username"
               className={fieldErrors.regUsername ? 'input-error' : ''}
@@ -761,6 +770,7 @@ function Login() {
           <div className="field-wrap">
             <div className="password-input-wrap">
               <input
+                id="regPassword"
                 type={showRegPassword ? 'text' : 'password'}
                 placeholder="Password"
                 className={fieldErrors.regPassword ? 'input-error' : ''}
@@ -807,10 +817,10 @@ function Login() {
 
       {/* ── Post-register verification ── */}
       {activeTab === 'register' && showVerifyBox && (
-        <div className="tab-panel">
+        <div className="tab-panel info-box">
           <span id="inner-title">Verify Your Email</span>
           <p className="auth-info">
-            A 6-digit code was sent to {verificationMaskedEmail || 'your email'}. Enter it below.
+            A verification email with a 6-digit code was sent to {verificationMaskedEmail || 'your email'}. Enter it below.
           </p>
           <input
             type="text"

@@ -13,7 +13,7 @@
  * Coverage:
  *   1.  Report submission stores a document in the DB
  *   2.  Authenticated report has the correct userId
- *   3.  Anonymous report receives userId = "local-user"
+ *   3.  Anonymous report with device userId in body stores the device userId
  *   4.  StudyLocation currentNoiseLevel/currentOccupancyLevel are updated after poll
  *   5.  LocationGroup aggregate is updated after poll
  *   6.  Multiple reports produce a weighted average on the StudyLocation
@@ -98,15 +98,16 @@ test('authenticated report stores the correct userId', async () => {
 
 // ── 3. Anonymous report userId ────────────────────────────────────────────────
 
-test('anonymous report receives userId = "local-user"', async () => {
-  const payload = makeReportPayload(STUDY_LOCATIONS.LIBRARY_FLOOR_2_MODERATE);
-  // No Authorization header
+test('anonymous report with device userId in body stores the device userId', async () => {
+  const deviceId = 'device-e2e-test-001';
+  const payload = { ...makeReportPayload(STUDY_LOCATIONS.LIBRARY_FLOOR_2_MODERATE), userId: deviceId };
+  // No Authorization header, but userId provided in body
   const res = await api.post('http://localhost:5050/api/reports', { data: payload });
   expect(res.ok()).toBe(true);
   const body = await res.json() as { report: { reportId: string } };
 
   const { report } = await getReportFromDb(api, body.report.reportId);
-  expect(report!.userId).toBe('local-user');
+  expect(report!.userId).toBe(deviceId);
 });
 
 // ── 4. StudyLocation updated after poll ───────────────────────────────────────
