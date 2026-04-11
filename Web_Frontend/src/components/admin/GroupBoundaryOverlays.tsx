@@ -54,7 +54,7 @@ function greedyFourColor(groups: BoundaryGroup[]): Map<string, number> {
   for (let i = 0; i < polys.length; i++) {
     for (let j = i + 1; j < polys.length; j++) {
       if (!polys[i].poly || !polys[j].poly) continue;
-      if (polygonsAdjacent(polys[i].poly, polys[j].poly)) {
+      if (polygonsAdjacent(polys[i].poly!, polys[j].poly!)) {
         adj.get(polys[i].id)!.add(polys[j].id);
         adj.get(polys[j].id)!.add(polys[i].id);
       }

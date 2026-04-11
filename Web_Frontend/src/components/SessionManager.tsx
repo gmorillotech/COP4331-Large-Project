@@ -542,7 +542,6 @@ function SessionManager() {
   const hasEnoughSamples = sampleCount >= 10;
   const noiseBarPosition = currentDb !== null ? dbToBarPosition(currentDb) : 0;
   const qualitativeLabel = currentDb !== null ? dbToQualitative(currentDb) : '—';
-  const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel) ?? null;
   // dot position: Full(5)=0% top, Empty(1)=100% bottom
   const occupancyDotPosition = occupancyLevel !== null ? ((5 - occupancyLevel) / 4) * 100 : null;
 
