@@ -49,10 +49,24 @@ function dbToBarPosition(db: number): number {
   return Math.max(0, Math.min(100, ((db - 30) / 60) * 100));
 }
 
+// Haversine distance in metres (mirrors Flutter's _haversineDistanceMeters)
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function SessionManager() {
   const [micPermission, setMicPermission] = useState<PermissionStatus>('pending');
   const [locationPermission, setLocationPermission] = useState<PermissionStatus>('pending');
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+
+  // All study locations fetched once on mount, exactly as Flutter does it
+  const [allLocations, setAllLocations] = useState<StudyLocation[]>([]);
 
   const [sessionState, setSessionState] = useState<SessionState>({
     isActive: false,
@@ -63,7 +77,7 @@ function SessionManager() {
     avgNoise: null,
   });
 
-  const [occupancyLevel, setOccupancyLevel] = useState<number>(3);
+  const [occupancyLevel, setOccupancyLevel] = useState<number | null>(null);
   const [currentDb, setCurrentDb] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
@@ -117,6 +131,62 @@ function SessionManager() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Fetch ALL locations once on mount (mirrors Flutter's fetchStudyLocations) ──
+  // GET /api/locations/groups → for each group → GET /api/locations/groups/:id/locations
+  // This gives us buildingName from the group + full location details, with no radius filter.
+  useEffect(() => {
+    async function loadAllLocations() {
+      try {
+        const groupsRes = await fetch(apiUrl('/api/locations/groups'));
+        if (!groupsRes.ok) return;
+        const groups: any[] = await groupsRes.json();
+
+        const collected: StudyLocation[] = [];
+
+        await Promise.all(
+          groups.map(async (group: any) => {
+            const groupId = (group.locationGroupId ?? '').trim();
+            const groupName = (group.name ?? 'Unknown Building').trim();
+            if (!groupId) return;
+
+            try {
+              const locsRes = await fetch(
+                apiUrl(`/api/locations/groups/${encodeURIComponent(groupId)}/locations`),
+              );
+              if (!locsRes.ok) return;
+              const locs: any[] = await locsRes.json();
+
+              for (const loc of locs) {
+                const id = (loc.studyLocationId ?? '').trim();
+                if (!id) continue;
+                const floorLabel = (loc.floorLabel ?? '').trim();
+                collected.push({
+                  studyLocationId: id,
+                  // Display name matches sidebar's formatLocationHeading logic
+                  name: [groupName, floorLabel].filter(Boolean).join(' · '),
+                  buildingName: groupName,
+                  latitude: loc.latitude,
+                  longitude: loc.longitude,
+                  locationGroupId: groupId,
+                });
+              }
+            } catch {
+              // skip unreachable group
+            }
+          }),
+        );
+
+        if (collected.length > 0) {
+          setAllLocations(collected);
+        }
+      } catch {
+        // silent — fallback to API-based lookup if needed
+      }
+    }
+
+    loadAllLocations();
   }, []);
 
   async function requestPermissions() {
@@ -189,49 +259,18 @@ function SessionManager() {
     }
   }
 
-  async function findNearestLocation(coords: GeolocationCoordinates): Promise<StudyLocation | null> {
-    try {
-      const response = await fetch(
-        apiUrl(`/api/locations/closest?latitude=${coords.latitude}&longitude=${coords.longitude}`),
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (!data || !data.studyLocationId) return null;
-      return {
-        studyLocationId: data.studyLocationId,
-        name: data.name ?? 'Study Location',
-        buildingName: data.buildingName ?? '',
-        latitude: data.latitude ?? coords.latitude,
-        longitude: data.longitude ?? coords.longitude,
-        locationGroupId: data.locationGroupId ?? '',
-      };
-    } catch {
-      return null;
-    }
-  }
+  // ── Local distance helpers (no API call, no radius limit) ──────────────────
+  // Mirrors Flutter's LocalStudyLocationResolver exactly.
 
-  async function findNearbyLocations(coords: GeolocationCoordinates): Promise<StudyLocation[]> {
-    try {
-      const response = await fetch(
-        apiUrl(
-          `/api/locations/search?lat=${coords.latitude}&lng=${coords.longitude}&maxRadiusMeters=150&includeGroups=false&sortBy=distance`,
-        ),
-      );
-      if (!response.ok) return [];
-      const data = await response.json();
-      return (data.results ?? [])
-        .filter((node: any) => node.kind === 'location')
-        .map((node: any) => ({
-          studyLocationId: node.id,
-          name: node.title,
-          buildingName: node.buildingName ?? '',
-          latitude: node.lat,
-          longitude: node.lng,
-          locationGroupId: '',
-        }));
-    } catch {
-      return [];
-    }
+  function findNearbyLocationsLocal(lat: number, lng: number): StudyLocation[] {
+    // Return all locations sorted by distance (no hard radius cut-off —
+    // let the group-picker show the nearest building's spots).
+    if (allLocations.length === 0) return [];
+    return [...allLocations].sort(
+      (a, b) =>
+        haversineMeters(lat, lng, a.latitude, a.longitude) -
+        haversineMeters(lat, lng, b.latitude, b.longitude),
+    );
   }
 
   async function handleMicClick() {
@@ -246,36 +285,47 @@ function SessionManager() {
       return;
     }
 
+    if (occupancyLevel === null) {
+      setIsError(true);
+      setMessage('Cannot start session without selecting occupancy level.');
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        setUserCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
-        const locations = await findNearbyLocations(position.coords);
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setUserCoords({ lat: latitude, lng: longitude });
 
-        if (locations.length === 0) {
-          // Always find nearest — no "no spots" error
-          const nearest = await findNearestLocation(position.coords);
-          if (!nearest) {
-            // Absolute last resort: still don't error, just use a placeholder
-            confirmAndBeginSession({
-              studyLocationId: '',
-              name: 'Nearest Study Spot',
-              buildingName: '',
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              locationGroupId: '',
-            });
-            return;
-          }
-          confirmAndBeginSession(nearest);
+        // ── Local matching — mirrors Flutter's LocalStudyLocationResolver ──
+        const sorted = findNearbyLocationsLocal(latitude, longitude);
+
+        if (sorted.length === 0) {
+          // No locations loaded yet — show a helpful message instead of a fake spot
+          setIsError(true);
+          setMessage('Location data not loaded yet. Please wait a moment and try again.');
           return;
         }
 
-        if (locations.length === 1) {
-          confirmAndBeginSession(locations[0]);
+        // Group by locationGroupId (real group ID now that we fetch from /groups)
+        const groups = new Map<string, StudyLocation[]>();
+        for (const loc of sorted) {
+          const key = loc.locationGroupId || `_solo_${loc.studyLocationId}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(loc);
+        }
+
+        // The nearest location's group is the first key inserted
+        const nearestLoc = sorted[0];
+        const nearestGroupKey = nearestLoc.locationGroupId || `_solo_${nearestLoc.studyLocationId}`;
+        const groupLocations = groups.get(nearestGroupKey)!;
+
+        if (groupLocations.length === 1) {
+          confirmAndBeginSession(groupLocations[0]);
           return;
         }
 
-        setNearbyLocations(locations);
+        // Multiple spots in the nearest building — let the user pick
+        setNearbyLocations(groupLocations);
         setShowLocationPicker(true);
         setIsError(false);
         setMessage('');
@@ -324,6 +374,12 @@ function SessionManager() {
       return;
     }
 
+    if (occupancyLevel === null) {
+      setIsError(true);
+      setMessage('Please select an occupancy level before submitting.');
+      isRecordingRef.current = true;
+      return;
+    }
     submitReport(occupancyLevel);
   }
 
@@ -464,12 +520,31 @@ function SessionManager() {
     setShowCreateGroupModal(true);
   }
 
+  function pickLevelFromBarY(e: React.PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    // ratio 0 = top = Full (level 5), ratio 1 = bottom = Empty (level 1)
+    const index = Math.round(ratio * (OCCUPANCY_LEVELS.length - 1));
+    setOccupancyLevel(OCCUPANCY_LEVELS[index].level);
+  }
+
+  function handleBarPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pickLevelFromBarY(e);
+  }
+
+  function handleBarPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.buttons === 0) return;
+    pickLevelFromBarY(e);
+  }
+
   const sampleCount = sessionState.noisesamples.length;
   const hasEnoughSamples = sampleCount >= 10;
   const noiseBarPosition = currentDb !== null ? dbToBarPosition(currentDb) : 0;
   const qualitativeLabel = currentDb !== null ? dbToQualitative(currentDb) : '—';
-  const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel);
-  const occupancyDotPosition = ((5 - occupancyLevel) / 4) * 100;
+  const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel) ?? null;
+  // dot position: Full(5)=0% top, Empty(1)=100% bottom
+  const occupancyDotPosition = occupancyLevel !== null ? ((5 - occupancyLevel) / 4) * 100 : null;
 
   return (
     <>
@@ -553,6 +628,20 @@ function SessionManager() {
               onClick={() => { setShowLocationConfirm(false); setPendingLocation(null); }}
             >
               Cancel
+            </button>
+
+            <hr className="session-modal__divider" />
+            <p className="session-modal__hint">Don't see your location?</p>
+            <button
+              type="button"
+              className="session-btn session-btn--ghost"
+              onClick={() => {
+                setShowLocationConfirm(false);
+                setPendingLocation(null);
+                openCreateGroupModal();
+              }}
+            >
+              🏛️ Create Group + First Study Area
             </button>
           </div>
         </div>
@@ -677,36 +766,26 @@ function SessionManager() {
           </div>
         )}
 
-        {/* ── Decibel Readout ─────────────────────────────── */}
+        {/* ── Noise Meter (vertical thermometer) ──────────── */}
         <div className="dc-panel">
-          <p className="dc-panel__label">DECIBEL READOUT</p>
-          <div className="dc-db-readout">
-            <span className="dc-db-readout__number">
-              {currentDb !== null ? currentDb.toFixed(1) : '--'}
+          <p className="dc-panel__label">NOISE LEVEL</p>
+          <div className="dc-noise-meter">
+            <span className="dc-noise-meter__db">
+              {currentDb !== null ? `${currentDb.toFixed(1)} dB` : '-- dB'}
             </span>
-            <span className="dc-db-readout__unit">dB</span>
+            <div className="dc-noise-meter__bar-outer">
+              <div className="dc-noise-meter__bar-track">
+                <div
+                  className="dc-noise-meter__bar-fill"
+                  style={{ height: `${noiseBarPosition}%` }}
+                />
+              </div>
+            </div>
+            <span className="dc-noise-meter__qualitative">{qualitativeLabel}</span>
           </div>
           {micPermission !== 'granted' && (
             <p className="dc-panel__sublabel">Microphone access needed</p>
           )}
-        </div>
-
-        {/* ── Qualitative Noise Bar ─────────────────────────── */}
-        <div className="dc-panel">
-          <p className="dc-panel__label">QUALITATIVE NOISE</p>
-          <p className="dc-noise-quality-label">{qualitativeLabel}</p>
-          <div className="dc-noise-bar-wrap">
-            <div className="dc-noise-bar">
-              <div
-                className="dc-noise-bar__indicator"
-                style={{ left: `${noiseBarPosition}%` }}
-              />
-            </div>
-            <div className="dc-noise-bar-ends">
-              <span>Quiet</span>
-              <span>Loud</span>
-            </div>
-          </div>
         </div>
 
         {/* ── Mic Button ──────────────────────────────────── */}
@@ -734,30 +813,38 @@ function SessionManager() {
           </p>
         </div>
 
-        {/* ── Occupancy Vertical Slider ─────────────────────── */}
+        {/* ── Occupancy Bar ─────────────────────────────────── */}
         <div className="dc-panel dc-panel--row">
           <div className="dc-occupancy-wrap">
             <p className="dc-panel__label">OCCUPANCY</p>
-            <p className="dc-occupancy-current" style={{ color: selectedOccupancy?.color ?? '#888' }}>
-              {selectedOccupancy?.label ?? 'Moderate'}
+            <p className="dc-occupancy-current" style={{ color: selectedOccupancy?.color ?? '#94a3b8' }}>
+              {selectedOccupancy?.label ?? '—'}
             </p>
-            <p className="dc-occupancy-sub">Stored as a 1–5 A1/report value</p>
+            <p className="dc-occupancy-sub">Choose Occupancy Level before recording session</p>
             <div className="dc-occupancy-layout">
+              {/* Draggable/tappable gradient bar */}
               <div className="dc-occupancy-bar-wrap">
-                <div className="dc-occupancy-bar">
-                  <div
-                    className="dc-occupancy-bar__dot"
-                    style={{ top: `${occupancyDotPosition}%` }}
-                  />
+                <div
+                  className="dc-occupancy-bar"
+                  onPointerDown={handleBarPointerDown}
+                  onPointerMove={handleBarPointerMove}
+                >
+                  {occupancyDotPosition !== null && (
+                    <div
+                      className="dc-occupancy-bar__dot"
+                      style={{ top: `${occupancyDotPosition}%` }}
+                    />
+                  )}
                 </div>
               </div>
+              {/* Labels — tap to select, colored only when active */}
               <div className="dc-occupancy-labels">
                 {OCCUPANCY_LEVELS.map(({ level, label, color }) => (
                   <button
                     key={level}
                     type="button"
                     className={`dc-occupancy-label-btn ${occupancyLevel === level ? 'active' : ''}`}
-                    style={{ color: occupancyLevel === level ? color : '#888' }}
+                    style={{ color: occupancyLevel === level ? color : '#94a3b8' }}
                     onClick={() => setOccupancyLevel(level)}
                   >
                     {label}
@@ -768,15 +855,6 @@ function SessionManager() {
           </div>
         </div>
 
-        {/* ── Create Group Button ───────────────────────────── */}
-        <button
-          type="button"
-          className="dc-create-group-btn"
-          onClick={openCreateGroupModal}
-        >
-          🏛️ Create Group + First Study Area
-        </button>
-
         {/* ── Status Message ────────────────────────────────── */}
         {message && (
           <p className={`session-bar__message ${isError ? 'error' : 'success'}`}>
@@ -784,16 +862,6 @@ function SessionManager() {
           </p>
         )}
 
-        {/* ── Permission Denied Warnings ────────────────────── */}
-        {(micPermission === 'denied' || locationPermission === 'denied') && (
-          <p className="session-bar__denied">
-            {micPermission === 'denied' && locationPermission === 'denied'
-              ? '⚠️ Microphone and location access denied. Please update browser permissions.'
-              : micPermission === 'denied'
-              ? '⚠️ Microphone access denied. Please update browser permissions.'
-              : '⚠️ Location access denied. Please update browser permissions.'}
-          </p>
-        )}
       </div>
     </>
   );
