@@ -23,11 +23,11 @@ jobs:
                   git reset --hard origin/main
                   git clean -fd
                   
-                  cd ../server
+                  cd server
                   npm ci --production
 
                   cd ../Web_Frontend
-                  npm ci
+                  npm install
                   npm run build
 
                   cd ../server
