@@ -2,6 +2,42 @@ import { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '../config';
 import './SessionManager.css';
 
+// ── Noise-level marker SVGs (15 total: 5 tiers × 3 variants) ──────────────
+import m1_1 from '../assets/markers/1-1.svg';
+import m1_2 from '../assets/markers/1-2.svg';
+import m1_3 from '../assets/markers/1-3.svg';
+import m2_1 from '../assets/markers/2-1.svg';
+import m2_2 from '../assets/markers/2-2.svg';
+import m2_3 from '../assets/markers/2-3.svg';
+import m3_1 from '../assets/markers/3-1.svg';
+import m3_2 from '../assets/markers/3-2.svg';
+import m3_3 from '../assets/markers/3-3.svg';
+import m4_1 from '../assets/markers/4-1.svg';
+import m4_2 from '../assets/markers/4-2.svg';
+import m4_3 from '../assets/markers/4-3.svg';
+import m5_1 from '../assets/markers/5-1.svg';
+import m5_2 from '../assets/markers/5-2.svg';
+import m5_3 from '../assets/markers/5-3.svg';
+import locationPinSrc from '../assets/markers/LocationPin.svg';
+import microphoneSrc from '../assets/microphone.svg';
+
+// Indexed 0–4: Quiet → Moderate → Lively → Loud → Very Loud
+const NOISE_TIER_MARKERS: string[][] = [
+  [m1_1, m1_2, m1_3],
+  [m2_1, m2_2, m2_3],
+  [m3_1, m3_2, m3_3],
+  [m4_1, m4_2, m4_3],
+  [m5_1, m5_2, m5_3],
+];
+
+function dbToTierIndex(db: number): number {
+  if (db < 40) return 0; // Quiet
+  if (db < 55) return 1; // Moderate
+  if (db < 65) return 2; // Lively
+  if (db < 75) return 3; // Loud
+  return 4;              // Very Loud
+}
+
 type PermissionStatus = 'pending' | 'granted' | 'denied' | 'requesting';
 
 type SessionState = {
@@ -25,6 +61,12 @@ type StudyLocation = {
 type CreateGroupForm = {
   groupName: string;
   firstAreaName: string;
+  floor: string;
+  description: string;
+};
+
+type CreateLocationForm = {
+  areaName: string;
   floor: string;
   description: string;
 };
@@ -101,6 +143,25 @@ function SessionManager() {
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [createGroupError, setCreateGroupError] = useState('');
 
+  // Add Location to existing group modal
+  const [showCreateLocationModal, setShowCreateLocationModal] = useState(false);
+  const [createLocationForm, setCreateLocationForm] = useState<CreateLocationForm>({
+    areaName: '',
+    floor: '',
+    description: '',
+  });
+  const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
+  const [targetGroupName, setTargetGroupName] = useState<string | null>(null);
+  const [isCreatingLocation, setIsCreatingLocation] = useState(false);
+  const [createLocationError, setCreateLocationError] = useState('');
+
+  // Cycles 0 → 1 → 2 → 0 every 1.5 s to alternate between the 3 SVG variants
+  const [markerVariant, setMarkerVariant] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setMarkerVariant((v) => (v + 1) % 3), 750);
+    return () => window.clearInterval(id);
+  }, []);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -132,6 +193,12 @@ function SessionManager() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!message) return;
+    const id = setTimeout(() => setMessage(''), 4000);
+    return () => clearTimeout(id);
+  }, [message]);
 
   // ── Fetch ALL locations once on mount (mirrors Flutter's fetchStudyLocations) ──
   // GET /api/locations/groups → for each group → GET /api/locations/groups/:id/locations
@@ -509,6 +576,68 @@ function SessionManager() {
     }
   }
 
+  async function handleCreateLocation() {
+    if (!userCoords) {
+      setCreateLocationError('Location not available. Please grant location permissions.');
+      return;
+    }
+    if (!createLocationForm.areaName.trim()) {
+      setCreateLocationError('Study area name is required.');
+      return;
+    }
+    if (!targetGroupId) return;
+
+    setIsCreatingLocation(true);
+    setCreateLocationError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const locRes = await fetch(
+        apiUrl(`/api/locations/groups/${encodeURIComponent(targetGroupId)}/locations`),
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name: createLocationForm.areaName.trim(),
+            floorLabel: createLocationForm.floor.trim(),
+            sublocationLabel: createLocationForm.description.trim(),
+            latitude: userCoords.lat,
+            longitude: userCoords.lng,
+          }),
+        },
+      );
+
+      if (!locRes.ok) {
+        const err = await locRes.json();
+        throw new Error(err.error || 'Failed to create study area.');
+      }
+
+      const newLoc = await locRes.json();
+      const floorLabel = createLocationForm.floor.trim();
+      const newStudyLocation: StudyLocation = {
+        studyLocationId: newLoc.studyLocationId,
+        name: [targetGroupName, floorLabel].filter(Boolean).join(' · '),
+        buildingName: targetGroupName ?? '',
+        latitude: userCoords.lat,
+        longitude: userCoords.lng,
+        locationGroupId: targetGroupId,
+      };
+      setAllLocations((prev) => [...prev, newStudyLocation]);
+
+      setShowCreateLocationModal(false);
+      setCreateLocationForm({ areaName: '', floor: '', description: '' });
+      setIsError(false);
+      setMessage(`"${createLocationForm.areaName.trim()}" added to ${targetGroupName}!`);
+    } catch (error) {
+      setCreateLocationError(error instanceof Error ? error.message : 'Something went wrong.');
+    } finally {
+      setIsCreatingLocation(false);
+    }
+  }
+
   function openCreateGroupModal() {
     setCreateGroupError('');
     if (locationPermission === 'granted') {
@@ -542,7 +671,9 @@ function SessionManager() {
   const hasEnoughSamples = sampleCount >= 10;
   const noiseBarPosition = currentDb !== null ? dbToBarPosition(currentDb) : 0;
   const qualitativeLabel = currentDb !== null ? dbToQualitative(currentDb) : '—';
-  const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel) ?? null;
+  const tierIndex = currentDb !== null ? dbToTierIndex(currentDb) : 0;
+  const currentMarkerSrc = NOISE_TIER_MARKERS[tierIndex][markerVariant];
+  // const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel) ?? null;
   // dot position: Full(5)=0% top, Empty(1)=100% bottom
   const occupancyDotPosition = occupancyLevel !== null ? ((5 - occupancyLevel) / 4) * 100 : null;
 
@@ -552,16 +683,11 @@ function SessionManager() {
       {showPermissionModal && (
         <div className="session-overlay">
           <div className="session-modal">
-            <div className="session-modal__icon">📍🎙️</div>
             <h2>Enable Location &amp; Microphone</h2>
             <p>
               To track noise levels at your study space and contribute to live data,
               we need access to your microphone and location.
             </p>
-            <ul className="session-modal__list">
-              <li>📍 Location — to find which study space you're at</li>
-              <li>🎙️ Microphone — to measure ambient noise levels</li>
-            </ul>
             <p className="session-modal__note">
               Your audio is never recorded or stored — only the noise level (dB) is used.
             </p>
@@ -589,11 +715,27 @@ function SessionManager() {
                   className="session-location-btn"
                   onClick={() => confirmAndBeginSession(loc)}
                 >
-                  📍 {loc.name}
+                  <img src={locationPinSrc} alt="" style={{ width: 16, height: 16, verticalAlign: 'middle', marginRight: 6 }} />
+                  {loc.name}
                   {loc.buildingName ? <span className="session-location-btn__building"> — {loc.buildingName}</span> : null}
                 </button>
               ))}
             </div>
+            <hr className="session-modal__divider" />
+            <p className="session-modal__hint">Don't see your spot?</p>
+            <button
+              type="button"
+              className="session-btn session-btn--ghost"
+              onClick={() => {
+                setTargetGroupId(nearbyLocations[0].locationGroupId);
+                setTargetGroupName(nearbyLocations[0].buildingName);
+                setShowLocationPicker(false);
+                setNearbyLocations([]);
+                setShowCreateLocationModal(true);
+              }}
+            >
+              + Add New Location in This Building
+            </button>
             <button
               type="button"
               className="session-btn session-btn--secondary"
@@ -605,11 +747,81 @@ function SessionManager() {
         </div>
       )}
 
+      {/* ── Add Location to Group Modal ───────────────────── */}
+      {showCreateLocationModal && (
+        <div className="session-overlay">
+          <div className="session-modal session-modal--form">
+            <h2>Add Location in {targetGroupName}</h2>
+            <p className="session-modal__desc">
+              Add a new study area to this building. Your current position will be used as the location.
+            </p>
+
+            {createLocationError && (
+              <p className="session-modal__error">{createLocationError}</p>
+            )}
+
+            <div className="session-form-group">
+              <label className="session-form-label">Study area name</label>
+              <input
+                className="session-form-input"
+                type="text"
+                placeholder="e.g. 2nd Floor Reading Room"
+                value={createLocationForm.areaName}
+                onChange={(e) => setCreateLocationForm((prev) => ({ ...prev, areaName: e.target.value }))}
+              />
+            </div>
+
+            <div className="session-form-group">
+              <label className="session-form-label">Floor / level (optional)</label>
+              <input
+                className="session-form-input"
+                type="text"
+                placeholder="Floor / level (optional)"
+                value={createLocationForm.floor}
+                onChange={(e) => setCreateLocationForm((prev) => ({ ...prev, floor: e.target.value }))}
+              />
+            </div>
+
+            <div className="session-form-group">
+              <label className="session-form-label">Description (optional)</label>
+              <input
+                className="session-form-input"
+                type="text"
+                placeholder="Description (optional)"
+                value={createLocationForm.description}
+                onChange={(e) => setCreateLocationForm((prev) => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+
+            <div className="session-modal__actions">
+              <button
+                type="button"
+                className="session-btn session-btn--secondary"
+                onClick={() => { setShowCreateLocationModal(false); setCreateLocationError(''); }}
+                disabled={isCreatingLocation}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="session-btn session-btn--primary session-btn--create"
+                onClick={handleCreateLocation}
+                disabled={isCreatingLocation}
+              >
+                {isCreatingLocation ? 'Adding...' : 'Add Location'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Location Confirmation Modal ────────────────────── */}
       {showLocationConfirm && pendingLocation && (
         <div className="session-overlay">
           <div className="session-modal">
-            <div className="session-modal__icon">📍</div>
+            <div className="session-modal__icon">
+              <img src={locationPinSrc} alt="" style={{ width: 40, height: 40 }} />
+            </div>
             <h2>Starting session at:</h2>
             <p className="session-confirm__location-name">{pendingLocation.name}</p>
             {pendingLocation.buildingName && (
@@ -753,7 +965,7 @@ function SessionManager() {
         {/* Active-session location banner */}
         {sessionState.isActive && (
           <div className="dc-location-banner">
-            <span className="dc-location-banner__pin">📍</span>
+            <img src={locationPinSrc} alt="" className="dc-location-banner__pin" style={{ width: 24, height: 24 }} />
             <div className="dc-location-banner__text">
               <span className="dc-location-banner__name">{sessionState.locationName}</span>
               {sessionState.buildingName && (
@@ -766,13 +978,13 @@ function SessionManager() {
           </div>
         )}
 
-        {/* ── Three-column layout ──────────────────────────── */}
-        <div className="dc-three-col">
+        {/* ── Three-column layout — all in one shared card ─── */}
+        <div className="dc-card dc-card--shared">
+          <div className="dc-three-col">
 
-          {/* LEFT — Noise Level */}
-          <div className="dc-col">
-            <p className="dc-col__title">Noise Level</p>
-            <div className="dc-card">
+            {/* LEFT — Noise Level */}
+            <div className="dc-col">
+              <p className="dc-col__title">Noise Level</p>
               <div className="dc-noise-meter">
                 <span className="dc-noise-meter__db">
                   {currentDb !== null ? `${currentDb.toFixed(1)} dB` : '-- dB'}
@@ -791,18 +1003,11 @@ function SessionManager() {
                 <p className="dc-card__note">Mic needed</p>
               )}
             </div>
-          </div>
 
-          {/* CENTER — Start Session */}
-          <div className="dc-col">
-            <p className="dc-col__title">
-              {sessionState.isActive ? 'Recording' : 'Start Session'}
-            </p>
-            <div className="dc-card dc-card--session">
-              <p className="session-mic-hint">
-                {sessionState.isActive
-                  ? 'Tap to end & submit'
-                  : 'Tap to start recording'}
+            {/* CENTER — Start Session */}
+            <div className="dc-col dc-col--center">
+              <p className="dc-col__title">
+                {sessionState.isActive ? 'Recording' : 'Start Session'}
               </p>
               <button
                 type="button"
@@ -811,19 +1016,15 @@ function SessionManager() {
                 disabled={isSubmitting || micPermission === 'denied' || locationPermission === 'denied'}
                 aria-label={sessionState.isActive ? 'End Session' : 'Start Session'}
               >
-                🎙️
+                <img src={currentMarkerSrc} alt="" className="session-mic-marker" />
+                <img src={microphoneSrc} alt="" className="session-mic-icon" />
               </button>
-              <p className="session-mic-label">
-                {isSubmitting ? 'Submitting…' : sessionState.isActive ? 'End Session' : 'Start Session'}
-              </p>
-            </div>
-          </div>
 
-          {/* RIGHT — Occupancy */}
-          <div className="dc-col">
-            <p className="dc-col__title">Occupancy</p>
-            <div className="dc-card">
-              <p className="dc-occupancy-sub">Choose level before recording</p>
+            </div>
+
+            {/* RIGHT — Occupancy */}
+            <div className="dc-col">
+              <p className="dc-col__title">Occupancy</p>
               <div className="dc-occupancy-layout">
                 <div className="dc-occupancy-bar-wrap">
                   <div
@@ -845,7 +1046,7 @@ function SessionManager() {
                       key={level}
                       type="button"
                       className={`dc-occupancy-label-btn ${occupancyLevel === level ? 'active' : ''}`}
-                      style={{ color: occupancyLevel === level ? color : '#94a3b8' }}
+                      style={{ color: occupancyLevel === level ? color : undefined }}
                       onClick={() => setOccupancyLevel(level)}
                     >
                       {label}
@@ -854,17 +1055,15 @@ function SessionManager() {
                 </div>
               </div>
             </div>
+
           </div>
+        </div>
 
-        </div>{/* end .dc-three-col */}
-
-        {/* ── Status Message ────────────────────────────────── */}
         {message && (
           <p className={`session-bar__message ${isError ? 'error' : 'success'}`}>
             {message}
           </p>
         )}
-
       </div>
     </>
   );

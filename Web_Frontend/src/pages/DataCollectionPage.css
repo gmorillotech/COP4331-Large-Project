@@ -28,7 +28,7 @@
 .datacollection-back-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.55);
-  color: white;
+  color: #60c8c0;
 }
 
 /* ── PAGE CONTENT — flex column, fills remaining height ─ */
@@ -38,7 +38,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 56px 12px 12px;
+  padding: 16px 12px 12px;
   text-align: center;
   overflow: hidden;
 }
@@ -46,7 +46,7 @@
 .datacollection-title {
   font-size: 26px;
   font-weight: 700;
-  color: white;
+  color: #60c8c0;
   margin-bottom: 6px;
   flex-shrink: 0;
 }

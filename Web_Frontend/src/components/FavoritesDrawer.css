@@ -44,14 +44,17 @@
   padding: 16px 20px;
   background-color: #0C1A49;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  color: white;
+  color: #6dd6ff;
+  text-shadow:
+    0 0 15px rgb(0, 0, 0),
+    0 0 35px rgb(255, 255, 255),
 }
 
 .favorites-drawer__header h2 {
   margin: 0;
   font-size: 1.1em;
   font-weight: 700;
-  color: white;
+  color: #6dd6ff;
 }
 
 .favorites-drawer__close {
@@ -67,7 +70,7 @@
 
 .favorites-drawer__close:hover {
   background-color: rgba(255, 255, 255, 0.12);
-  color: white;
+  color: #6dd6ff;
 }
 
 /* ── DRAWER BODY ─────────────────────────────────────── */
@@ -82,7 +85,7 @@
 .favorites-drawer__empty {
   text-align: center;
   padding: 48px 24px;
-  color: rgba(255, 255, 255, 0.5);
+  color: #6dd6ff; 
 }
 
 .favorites-drawer__empty p:first-child {
@@ -129,7 +132,7 @@
 
 .favorites-drawer__item-info strong {
   font-size: 0.9em;
-  color: white;
+  color: #6dd6ff;
 }
 
 .favorites-drawer__sub {

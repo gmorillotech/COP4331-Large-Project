@@ -16,7 +16,7 @@
 //         → sortedLocations (by sortOrder)
 //           → zoom-aware filtering for sidebar vs map
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
@@ -176,7 +176,12 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
     if (!stillVisible) setSelectedId(sortedLocations[0].id);
   }, [sortedLocations, selectedId]);
 
-  const selectedLocation = locations.find((l) => l.id === selectedId) ?? null;
+  const selectedLocation = useMemo(
+    () => locations.find((l) => l.id === selectedId) ?? null,
+    [locations, selectedId],
+  );
+
+  const handleClose = useCallback(() => setSelectedId(null), []);
 
   // ---- Render ---------------------------------------------------------------
 
@@ -184,12 +189,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
     <section className="map-page">
 
       <header className="map-controls-bar">
-        <div className="map-controls-title">
-          <p className="map-controls-eyebrow">SpotStudy</p>
-          <h2>Study Space Search</h2>
-          <p className="map-controls-subtitle">Search from the current map center</p>
-        </div>
-
+        
         <div className="map-controls-right">
           <div className="map-controls-search">
             <input
@@ -238,28 +238,20 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              className="map-chip map-refresh-chip"
+              disabled={isLoading}
+              onClick={() => void fetchLocations()}
+              aria-label="Refresh study spaces"
+              style={{ marginLeft: 'auto' }}
+            >
+              {isLoading ? 'Refreshing…' : '↻ Refresh'}
+            </button>
           </div>
         </div>
       </header>
-
-      <div className="map-status-row">
-        {isLoading && <p className="map-status">Loading study spaces...</p>}
-        {errorMsg  && <p className="map-status map-status--error">{errorMsg}</p>}
-        {!isLoading && !errorMsg && (
-          <p className="map-status">
-            {sortedLocations.length} location{sortedLocations.length !== 1 ? 's' : ''} shown
-          </p>
-        )}
-        <button
-          type="button"
-          className="map-refresh-btn"
-          disabled={isLoading}
-          onClick={() => void fetchLocations()}
-          aria-label="Refresh study spaces"
-        >
-          {isLoading ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </div>
 
       <div className="map-body-row">
         <div className="map-canvas-wrapper">
@@ -276,7 +268,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
               <MapHeatOverlay locations={heatmapLocations} />
               <MapInfoPopup
                 location={selectedLocation}
-                onClose={() => setSelectedId(null)}
+                onClose={handleClose}
                 isFavorite={selectedLocation ? isFavorite(selectedLocation.id) : false}
                 onToggleFavorite={toggleFavorite}
               />
