@@ -144,6 +144,12 @@ function MapExplorer() {
     return locations.filter((l) => l.kind === 'group');
   }, [locations, isZoomedIn]);
 
+  // Heatmap always draws from individual spots so each study area shows its own
+  // blob, even when zoomed out and the sidebar/markers show groups.
+  const heatmapLocations = useMemo(() => {
+    return locations.filter((l) => l.kind !== 'group');
+  }, [locations]);
+
   // Step 1: filter by search text
   const searchFiltered = useMemo(() => {
     if (!debouncedSearch) return zoomFiltered;
@@ -268,7 +274,7 @@ function MapExplorer() {
                 onZoomChange={handleZoomChange}
                 animation={animation}
               />
-              <MapHeatOverlay locations={sortedLocations} />
+              <MapHeatOverlay locations={heatmapLocations} />
               <MapInfoPopup
                 location={selectedLocation}
                 onClose={() => setSelectedId(null)}

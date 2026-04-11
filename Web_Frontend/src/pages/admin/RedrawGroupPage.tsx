@@ -249,7 +249,7 @@ function RedrawGroupPage() {
             defaultCenter={mapCenter}
             defaultZoom={DEFAULT_ZOOM + 1}
             mapId={MAP_ID}
-            colorScheme="DARK"
+            colorScheme="LIGHT"
             clickableIcons={false}
             disableDefaultUI={false}
             style={{ width: '100%', height: '100%' }}

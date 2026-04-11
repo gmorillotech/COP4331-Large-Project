@@ -10,32 +10,38 @@
 import { useEffect } from 'react';
 import { useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
-import { inferNoiseValue, buildHeatColor, buildHeatGradient } from '../../lib/mapUtils.ts';
+import { buildBandColor, buildHeatGradient } from '../../lib/mapUtils.ts';
+import type { NoiseBand } from '../../types/mapAnnotations.ts';
 
 // Shape of one pre-computed heat point (computed once from locations)
 type HeatPoint = {
   id: string;
   lat: number;
   lng: number;
-  color: string;      // rgb() string from buildHeatColor
-  intensity: number;  // 0–1 from inferNoiseValue
-  radius: number;     // pixel radius of the blob
+  color: string;      // rgb() string from buildBandColor
+  intensity: number;  // 0–1 derived from noiseBand
+  baseRadius: number; // pixel radius before zoom scaling
 };
 
+// Convert noiseBand (1–5) to a 0–1 intensity for gradient opacity scaling
+function bandToIntensity(band: NoiseBand | null | undefined): number {
+  if (band == null) return 0.4;
+  return (band - 1) / 4; // 1→0, 2→0.25, 3→0.5, 4→0.75, 5→1
+}
+
 // Pre-compute heat point data from raw locations.
-// This runs outside useEffect so it only re-runs when locations change.
 function buildHeatPoints(locations: MapLocation[]): HeatPoint[] {
   return locations.map((loc) => {
-    const intensity = inferNoiseValue(loc);
-    const isSub = Boolean(loc.sublocationLabel); // sub-spots get smaller blobs
+    const intensity = bandToIntensity(loc.noiseBand);
+    const isSub = Boolean(loc.sublocationLabel);
     return {
       id: loc.id,
       lat: loc.lat,
       lng: loc.lng,
-      color: buildHeatColor(intensity),
+      color: buildBandColor(loc.noiseBand),
       intensity,
       // Buildings get larger blobs than individual study spots
-      radius: isSub ? 90 + intensity * 90 : 120 + intensity * 110,
+      baseRadius: isSub ? 60 + intensity * 40 : 80 + intensity * 50,
     };
   });
 }
@@ -93,10 +99,21 @@ function MapHeatOverlay({ locations }: MapHeatOverlayProps) {
       const projection = this.getProjection(); // converts lat/lng ↔ pixel coordinates
       if (!projection || !this.container) return;
 
+      // Scale blob radius gently with zoom.  Using 1.2^x instead of 2^x so
+      // blobs grow slower than the map — zooming in reveals individual spots
+      // as pixel spacing outpaces blob radius.  Base size calibrated for zoom 15.
+      const zoom = map.getZoom() ?? 15;
+      const zoomScale = Math.max(Math.pow(1.2, zoom - 15), 0.4);
+
       // Clear the previous draw pass
       this.container.innerHTML = '';
 
       for (const point of this.points) {
+        const scaledRadius = point.baseRadius * zoomScale;
+
+        // Skip blobs that are too small to see
+        if (scaledRadius < 4) continue;
+
         // fromLatLngToDivPixel — converts a geographic coordinate to a pixel
         // offset within the overlay's coordinate space
         // google.maps.LatLng is available globally via @types/google.maps
@@ -112,8 +129,8 @@ function MapHeatOverlay({ locations }: MapHeatOverlayProps) {
         // Center the blob on the lat/lng point
         spot.style.left = `${pixel.x}px`;
         spot.style.top  = `${pixel.y}px`;
-        spot.style.width  = `${point.radius * 2}px`;
-        spot.style.height = `${point.radius * 2}px`;
+        spot.style.width  = `${scaledRadius * 2}px`;
+        spot.style.height = `${scaledRadius * 2}px`;
         spot.style.background = buildHeatGradient(point.color, point.intensity);
         this.container.appendChild(spot);
       }

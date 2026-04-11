@@ -432,15 +432,14 @@ code {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  mix-blend-mode: screen;
 }
 
 .map-heatmap-layer__spot {
   position: absolute;
   transform: translate(-50%, -50%);
   border-radius: 999px;
-  filter: blur(22px);
-  opacity: 0.95;
+  filter: blur(16px);
+  opacity: 0.92;
 }
 
 .map-popup--empty {
