@@ -104,13 +104,7 @@ function MapExplorer() {
         setErrorMsg(data.error);
         setLocations([]);
       } else {
-        // TODO: TEMP — force animated markers with bands 1–5 for visual testing
-        let bandCounter = 0;
-        setLocations(data.results.map(r => {
-          if (r.kind === 'group') return r;
-          bandCounter++;
-          return { ...r, hasRecentData: true, isAnimated: true, noiseBand: ((bandCounter % 5) + 1) as 1|2|3|4|5 };
-        }));
+        setLocations(data.results);
       }
     } catch (err) {
       if (signal?.aborted) return;

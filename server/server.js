@@ -16,8 +16,6 @@ const adminLocationRoutes = require("./routes/adminLocationRoutes");
 const adminUserRoutes = require("./routes/adminUserRoutes");
 const { ReportProcessingService } = require("./services/reportProcessingService");
 const {
-  baseLocationAnnotations,
-  baseLocationAnnotationsById,
   buildMapMarkerState,
   formatUpdatedAtLabel,
   toNoiseText,
@@ -46,13 +44,12 @@ app.use((req, res, next) => {
 });
 
 function buildMapAnnotation(location, group) {
-  const baseAnnotation = baseLocationAnnotationsById.get(location.studyLocationId);
   const liveNoise = Number.isFinite(location.currentNoiseLevel)
     ? location.currentNoiseLevel
-    : (baseAnnotation?.noiseValue ?? null);
+    : null;
   const liveOccupancy = Number.isFinite(location.currentOccupancyLevel)
     ? location.currentOccupancyLevel
-    : (baseAnnotation?.occupancyValue ?? null);
+    : null;
 
   const markerState = buildMapMarkerState(
     location.updatedAt,
@@ -64,31 +61,29 @@ function buildMapAnnotation(location, group) {
     id: location.studyLocationId,
     lat: location.latitude,
     lng: location.longitude,
-    title: baseAnnotation?.title ?? location.name,
-    buildingName: group?.name ?? baseAnnotation?.buildingName ?? location.name,
-    floorLabel: location.floorLabel ?? baseAnnotation?.floorLabel,
-    sublocationLabel: location.sublocationLabel ?? baseAnnotation?.sublocationLabel ?? location.name,
-    summary:
-      baseAnnotation?.summary ??
-      `Live study-space reading for ${location.name}.`,
+    title: location.name,
+    buildingName: group?.name ?? location.name,
+    floorLabel: location.floorLabel ?? "",
+    sublocationLabel: location.sublocationLabel ?? location.name,
+    summary: `Live study-space reading for ${location.name}.`,
     statusText:
       Number.isFinite(location.currentNoiseLevel) &&
       Number.isFinite(location.currentOccupancyLevel)
         ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : (baseAnnotation?.statusText ?? "Awaiting live reports"),
+        : "Awaiting live reports",
     noiseText: toNoiseText(liveNoise),
     noiseValue: liveNoise,
     occupancyText: toOccupancyText(liveOccupancy),
     occupancyValue: liveOccupancy,
     updatedAtLabel: location.updatedAt
       ? formatUpdatedAtLabel(location.updatedAt)
-      : (baseAnnotation?.updatedAtLabel ?? "Awaiting live reports"),
-    iconType: baseAnnotation?.iconType ?? "study",
+      : "Awaiting live reports",
+    iconType: "study",
     severity: Number.isFinite(liveNoise)
       ? toSeverity(liveNoise)
-      : (baseAnnotation?.severity ?? "low"),
-    color: baseAnnotation?.color ?? "#3A86FF",
-    isFavorite: baseAnnotation?.isFavorite ?? false,
+      : "low",
+    color: "#3A86FF",
+    isFavorite: false,
     // Marker animation state
     kind: "location",
     locationGroupId: location.locationGroupId ?? null,
@@ -224,10 +219,8 @@ app.get("/api/map-annotations", async (req, res) => {
     );
 
     // Build location markers
-    const locationResults = sourceData.locations.length > 0
-      ? sourceData.locations.map((location) =>
-          buildMapAnnotation(location, groupsById.get(location.locationGroupId)))
-      : baseLocationAnnotations;
+    const locationResults = sourceData.locations.map((location) =>
+      buildMapAnnotation(location, groupsById.get(location.locationGroupId)));
 
     // Build group markers (derive center from polygon centroid)
     const locationsByGroup = new Map();
@@ -248,9 +241,9 @@ app.get("/api/map-annotations", async (req, res) => {
     });
   } catch (_error) {
     res.status(200).json({
-      results: baseLocationAnnotations,
-      error: "",
-      source: "catalog",
+      results: [],
+      error: "Failed to load study spaces.",
+      source: "error",
     });
   }
 });

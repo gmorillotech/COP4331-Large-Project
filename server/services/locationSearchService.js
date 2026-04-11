@@ -1,7 +1,6 @@
 const LocationGroup = require("../models/LocationGroup");
 const StudyLocation = require("../models/StudyLocation");
 const {
-  baseLocationAnnotationsById,
   distanceInMeters,
   formatUpdatedAtLabel,
   toNoiseText,
@@ -52,24 +51,19 @@ function formatGroupOccupancyText(value, count) {
   return `${count} reported study area${count === 1 ? "" : "s"}`;
 }
 
-function buildLocationSearchText(location, groupName, base) {
+function buildLocationSearchText(location, groupName) {
   return [
     location.name,
     groupName,
-    location.floorLabel ?? base?.floorLabel,
-    location.sublocationLabel ?? base?.sublocationLabel,
-    base?.summary,
+    location.floorLabel,
+    location.sublocationLabel,
   ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
 }
 
-function buildSummary(base, occupancyValue, noiseValue) {
-  if (base?.summary) {
-    return base.summary;
-  }
-
+function buildSummary(occupancyValue, noiseValue) {
   if (isFiniteNumber(noiseValue) && isFiniteNumber(occupancyValue)) {
     return `Live estimate: ${noiseValue.toFixed(1)} dB with occupancy ${occupancyValue.toFixed(1)} / 5.`;
   }
@@ -78,16 +72,15 @@ function buildSummary(base, occupancyValue, noiseValue) {
 }
 
 function buildLocationNode(location, group, anchor) {
-  const base = baseLocationAnnotationsById.get(location.studyLocationId);
-  const lat = location.latitude ?? base?.lat ?? 0;
-  const lng = location.longitude ?? base?.lng ?? 0;
+  const lat = location.latitude ?? 0;
+  const lng = location.longitude ?? 0;
   const noiseValue = isFiniteNumber(location.currentNoiseLevel)
     ? location.currentNoiseLevel
-    : (base?.noiseValue ?? null);
+    : null;
   const occupancyValue = isFiniteNumber(location.currentOccupancyLevel)
     ? location.currentOccupancyLevel
-    : (base?.occupancyValue ?? null);
-  const buildingName = group?.name ?? base?.buildingName ?? "Unknown Building";
+    : null;
+  const buildingName = group?.name ?? "Unknown Building";
   const distanceMeters = anchor
     ? distanceInMeters(anchor.lat, anchor.lng, lat, lng)
     : null;
@@ -95,35 +88,31 @@ function buildLocationNode(location, group, anchor) {
   return {
     id: location.studyLocationId,
     kind: "location",
-    title: location.name ?? base?.title ?? "Study Location",
+    title: location.name ?? "Study Location",
     buildingName,
-    floorLabel: location.floorLabel ?? base?.floorLabel ?? "",
-    sublocationLabel: location.sublocationLabel ?? base?.sublocationLabel ?? "",
-    summary: buildSummary(base, occupancyValue, noiseValue),
+    floorLabel: location.floorLabel ?? "",
+    sublocationLabel: location.sublocationLabel ?? "",
+    summary: buildSummary(occupancyValue, noiseValue),
     statusText:
       isFiniteNumber(location.currentNoiseLevel) && isFiniteNumber(location.currentOccupancyLevel)
         ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : (base?.statusText ?? "Status unavailable"),
-    noiseText: isFiniteNumber(location.currentNoiseLevel)
-      ? toNoiseText(location.currentNoiseLevel)
-      : (base?.noiseText ?? "Noise unavailable"),
-    occupancyText: isFiniteNumber(location.currentOccupancyLevel)
-      ? toOccupancyText(location.currentOccupancyLevel)
-      : (base?.occupancyText ?? "Occupancy unavailable"),
+        : "Awaiting live reports",
+    noiseText: toNoiseText(location.currentNoiseLevel),
+    occupancyText: toOccupancyText(location.currentOccupancyLevel),
     updatedAtLabel: location.updatedAt
       ? formatUpdatedAtLabel(location.updatedAt)
-      : (base?.updatedAtLabel ?? "Awaiting live reports"),
+      : "Awaiting live reports",
     lat,
     lng,
-    color: base?.color ?? "#3a86ff",
-    severity: isFiniteNumber(noiseValue) ? toSeverity(noiseValue) : (base?.severity ?? "low"),
-    badge: (base?.floorLabel?.match(/(\d+)/)?.[1] ?? (location.name ?? "S")[0] ?? "S").toUpperCase(),
+    color: "#3a86ff",
+    severity: isFiniteNumber(noiseValue) ? toSeverity(noiseValue) : "low",
+    badge: (location.floorLabel?.match(/(\d+)/)?.[1] ?? (location.name ?? "S")[0] ?? "S").toUpperCase(),
     locationCount: 1,
-    isFavorite: Boolean(base?.isFavorite),
+    isFavorite: false,
     noiseValue,
     occupancyValue,
     distanceMeters,
-    searchText: buildLocationSearchText(location, buildingName, base),
+    searchText: buildLocationSearchText(location, buildingName),
   };
 }
 
