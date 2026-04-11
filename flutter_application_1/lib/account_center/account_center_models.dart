@@ -14,7 +14,6 @@ class AccountProfile {
     required this.firstName,
     required this.lastName,
     required this.displayName,
-    required this.hideLocation,
     required this.pinColor,
     required this.favorites,
     required this.userNoiseWF,
@@ -28,7 +27,6 @@ class AccountProfile {
   final String? firstName;
   final String? lastName;
   final String? displayName;
-  final bool hideLocation;
   final String pinColor;
   final List<String> favorites;
   final double userNoiseWF;
@@ -74,7 +72,6 @@ class AccountProfile {
     String? firstName,
     String? lastName,
     String? displayName,
-    bool? hideLocation,
     String? pinColor,
     List<String>? favorites,
     double? userNoiseWF,
@@ -88,7 +85,6 @@ class AccountProfile {
       firstName: firstName ?? this.firstName,
       lastName: lastName ?? this.lastName,
       displayName: displayName ?? this.displayName,
-      hideLocation: hideLocation ?? this.hideLocation,
       pinColor: pinColor ?? this.pinColor,
       favorites: favorites ?? this.favorites,
       userNoiseWF: userNoiseWF ?? this.userNoiseWF,
@@ -130,7 +126,6 @@ AccountProfile buildDemoAccountProfile() {
     firstName: 'Local',
     lastName: 'User',
     displayName: 'Study Explorer',
-    hideLocation: false,
     pinColor: '#0F766E',
     favorites: const <String>[
       'library-floor-1-quiet',

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../auth/auth_models.dart';
 import '../auth/auth_service.dart';
 import '../data_collection/data_collection_workflow.dart';
 import 'account_center_backend.dart';
@@ -49,7 +50,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
   bool _loading = true;
   bool _savingProfile = false;
   bool _changingPassword = false;
-  bool _hideLocation = false;
   List<String> _favorites = <String>[];
   String _pinColor = _pinColorOptions.first.hex;
   String? _message;
@@ -148,7 +148,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
     setState(() {
       _profile = profile;
       _syncMode = mode;
-      _hideLocation = profile.hideLocation;
       _favorites = List<String>.from(profile.favorites);
       _pinColor = profile.pinColor.toUpperCase();
       _loading = false;
@@ -179,7 +178,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
       firstName: _nullableText(_firstNameController.text),
       lastName: _nullableText(_lastNameController.text),
       displayName: _nullableText(_displayNameController.text),
-      hideLocation: _hideLocation,
       pinColor: _pinColor,
       favorites: _favorites,
     );
@@ -229,9 +227,10 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
       return;
     }
 
-    if (newPassword.trim().length < 8) {
+    final passwordErrors = validatePassword(newPassword);
+    if (passwordErrors.isNotEmpty) {
       _showInlineMessage(
-        'New password must be at least 8 characters long.',
+        'Password must have ${passwordErrors.join(', ')}.',
         isError: true,
       );
       return;
@@ -582,24 +581,10 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
                           _sectionCard(
                             title: 'Preferences',
                             subtitle:
-                                'Privacy, favorite study spots, and trust-factor telemetry from report processing.',
+                                'Favorite study spots and trust-factor telemetry from report processing.',
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                SwitchListTile.adaptive(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: const Text(
-                                    'Hide my location when sharing study activity',
-                                  ),
-                                  subtitle: const Text(
-                                    'Keeps your profile from broadcasting location presence when this setting is honored by the backend.',
-                                  ),
-                                  value: _hideLocation,
-                                  onChanged: (value) {
-                                    setState(() => _hideLocation = value);
-                                  },
-                                ),
-                                const SizedBox(height: 16),
                                 const Text(
                                   'Favorite Spots',
                                   style: TextStyle(

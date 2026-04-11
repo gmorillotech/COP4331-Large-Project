@@ -259,7 +259,6 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
         'firstName': _nullableString(profile.firstName),
         'lastName': _nullableString(profile.lastName),
         'displayName': _nullableString(profile.displayName),
-        'hideLocation': profile.hideLocation,
         'pinColor': profile.pinColor,
         'favorites': profile.favorites,
       },
@@ -393,7 +392,6 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
       firstName: _normalizeNullableString(payload['firstName']),
       lastName: _normalizeNullableString(payload['lastName']),
       displayName: _normalizeNullableString(payload['displayName']),
-      hideLocation: payload['hideLocation'] as bool? ?? false,
       pinColor: (payload['pinColor'] as String? ?? '#0F766E').trim().toUpperCase(),
       favorites: (payload['favorites'] as List<dynamic>? ?? const <dynamic>[])
           .map((entry) => entry.toString().trim())

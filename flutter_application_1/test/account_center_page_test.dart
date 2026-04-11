@@ -145,6 +145,39 @@ void main() {
       ]),
     );
   });
+
+  testWidgets('rejects password change missing complexity rules',
+      (tester) async {
+    final backend = _FakeAccountCenterBackendClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountCenterPage(backendClient: backend),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('security-submit-button')));
+    await tester.enterText(
+      find.byKey(const Key('current-password-field')),
+      'current-pass',
+    );
+    await tester.enterText(
+      find.byKey(const Key('new-password-field')),
+      'onlyletters',
+    );
+    await tester.enterText(
+      find.byKey(const Key('confirm-password-field')),
+      'onlyletters',
+    );
+    await tester.ensureVisible(find.byKey(const Key('security-submit-button')));
+    await tester.tap(find.byKey(const Key('security-submit-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('at least one number'), findsOneWidget);
+    expect(backend.passwordChanges, isEmpty);
+  });
+
 }
 
 class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
@@ -156,7 +189,6 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
           firstName: 'Test',
           lastName: 'User',
           displayName: 'Tester',
-          hideLocation: false,
           pinColor: '#0F766E',
           favorites: const <String>['library-floor-1-quiet'],
           userNoiseWF: 1.1,
