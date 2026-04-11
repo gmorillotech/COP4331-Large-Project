@@ -1,3 +1,25 @@
+List<String> validateUsername(String username) {
+  final errors = <String>[];
+  if (username.length < 3 || username.length > 22) {
+    errors.add('3\u201322 characters');
+  }
+  if (!RegExp(r'[a-zA-Z]').hasMatch(username)) {
+    errors.add('at least one letter');
+  }
+  return errors;
+}
+
+List<String> validatePassword(String password) {
+  final errors = <String>[];
+  if (password.length < 8) errors.add('at least 8 characters');
+  if (!RegExp(r'[a-zA-Z]').hasMatch(password)) errors.add('at least one letter');
+  if (!RegExp(r'[0-9]').hasMatch(password)) errors.add('at least one number');
+  if (!RegExp(r'[^a-zA-Z0-9]').hasMatch(password)) {
+    errors.add('at least one special character');
+  }
+  return errors;
+}
+
 class AuthUser {
   const AuthUser({
     required this.userId,
@@ -9,6 +31,8 @@ class AuthUser {
     this.favorites = const [],
     this.userNoiseWF = 1.0,
     this.userOccupancyWF = 1.0,
+    this.role = 'user',
+    this.accountStatus = 'active',
   });
 
   final String userId;
@@ -20,6 +44,8 @@ class AuthUser {
   final List<String> favorites;
   final double userNoiseWF;
   final double userOccupancyWF;
+  final String role;
+  final String accountStatus;
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
@@ -32,6 +58,8 @@ class AuthUser {
       favorites: (json['favorites'] as List<dynamic>?)?.cast<String>() ?? [],
       userNoiseWF: (json['userNoiseWF'] as num?)?.toDouble() ?? 1.0,
       userOccupancyWF: (json['userOccupancyWF'] as num?)?.toDouble() ?? 1.0,
+      role: json['role'] as String? ?? 'user',
+      accountStatus: json['accountStatus'] as String? ?? 'active',
     );
   }
 
@@ -45,6 +73,8 @@ class AuthUser {
         'favorites': favorites,
         'userNoiseWF': userNoiseWF,
         'userOccupancyWF': userOccupancyWF,
+        'role': role,
+        'accountStatus': accountStatus,
       };
 }
 
@@ -108,10 +138,37 @@ class VerificationDelivery {
   }
 }
 
+class VerificationResult {
+  const VerificationResult({
+    required this.message,
+    this.requiresPasswordReset = false,
+    this.email,
+    this.maskedEmail,
+  });
+
+  final String message;
+  final bool requiresPasswordReset;
+  final String? email;
+  final String? maskedEmail;
+}
+
+class ForgotPasswordResult {
+  const ForgotPasswordResult({
+    required this.message,
+    this.email,
+    this.maskedEmail,
+  });
+
+  final String message;
+  final String? email;
+  final String? maskedEmail;
+}
+
 enum LoginFailureReason {
   invalidCredentials,
   emailNotVerified,
   forcedReset,
+  forcedResetVerify,
   serverError,
   networkError,
 }
@@ -122,12 +179,14 @@ class LoginFailure implements Exception {
     required this.message,
     this.email,
     this.maskedEmail,
+    this.requiresPasswordReset = false,
   });
 
   final LoginFailureReason reason;
   final String message;
   final String? email;
   final String? maskedEmail;
+  final bool requiresPasswordReset;
 
   @override
   String toString() => 'LoginFailure($reason): $message';

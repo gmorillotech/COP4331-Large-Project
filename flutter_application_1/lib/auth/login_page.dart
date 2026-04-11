@@ -6,7 +6,13 @@ import 'auth_service.dart';
 
 enum _AuthTab { login, register }
 
-enum _LoginView { form, forgotPassword, resendVerification }
+enum _LoginView {
+  form,
+  forgotPassword,
+  forgotPasswordCode,
+  forgotPasswordNewPassword,
+  resendVerification,
+}
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -21,12 +27,11 @@ class _LoginPageState extends State<LoginPage> {
   String _message = '';
   bool _isError = false;
   bool _loading = false;
-  bool _forgotSent = false;
   bool _showRegisterVerification = false;
 
   final _loginNameController = TextEditingController();
   final _loginPasswordController = TextEditingController();
-  final _forgotEmailController = TextEditingController();
+  final _forgotLoginController = TextEditingController();
   final _regFirstNameController = TextEditingController();
   final _regLastNameController = TextEditingController();
   final _regDisplayNameController = TextEditingController();
@@ -34,15 +39,24 @@ class _LoginPageState extends State<LoginPage> {
   final _regUsernameController = TextEditingController();
   final _regPasswordController = TextEditingController();
   final _verifyCodeController = TextEditingController();
+  final _resetCodeController = TextEditingController();
+  final _resetNewPasswordController = TextEditingController();
+  final _resetConfirmPasswordController = TextEditingController();
 
   String _verificationEmail = '';
   String _verificationMaskedEmail = '';
+  String _resetEmail = '';
+  String _resetMaskedEmail = '';
+  bool _isForcedResetFlow = false;
+
+  String _regUsernameValue = '';
+  String _regPasswordValue = '';
 
   @override
   void dispose() {
     _loginNameController.dispose();
     _loginPasswordController.dispose();
-    _forgotEmailController.dispose();
+    _forgotLoginController.dispose();
     _regFirstNameController.dispose();
     _regLastNameController.dispose();
     _regDisplayNameController.dispose();
@@ -50,6 +64,9 @@ class _LoginPageState extends State<LoginPage> {
     _regUsernameController.dispose();
     _regPasswordController.dispose();
     _verifyCodeController.dispose();
+    _resetCodeController.dispose();
+    _resetNewPasswordController.dispose();
+    _resetConfirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -64,11 +81,16 @@ class _LoginPageState extends State<LoginPage> {
     _verifyCodeController.clear();
     _verificationEmail = '';
     _verificationMaskedEmail = '';
+    _isForcedResetFlow = false;
   }
 
   void _resetForgotPasswordState() {
-    _forgotEmailController.clear();
-    _forgotSent = false;
+    _forgotLoginController.clear();
+    _resetCodeController.clear();
+    _resetNewPasswordController.clear();
+    _resetConfirmPasswordController.clear();
+    _resetEmail = '';
+    _resetMaskedEmail = '';
   }
 
   void _switchTab(_AuthTab tab) {
@@ -77,8 +99,9 @@ class _LoginPageState extends State<LoginPage> {
       _loginView = _LoginView.form;
       _message = '';
       _isError = false;
-      _forgotSent = false;
       _showRegisterVerification = false;
+      _regUsernameValue = '';
+      _regPasswordValue = '';
     });
     _resetForgotPasswordState();
     _resetVerificationState();
@@ -89,7 +112,6 @@ class _LoginPageState extends State<LoginPage> {
       _loginView = view;
       _message = '';
       _isError = false;
-      _forgotSent = false;
     });
     if (view != _LoginView.resendVerification) {
       _resetVerificationState();
@@ -129,7 +151,53 @@ class _LoginPageState extends State<LoginPage> {
           _showRegisterVerification = false;
           _verificationEmail = resolvedEmail;
           _verificationMaskedEmail = resolvedMaskedEmail;
+          _isForcedResetFlow = false;
           _verifyCodeController.clear();
+          _isError = true;
+          _message = resolvedMaskedEmail.isNotEmpty
+              ? 'Enter the 6-digit code sent to $resolvedMaskedEmail.'
+              : e.message;
+        });
+        return;
+      }
+
+      if (e.reason == LoginFailureReason.forcedResetVerify) {
+        final resolvedEmail = _normalizeEmail(e.email);
+        final resolvedMaskedEmail =
+            (e.maskedEmail ?? '').trim().isNotEmpty
+                ? e.maskedEmail!.trim()
+                : _maskEmail(resolvedEmail);
+
+        setState(() {
+          _activeTab = _AuthTab.login;
+          _loginView = _LoginView.resendVerification;
+          _showRegisterVerification = false;
+          _verificationEmail = resolvedEmail;
+          _verificationMaskedEmail = resolvedMaskedEmail;
+          _isForcedResetFlow = true;
+          _verifyCodeController.clear();
+          _isError = true;
+          _message = resolvedMaskedEmail.isNotEmpty
+              ? 'Enter the 6-digit verification code sent to $resolvedMaskedEmail to continue resetting your password.'
+              : e.message;
+        });
+        return;
+      }
+
+      if (e.reason == LoginFailureReason.forcedReset) {
+        final resolvedEmail = _normalizeEmail(e.email);
+        final resolvedMaskedEmail =
+            (e.maskedEmail ?? '').trim().isNotEmpty
+                ? e.maskedEmail!.trim()
+                : _maskEmail(resolvedEmail);
+
+        setState(() {
+          _activeTab = _AuthTab.login;
+          _loginView = _LoginView.forgotPasswordCode;
+          _showRegisterVerification = false;
+          _resetEmail = resolvedEmail;
+          _resetMaskedEmail = resolvedMaskedEmail;
+          _resetCodeController.clear();
           _isError = true;
           _message = resolvedMaskedEmail.isNotEmpty
               ? 'Enter the 6-digit code sent to $resolvedMaskedEmail.'
@@ -151,10 +219,24 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _doRegister() async {
-    if (_regUsernameController.text.trim().isEmpty ||
-        _regEmailController.text.trim().isEmpty ||
-        _regPasswordController.text.isEmpty) {
+    final username = _regUsernameController.text.trim();
+    final email = _regEmailController.text.trim();
+    final password = _regPasswordController.text;
+
+    if (username.isEmpty || email.isEmpty || password.isEmpty) {
       _showError('Username, email, and password are required.');
+      return;
+    }
+
+    final usernameErrors = validateUsername(username);
+    if (usernameErrors.isNotEmpty) {
+      _showError('Username: ${usernameErrors.join(', ')}.');
+      return;
+    }
+
+    final passwordErrors = validatePassword(password);
+    if (passwordErrors.isNotEmpty) {
+      _showError('Password must have ${passwordErrors.join(', ')}.');
       return;
     }
 
@@ -193,6 +275,8 @@ class _LoginPageState extends State<LoginPage> {
         _verificationMaskedEmail = resolvedMaskedEmail;
         _verifyCodeController.clear();
         _isError = false;
+        _regUsernameValue = '';
+        _regPasswordValue = '';
         _message = resolvedMaskedEmail.isNotEmpty
             ? 'Enter the 6-digit code sent to $resolvedMaskedEmail.'
             : result.message;
@@ -213,27 +297,107 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _doForgotPassword() async {
-    if (_forgotEmailController.text.trim().isEmpty) {
-      _showError('Please enter your email address.');
+    if (_forgotLoginController.text.trim().isEmpty) {
+      _showError('Please enter your username.');
       return;
     }
 
     setState(() => _loading = true);
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      final msg = await authService.forgotPassword(
-        email: _forgotEmailController.text,
+      final result = await authService.forgotPassword(
+        login: _forgotLoginController.text,
       );
       if (!mounted) {
         return;
       }
+
+      final resolvedEmail = _normalizeEmail(result.email);
+      final resolvedMaskedEmail =
+          (result.maskedEmail ?? '').trim().isNotEmpty
+              ? result.maskedEmail!.trim()
+              : (resolvedEmail.isNotEmpty ? _maskEmail(resolvedEmail) : '');
+
       setState(() {
-        _forgotSent = true;
+        _resetEmail = resolvedEmail;
+        _resetMaskedEmail = resolvedMaskedEmail;
+        _loginView = _LoginView.forgotPasswordCode;
+        _resetCodeController.clear();
         _isError = false;
-        _message = msg;
+        _message = resolvedMaskedEmail.isNotEmpty
+            ? 'Enter the 6-digit code sent to $resolvedMaskedEmail.'
+            : (result.message.isNotEmpty
+                ? result.message
+                : 'If an account exists, a reset code has been sent.');
       });
     } on LoginFailure catch (e) {
       if (mounted) {
+        _showError(e.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        _showError('Unable to contact the server');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _doResetCode() {
+    final code = _resetCodeController.text.trim();
+    if (code.isEmpty) {
+      _showError('Please enter the 6-digit reset code.');
+      return;
+    }
+
+    setState(() {
+      _loginView = _LoginView.forgotPasswordNewPassword;
+      _message = '';
+      _isError = false;
+    });
+  }
+
+  Future<void> _doResetPassword() async {
+    final newPassword = _resetNewPasswordController.text;
+    final confirmPassword = _resetConfirmPasswordController.text;
+
+    final passwordErrors = validatePassword(newPassword);
+    if (passwordErrors.isNotEmpty) {
+      _showError('Password must have ${passwordErrors.join(', ')}.');
+      return;
+    }
+
+    if (newPassword != confirmPassword) {
+      _showError('Passwords do not match.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final message = await authService.resetPassword(
+        email: _resetEmail,
+        code: _resetCodeController.text,
+        newPassword: newPassword,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      _resetForgotPasswordState();
+      setState(() {
+        _loginView = _LoginView.form;
+        _isError = false;
+        _message =
+            message.isNotEmpty ? message : 'Password reset! You can now log in.';
+      });
+    } on LoginFailure catch (e) {
+      if (mounted) {
+        setState(() {
+          _loginView = _LoginView.forgotPasswordCode;
+        });
         _showError(e.message);
       }
     } catch (_) {
@@ -314,11 +478,36 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = true);
     try {
       final authService = Provider.of<AuthService>(context, listen: false);
-      final message = await authService.verifyEmail(
+      final result = await authService.verifyEmail(
         email: _verificationEmail,
         code: _verifyCodeController.text,
       );
       if (!mounted) {
+        return;
+      }
+
+      if (result.requiresPasswordReset || _isForcedResetFlow) {
+        final resultEmail = _normalizeEmail(result.email);
+        final resolvedEmail =
+            resultEmail.isNotEmpty ? resultEmail : _verificationEmail;
+        final resolvedMaskedEmail =
+            (result.maskedEmail ?? '').trim().isNotEmpty
+                ? result.maskedEmail!.trim()
+                : _verificationMaskedEmail;
+
+        setState(() {
+          _resetEmail = resolvedEmail;
+          _resetMaskedEmail = resolvedMaskedEmail;
+          _resetCodeController.text = _verifyCodeController.text.trim();
+          _loginView = _LoginView.forgotPasswordNewPassword;
+          _showRegisterVerification = false;
+          _verificationEmail = '';
+          _verificationMaskedEmail = '';
+          _isForcedResetFlow = false;
+          _isError = false;
+          _message = 'Email verified. Set a new password to continue.';
+        });
+        _verifyCodeController.clear();
         return;
       }
 
@@ -329,9 +518,10 @@ class _LoginPageState extends State<LoginPage> {
         _verifyCodeController.clear();
         _verificationEmail = '';
         _verificationMaskedEmail = '';
+        _isForcedResetFlow = false;
         _isError = false;
-        _message = message.isNotEmpty
-            ? message
+        _message = result.message.isNotEmpty
+            ? result.message
             : 'Email verified! You can now log in.';
       });
     } on LoginFailure catch (e) {
@@ -467,6 +657,10 @@ class _LoginPageState extends State<LoginPage> {
         return _buildLoginForm();
       case _LoginView.forgotPassword:
         return _buildForgotPasswordForm();
+      case _LoginView.forgotPasswordCode:
+        return _buildForgotPasswordCodeForm();
+      case _LoginView.forgotPasswordNewPassword:
+        return _buildForgotPasswordNewPasswordForm();
       case _LoginView.resendVerification:
         return _buildLoginVerificationForm();
     }
@@ -539,57 +733,185 @@ class _LoginPageState extends State<LoginPage> {
         style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),
       const SizedBox(height: 16),
-      if (_forgotSent) ...[
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.green.shade50,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.green),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Password reset code sent! Check your inbox and use the code to reset your password.',
-                ),
-              ),
-            ],
-          ),
+      const Text("Enter your username and we'll send you a reset code."),
+      const SizedBox(height: 12),
+      TextField(
+        key: const Key('forgot-login-field'),
+        controller: _forgotLoginController,
+        decoration: const InputDecoration(
+          labelText: 'Username',
+          border: OutlineInputBorder(),
         ),
-      ] else ...[
-        const Text("Enter your email and we'll send you a reset code."),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('forgot-email-field'),
-          controller: _forgotEmailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email Address',
-            border: OutlineInputBorder(),
+        onSubmitted: (_) => _doForgotPassword(),
+      ),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          key: const Key('forgot-submit-button'),
+          onPressed: _loading ? null : _doForgotPassword,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
           ),
-          onSubmitted: (_) => _doForgotPassword(),
+          child: const Text('Send Reset Code'),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            key: const Key('forgot-submit-button'),
-            onPressed: _loading ? null : _doForgotPassword,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0F766E),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: const Text('Send Reset Code'),
-          ),
-        ),
-      ],
+      ),
       const SizedBox(height: 12),
       TextButton(
         key: const Key('forgot-back-button'),
         onPressed: _loading ? null : () => _switchLoginView(_LoginView.form),
+        child: const Text('\u2190 Back to Login'),
+      ),
+    ];
+  }
+
+  List<Widget> _buildForgotPasswordCodeForm() {
+    final emailLabel =
+        _resetMaskedEmail.isNotEmpty ? _resetMaskedEmail : 'your email';
+
+    return [
+      const Text(
+        'RESET PASSWORD',
+        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.email, color: Colors.blue),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Enter the 6-digit code sent to $emailLabel.'),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        key: const Key('reset-code-field'),
+        controller: _resetCodeController,
+        keyboardType: TextInputType.number,
+        maxLength: 6,
+        decoration: const InputDecoration(
+          labelText: 'Reset Code',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _doResetCode(),
+      ),
+      const SizedBox(height: 8),
+      SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          key: const Key('reset-code-submit-button'),
+          onPressed: _loading ? null : _doResetCode,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          child: const Text('Verify Code'),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextButton(
+        key: const Key('reset-code-back-button'),
+        onPressed: _loading
+            ? null
+            : () {
+                _resetForgotPasswordState();
+                _switchLoginView(_LoginView.form);
+              },
+        child: const Text('\u2190 Back to Login'),
+      ),
+    ];
+  }
+
+  List<Widget> _buildForgotPasswordNewPasswordForm() {
+    final newPassword = _resetNewPasswordController.text;
+
+    return [
+      const Text(
+        'SET NEW PASSWORD',
+        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        key: const Key('reset-new-password-field'),
+        controller: _resetNewPasswordController,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: 'New Password',
+          border: OutlineInputBorder(),
+        ),
+        onChanged: (_) => setState(() {}),
+        textInputAction: TextInputAction.next,
+      ),
+      if (newPassword.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 16,
+          runSpacing: 4,
+          children: [
+            _validationRule(
+              'At least 8 characters',
+              newPassword.length >= 8,
+            ),
+            _validationRule(
+              'At least one letter',
+              RegExp(r'[a-zA-Z]').hasMatch(newPassword),
+            ),
+            _validationRule(
+              'At least one number',
+              RegExp(r'[0-9]').hasMatch(newPassword),
+            ),
+            _validationRule(
+              'At least one special character',
+              RegExp(r'[^a-zA-Z0-9]').hasMatch(newPassword),
+            ),
+          ],
+        ),
+      ],
+      const SizedBox(height: 12),
+      TextField(
+        key: const Key('reset-confirm-password-field'),
+        controller: _resetConfirmPasswordController,
+        obscureText: true,
+        decoration: const InputDecoration(
+          labelText: 'Confirm New Password',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _doResetPassword(),
+      ),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          key: const Key('reset-password-submit-button'),
+          onPressed: _loading ? null : _doResetPassword,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          child: const Text('Reset Password'),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextButton(
+        key: const Key('reset-password-back-button'),
+        onPressed: _loading
+            ? null
+            : () {
+                _resetForgotPasswordState();
+                _switchLoginView(_LoginView.form);
+              },
         child: const Text('\u2190 Back to Login'),
       ),
     ];
@@ -686,7 +1008,25 @@ class _LoginPageState extends State<LoginPage> {
           border: OutlineInputBorder(),
         ),
         textInputAction: TextInputAction.next,
+        onChanged: (value) => setState(() => _regUsernameValue = value),
       ),
+      if (_regUsernameValue.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 16,
+          runSpacing: 4,
+          children: [
+            _validationRule(
+              '3\u201322 characters',
+              _regUsernameValue.length >= 3 && _regUsernameValue.length <= 22,
+            ),
+            _validationRule(
+              'At least one letter',
+              RegExp(r'[a-zA-Z]').hasMatch(_regUsernameValue),
+            ),
+          ],
+        ),
+      ],
       const SizedBox(height: 12),
       TextField(
         key: const Key('register-password-field'),
@@ -697,7 +1037,33 @@ class _LoginPageState extends State<LoginPage> {
           border: OutlineInputBorder(),
         ),
         onSubmitted: (_) => _doRegister(),
+        onChanged: (value) => setState(() => _regPasswordValue = value),
       ),
+      if (_regPasswordValue.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 16,
+          runSpacing: 4,
+          children: [
+            _validationRule(
+              'At least 8 characters',
+              _regPasswordValue.length >= 8,
+            ),
+            _validationRule(
+              'At least one letter',
+              RegExp(r'[a-zA-Z]').hasMatch(_regPasswordValue),
+            ),
+            _validationRule(
+              'At least one number',
+              RegExp(r'[0-9]').hasMatch(_regPasswordValue),
+            ),
+            _validationRule(
+              'At least one special character',
+              RegExp(r'[^a-zA-Z0-9]').hasMatch(_regPasswordValue),
+            ),
+          ],
+        ),
+      ],
       const SizedBox(height: 12),
       SizedBox(
         width: double.infinity,
@@ -783,6 +1149,28 @@ class _LoginPageState extends State<LoginPage> {
       ),
       if (backButton != null) backButton,
     ];
+  }
+
+  Widget _validationRule(String label, bool satisfied) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          satisfied ? Icons.check_circle : Icons.circle_outlined,
+          size: 14,
+          color: satisfied ? const Color(0xFF15803D) : const Color(0xFF9CA3AF),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color:
+                satisfied ? const Color(0xFF15803D) : const Color(0xFF6B7280),
+          ),
+        ),
+      ],
+    );
   }
 }
 

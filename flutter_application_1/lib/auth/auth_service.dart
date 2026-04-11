@@ -75,6 +75,18 @@ class AuthService extends ChangeNotifier {
         );
       }
 
+      if (reason == 'forced_reset_verify') {
+        throw LoginFailure(
+          reason: LoginFailureReason.forcedResetVerify,
+          message: errorMsg.isNotEmpty
+              ? errorMsg
+              : 'Please verify your email and reset your password.',
+          email: resolvedEmail.isNotEmpty ? resolvedEmail : null,
+          maskedEmail: resolvedMaskedEmail,
+          requiresPasswordReset: true,
+        );
+      }
+
       if (reason == 'forced_reset') {
         throw LoginFailure(
           reason: LoginFailureReason.forcedReset,
@@ -83,6 +95,7 @@ class AuthService extends ChangeNotifier {
               : 'A password reset is required for this account.',
           email: resolvedEmail.isNotEmpty ? resolvedEmail : null,
           maskedEmail: resolvedMaskedEmail,
+          requiresPasswordReset: true,
         );
       }
 
@@ -140,6 +153,8 @@ class AuthService extends ChangeNotifier {
       favorites: normalized,
       userNoiseWF: user.userNoiseWF,
       userOccupancyWF: user.userOccupancyWF,
+      role: user.role,
+      accountStatus: user.accountStatus,
     );
     await _persistSession();
     notifyListeners();
@@ -193,9 +208,11 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String> forgotPassword({required String email}) async {
+  Future<ForgotPasswordResult> forgotPassword({
+    required String login,
+  }) async {
     final response = await _post('/api/auth/forgot-password', {
-      'email': email,
+      'login': login.trim(),
     });
 
     if (!response.ok) {
@@ -208,8 +225,37 @@ class AuthService extends ChangeNotifier {
       );
     }
 
+    return ForgotPasswordResult(
+      message: response.body['message'] as String? ??
+          'Password reset code sent to your email.',
+      email: response.body['email'] as String?,
+      maskedEmail: response.body['maskedEmail'] as String?,
+    );
+  }
+
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final response = await _post('/api/auth/reset-password', {
+      'email': _normalizeEmail(email),
+      'code': code.trim(),
+      'newPassword': newPassword,
+    });
+
+    if (!response.ok) {
+      throw LoginFailure(
+        reason: response.statusCode >= 500
+            ? LoginFailureReason.serverError
+            : LoginFailureReason.invalidCredentials,
+        message: response.body['error'] as String? ??
+            'Invalid or expired reset code.',
+      );
+    }
+
     return response.body['message'] as String? ??
-        'Password reset code sent to your email.';
+        'Password has been successfully reset.';
   }
 
   Future<RegisterResult> register({
@@ -242,7 +288,7 @@ class AuthService extends ChangeNotifier {
     return RegisterResult.fromJson(response.body);
   }
 
-  Future<String> verifyEmail({
+  Future<VerificationResult> verifyEmail({
     required String email,
     required String code,
   }) async {
@@ -261,8 +307,14 @@ class AuthService extends ChangeNotifier {
       );
     }
 
-    return response.body['message'] as String? ??
-        'Email verified successfully. You can now log in.';
+    return VerificationResult(
+      message: response.body['message'] as String? ??
+          'Email verified successfully. You can now log in.',
+      requiresPasswordReset:
+          response.body['requiresPasswordReset'] as bool? ?? false,
+      email: response.body['email'] as String?,
+      maskedEmail: response.body['maskedEmail'] as String?,
+    );
   }
 
   Future<VerificationDelivery> resendVerification({
