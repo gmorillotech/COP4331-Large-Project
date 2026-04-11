@@ -51,13 +51,15 @@ router.post('/reset', async (_req, res) => {
 
 // ── POST /api/test/seed-user ──────────────────────────────────────────────────
 // Creates (or replaces) a fully verified user and returns a signed JWT.
-// Body: { login, email, password }
+// Body: { login, email, password, role? }  role defaults to 'user'; pass 'admin' for admin tests.
 router.post('/seed-user', async (req, res) => {
   try {
-    const { login, email, password } = req.body ?? {};
+    const { login, email, password, role } = req.body ?? {};
     if (!login || !email || !password) {
       return res.status(400).json({ error: 'login, email, and password are required.' });
     }
+
+    const resolvedRole = role === 'admin' ? 'admin' : 'user';
 
     // Remove any stale copy from a previous run
     await User.deleteOne({ login });
@@ -73,6 +75,7 @@ router.post('/seed-user', async (req, res) => {
       firstName: 'E2E',
       lastName: 'Test',
       displayName: 'E2E Tester',
+      role: resolvedRole,
       hideLocation: false,
       pinColor: '#0F766E',
       favorites: [],
@@ -92,6 +95,7 @@ router.post('/seed-user', async (req, res) => {
       userId: user.userId,
       login: user.login,
       email: user.email,
+      role: user.role,
       accessToken,
     });
   } catch (error) {

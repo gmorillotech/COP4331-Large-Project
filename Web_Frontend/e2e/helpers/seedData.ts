@@ -21,6 +21,13 @@ export const TEST_USER_2: SeedUserPayload = {
   password: 'E2ePassword456!',
 };
 
+export const TEST_ADMIN: SeedUserPayload = {
+  login: 'e2e-admin',
+  email: 'e2e-admin@test.invalid',
+  password: 'E2eAdmin123!',
+  role: 'admin',
+};
+
 // ── Catalog location IDs (from locationCatalog.js) ───────────────────────────
 
 export const STUDY_LOCATIONS = {

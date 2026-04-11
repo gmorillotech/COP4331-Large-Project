@@ -16,13 +16,27 @@ export interface SeedUserPayload {
   login: string;
   email: string;
   password: string;
+  role?: 'user' | 'admin';
 }
 
 export interface SeedUserResponse {
   userId: string;
   login: string;
   email: string;
+  role: string;
   accessToken: string;
+}
+
+// Admin-facing user shape returned by GET /api/admin/users
+export interface AdminUserRecord {
+  userId: string;
+  displayName: string;
+  email: string;
+  trustScore: number;
+  role: string;
+  accountStatus: string;
+  emailVerifiedAt: string | null;
+  createdAt: string;
 }
 
 export interface ReportPayload {
@@ -177,5 +191,161 @@ export async function getRecentReports(
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok()) throw new Error(`get recent failed: ${res.status()} ${await res.text()}`);
+  return res.json();
+}
+
+// ── Admin API helpers ─────────────────────────────────────────────────────────
+
+/** GET /api/admin/users — list all users (requires admin token) */
+export async function adminListUsers(
+  api: APIRequestContext,
+  token: string,
+  query?: string,
+): Promise<AdminUserRecord[]> {
+  const url = query
+    ? `${BASE}/api/admin/users?q=${encodeURIComponent(query)}`
+    : `${BASE}/api/admin/users`;
+  const res = await api.get(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok()) throw new Error(`admin list users failed: ${res.status()} ${await res.text()}`);
+  const body = await res.json() as { users: AdminUserRecord[] };
+  return body.users;
+}
+
+/** PATCH /api/admin/users/:userId — edit a user (requires admin token) */
+export async function adminEditUser(
+  api: APIRequestContext,
+  token: string,
+  userId: string,
+  updates: { email?: string; role?: string; accountStatus?: string; userOccupancyWF?: number },
+): Promise<AdminUserRecord> {
+  const res = await api.patch(`${BASE}/api/admin/users/${userId}`, {
+    data: updates,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`admin edit user failed: ${res.status()} ${await res.text()}`);
+  const body = await res.json() as { user: AdminUserRecord };
+  return body.user;
+}
+
+/** DELETE /api/admin/users/:userId — delete a user (requires admin token) */
+export async function adminDeleteUser(
+  api: APIRequestContext,
+  token: string,
+  userId: string,
+): Promise<void> {
+  const res = await api.delete(`${BASE}/api/admin/users/${userId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`admin delete user failed: ${res.status()} ${await res.text()}`);
+}
+
+// ── Location-group helpers (configurable baseUrl for live tests) ───────────────
+
+export interface LocationGroupVertex {
+  latitude: number;
+  longitude: number;
+}
+
+export interface LocationGroupRecord {
+  locationGroupId: string;
+  name: string;
+  shapeType?: string;
+  polygon?: LocationGroupVertex[];
+  centerLatitude?: number;
+  centerLongitude?: number;
+}
+
+export interface SplitGroupResult {
+  message: string;
+  groupA: LocationGroupRecord;
+  groupB: LocationGroupRecord;
+  deletedGroupId: string;
+}
+
+export interface MergeGroupResult {
+  message: string;
+  destinationGroup: LocationGroupRecord;
+  newGroupId: string;
+  requiresRedraw: boolean;
+  deletedGroupIds: string[];
+}
+
+/**
+ * POST /api/auth/login — authenticate with real credentials.
+ * Returns the accessToken and serialized user object (includes role, displayName, login).
+ */
+export async function loginWithPassword(
+  api: APIRequestContext,
+  baseUrl: string,
+  login: string,
+  password: string,
+): Promise<{ accessToken: string; user: { role: string; displayName: string; login: string } }> {
+  const res = await api.post(`${baseUrl}/api/auth/login`, { data: { login, password } });
+  if (!res.ok()) throw new Error(`login failed: ${res.status()} ${await res.text()}`);
+  return res.json();
+}
+
+/** GET /api/locations/groups — list all location groups */
+export async function getLocationGroups(
+  api: APIRequestContext,
+  baseUrl: string,
+  token: string,
+): Promise<LocationGroupRecord[]> {
+  const res = await api.get(`${baseUrl}/api/locations/groups`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`get groups failed: ${res.status()} ${await res.text()}`);
+  return res.json();
+}
+
+/** PUT /api/admin/location-groups/:groupId/shape — save a redrawn polygon */
+export async function adminPutGroupShape(
+  api: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  groupId: string,
+  polygon: LocationGroupVertex[],
+): Promise<{ message: string; group: LocationGroupRecord }> {
+  const res = await api.put(`${baseUrl}/api/admin/location-groups/${groupId}/shape`, {
+    data: { shapeType: 'polygon', polygon },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`put shape failed: ${res.status()} ${await res.text()}`);
+  return res.json();
+}
+
+/** POST /api/admin/location-groups/:groupId/split — split a group into two */
+export async function adminSplitGroup(
+  api: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  groupId: string,
+  body: {
+    parentPolygon: LocationGroupVertex[];
+    splitLine: LocationGroupVertex[];
+    destinationGroups: [{ name: string }, { name: string }];
+  },
+): Promise<SplitGroupResult> {
+  const res = await api.post(`${baseUrl}/api/admin/location-groups/${groupId}/split`, {
+    data: body,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`split failed: ${res.status()} ${await res.text()}`);
+  return res.json();
+}
+
+/** POST /api/admin/location-groups/merge — merge two groups into one */
+export async function adminMergeGroups(
+  api: APIRequestContext,
+  baseUrl: string,
+  token: string,
+  sourceGroupIds: [string, string],
+  destinationName: string,
+): Promise<MergeGroupResult> {
+  const res = await api.post(`${baseUrl}/api/admin/location-groups/merge`, {
+    data: { sourceGroupIds, destinationName },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok()) throw new Error(`merge failed: ${res.status()} ${await res.text()}`);
   return res.json();
 }
