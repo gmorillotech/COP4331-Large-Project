@@ -8,7 +8,7 @@
 //   - nextFrame    (0 | 1 | 2)  — the frame we're transitioning toward
 //   - progress     (0 … 1)      — how far along the crossfade is
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // Duration of each transition step in milliseconds.
 // 800ms × 4 steps = 3.2s per full cycle.
@@ -48,17 +48,21 @@ export function useMarkerAnimation(): AnimationState {
   const [state, setState] = useState<AnimationState>(() =>
     computeAnimationState(performance.now()),
   );
+  const lastStepRef = useRef(-1);
 
   useEffect(() => {
-    let rafId: number;
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const elapsed = now % (STEP_DURATION_MS * SEQUENCE_LENGTH);
+      const stepIndex = Math.floor(elapsed / STEP_DURATION_MS);
 
-    function tick() {
-      setState(computeAnimationState(performance.now()));
-      rafId = requestAnimationFrame(tick);
-    }
+      if (stepIndex !== lastStepRef.current) {
+        lastStepRef.current = stepIndex;
+        setState(computeAnimationState(now));
+      }
+    }, STEP_DURATION_MS);
 
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    return () => window.clearInterval(id);
   }, []);
 
   return state;
