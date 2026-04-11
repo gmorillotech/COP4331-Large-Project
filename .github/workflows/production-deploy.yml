@@ -22,10 +22,6 @@ jobs:
                   git fetch origin
                   git reset --hard origin/main
                   git clean -fd
-
-                  cd shared
-                  npm ci
-                  npm run build
                   
                   cd ../server
                   npm ci --production
