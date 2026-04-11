@@ -129,3 +129,5 @@ flutter_application_1/windows/flutter/generated_plugin_registrant.h
 flutter_application_1/windows/flutter/generated_plugins.cmake
 flutter_application_1/windows/x64/
 flutter_application_1/windows/x86/
+Web_Frontend/test-results/.last-run.json
+Web_Frontend/playwright-report
