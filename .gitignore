@@ -47,6 +47,10 @@ lerna-debug.log*
 # Frontend local overrides
 *.local
 
+# Playwright artifacts
+Web_Frontend/playwright-report/
+Web_Frontend/test-results/
+
 # Flutter and Dart
 flutter_application_1/.dart_tool/
 flutter_application_1/.flutter-plugins
