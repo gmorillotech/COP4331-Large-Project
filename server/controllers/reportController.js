@@ -25,7 +25,7 @@ function createReportController({
       }
 
       const processed = await reportProcessingService.submitCanonicalReport({
-        userId: req.user?.userId ?? bodyUserId ?? "local-user",
+        userId: req.user?.userId ?? bodyUserId ?? null,
         studyLocationId,
         createdAt: createdAt ? new Date(createdAt) : new Date(),
         avgNoise: Number(avgNoise),

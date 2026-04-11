@@ -112,14 +112,14 @@ describe('Report Routes', () => {
       );
     });
 
-    it('returns 201 and uses "local-user" when unauthenticated and no userId in body', async () => {
+    it('returns 201 and passes null userId when unauthenticated and no userId in body', async () => {
       const { app, reportProcessingService } = buildApp({}, {}, { anonymous: true });
       const res = await supertest(app)
         .post('/api/reports')
         .send({ studyLocationId: 'loc-1', avgNoise: 50, maxNoise: 65, variance: 5, occupancy: 2 });
       expect(res.status).toBe(201);
       expect(reportProcessingService.submitCanonicalReport).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'local-user' }),
+        expect.objectContaining({ userId: null }),
       );
     });
 
