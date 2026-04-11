@@ -1,90 +1,22 @@
-// MapMarkers — places one pin on the map per location.
+// MapMarkers — places pins on the map with zoom-based visibility.
 //
-// Uses AdvancedMarker (requires mapId on the parent <Map>).
-// Each marker's visual is a plain React component rendered as children —
-// no SVG data URLs, no manual DOM creation. React handles creation/cleanup.
-//
-// Also contains MapCameraController: a helper that pans + zooms the map
-// whenever the selected location changes.
+// At low zoom: only group markers are visible.
+// At high zoom (>= ZOOM_THRESHOLD): only location markers are visible.
+// Clicking a group marker zooms in to reveal its child locations.
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdvancedMarker, useMap } from '@vis.gl/react-google-maps';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
-import { inferNoiseValue, buildHeatColor, formatLocationHeading } from '../../lib/mapUtils.ts';
+import { formatLocationHeading } from '../../lib/mapUtils.ts';
+import type { AnimationState } from './mapMarkerAnimation.ts';
+import { clusterGroups, calcUnclusterZoom } from './mapClustering.ts';
+import type { ClusterMarker } from './mapClustering.ts';
+import MapMarkerVisual, { ClusterMarkerVisual } from './MapMarkerVisual.tsx';
 
-// ---- Pin visuals (plain React components, no map API calls) -----------------
-
-// Returns the first letter of a building name to show inside the pin circle.
-// Falls back to the first letter of title if buildingName isn't set.
-function getAvatarLetter(location: MapLocation): string {
-  return (location.buildingName ?? location.title).charAt(0).toUpperCase();
-}
-
-// BuildingPin — the large circular pin shown for top-level buildings.
-// Shows a colored circle with a letter avatar and a small speaker badge.
-function BuildingPin({
-  location,
-  isSelected,
-}: {
-  location: MapLocation;
-  isSelected: boolean;
-}) {
-  const intensity = inferNoiseValue(location);  // 0–1 noise value
-  const color = buildHeatColor(intensity);       // rgb() color string
-
-  return (
-    // Outer circle — size and border change when selected
-    <div
-      className={`building-pin ${isSelected ? 'is-selected' : ''}`}
-      style={{
-        // The pin fill color is a semi-transparent version of the noise color
-        background: color.replace('rgb', 'rgba').replace(')', ', 0.15)'),
-        borderColor: color,
-      }}
-    >
-      {/* Letter avatar in the center of the pin */}
-      <span className="building-pin__letter" style={{ color }}>
-        {getAvatarLetter(location)}
-      </span>
-
-      {/* Small speaker badge in the top-right corner — shows noise level as a colored dot */}
-      <span
-        className="building-pin__badge"
-        style={{ background: color }}
-        aria-label={`Noise level: ${location.noiseText ?? location.severity ?? 'unknown'}`}
-      />
-    </div>
-  );
-}
-
-// StudyPin — the smaller circular pin used for individual study spots
-// (locations that have a sublocationLabel, meaning they're inside a building).
-function StudyPin({
-  location,
-  isSelected,
-}: {
-  location: MapLocation;
-  isSelected: boolean;
-}) {
-  const intensity = inferNoiseValue(location);
-  const color = buildHeatColor(intensity);
-
-  return (
-    <div
-      className={`study-pin ${isSelected ? 'is-selected' : ''}`}
-      style={{
-        background: color.replace('rgb', 'rgba').replace(')', ', 0.2)'),
-        borderColor: color,
-      }}
-    />
-  );
-}
+export const ZOOM_THRESHOLD = 17;
 
 // ---- Camera controller -------------------------------------------------------
 
-// MapCameraController — pans and zooms the map when selectedId changes.
-// This must live inside <Map> (as a child component) so useMap() has context.
-// It renders nothing — it only has a side effect.
 function MapCameraController({
   selectedId,
   locations,
@@ -92,26 +24,19 @@ function MapCameraController({
   selectedId: string | null;
   locations: MapLocation[];
 }) {
-  // useMap() returns the google.maps.Map instance from React context.
-  // This is the React way to get the map — no refs, no global lookups.
   const map = useMap();
 
   useEffect(() => {
-    // Do nothing if there's no map yet or nothing is selected
     if (!map || !selectedId) return;
-
-    // Find the location object for the selected ID
     const target = locations.find((l) => l.id === selectedId);
     if (!target) return;
-
-    // Smoothly pan the map to the selected location
     map.panTo({ lat: target.lat, lng: target.lng });
+    if (target.kind !== 'group' && (map.getZoom() ?? 0) < ZOOM_THRESHOLD) {
+      map.setZoom(ZOOM_THRESHOLD);
+    }
+  }, [map, selectedId, locations]);
 
-    // Zoom in if we're too far out to see the pin clearly
-    if ((map.getZoom() ?? 0) < 17) map.setZoom(17);
-  }, [map, selectedId, locations]); // re-run whenever selection or locations change
-
-  return null; // renders nothing to the DOM
+  return null;
 }
 
 // ---- Main component ---------------------------------------------------------
@@ -120,37 +45,183 @@ type MapMarkersProps = {
   locations: MapLocation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onZoomChange: (zoom: number) => void;
+  animation: AnimationState;
 };
 
-// MapMarkers — renders one AdvancedMarker per location, plus the camera controller.
-//
-// React reconciles the marker list on each render — no manual teardown loops.
-// When locations or selectedId changes, React updates only what changed.
-function MapMarkers({ locations, selectedId, onSelect }: MapMarkersProps) {
+function MapMarkers({ locations, selectedId, onSelect, onZoomChange, animation }: MapMarkersProps) {
+  const map = useMap();
+  const [zoom, setZoom] = useState<number>(0);
+
+  // When a cluster click zooms past the threshold, forceGroups keeps group
+  // markers visible until the user's next map interaction.
+  const [forceGroups, setForceGroups] = useState(false);
+  const forceCleanupRef = useRef<(() => void) | null>(null);
+
+  // Clean up force-groups listeners on unmount
+  useEffect(() => {
+    return () => forceCleanupRef.current?.();
+  }, []);
+
+  // Track zoom changes and notify parent
+  useEffect(() => {
+    if (!map) return;
+    const initial = map.getZoom() ?? 0;
+    setZoom(initial);
+    onZoomChange(initial);
+    const listener = map.addListener('zoom_changed', () => {
+      const z = map.getZoom() ?? 0;
+      setZoom(z);
+      onZoomChange(z);
+    });
+    return () => listener.remove();
+  }, [map, onZoomChange]);
+
+  const isZoomedIn = zoom >= ZOOM_THRESHOLD;
+  const showGroups = !isZoomedIn || forceGroups;
+
+  const groups = useMemo(
+    () => locations.filter((l) => l.kind === 'group'),
+    [locations],
+  );
+  const locationMarkers = useMemo(
+    () => locations.filter((l) => l.kind !== 'group'),
+    [locations],
+  );
+
+  const handleGroupClick = useCallback(
+    (groupId: string) => {
+      const group = groups.find((g) => g.id === groupId);
+      if (group && map) {
+        map.panTo({ lat: group.lat, lng: group.lng });
+        map.setZoom(ZOOM_THRESHOLD);
+      }
+      onSelect(groupId);
+    },
+    [groups, map, onSelect],
+  );
+
+  const handleClusterClick = useCallback(
+    (cluster: ClusterMarker) => {
+      if (!map) return;
+      const projection = map.getProjection();
+      if (!projection) return;
+
+      // Clean up any previous force-groups listeners
+      forceCleanupRef.current?.();
+      forceCleanupRef.current = null;
+
+      const targetZoom = calcUnclusterZoom(cluster.members, projection, zoom);
+
+      if (targetZoom >= ZOOM_THRESHOLD) {
+        // The uncluster zoom crosses the threshold — force group pins to stay
+        // visible until the user's next map interaction.
+        setForceGroups(true);
+
+        const idleListener = map.addListener('idle', () => {
+          idleListener.remove();
+
+          const clearForce = () => {
+            setForceGroups(false);
+            cleanup();
+          };
+
+          const listeners = [
+            map.addListener('dragstart', clearForce),
+            map.addListener('zoom_changed', clearForce),
+            map.addListener('click', clearForce),
+          ];
+
+          const cleanup = () => {
+            listeners.forEach((l) => l.remove());
+            forceCleanupRef.current = null;
+          };
+
+          forceCleanupRef.current = cleanup;
+        });
+      }
+
+      map.panTo({ lat: cluster.lat, lng: cluster.lng });
+      map.setZoom(targetZoom);
+    },
+    [map, zoom],
+  );
+
+  // Cluster nearby groups at the current zoom level.
+  // When forceGroups is active (cluster expanded past threshold), show all
+  // group members individually — skip clustering so the expanded pins stay.
+  const clusteredGroups = useMemo(() => {
+    if (!showGroups || groups.length === 0) return [];
+    if (forceGroups) {
+      return groups.map((g) => ({ type: 'standalone' as const, location: g }));
+    }
+    const projection = map?.getProjection() ?? null;
+    if (!projection) {
+      return groups.map((g) => ({ type: 'standalone' as const, location: g }));
+    }
+    return clusterGroups(groups, zoom, projection);
+  }, [groups, zoom, showGroups, forceGroups, map]);
+
+  const visibleLocations = (isZoomedIn && !forceGroups) ? locationMarkers : [];
+
   return (
     <>
-      {/* Camera controller: pans + zooms on selection change */}
       <MapCameraController selectedId={selectedId} locations={locations} />
 
-      {locations.map((location) => {
-        const isSelected = location.id === selectedId;
-        // Locations with a sublocationLabel are spots inside a building → use small pin
-        const isSub = Boolean(location.sublocationLabel);
+      {clusteredGroups.map((item) => {
+        if (item.type === 'cluster') {
+          return (
+            <AdvancedMarker
+              key={item.id}
+              position={{ lat: item.lat, lng: item.lng }}
+              title={`${item.members.length} buildings`}
+              zIndex={30}
+              onClick={() => handleClusterClick(item)}
+            >
+              <ClusterMarkerVisual
+                cluster={item}
+                isSelected={false}
+                animation={animation}
+                zoom={zoom}
+              />
+            </AdvancedMarker>
+          );
+        }
+        const isSelected = item.location.id === selectedId;
+        return (
+          <AdvancedMarker
+            key={item.location.id}
+            position={{ lat: item.location.lat, lng: item.location.lng }}
+            title={item.location.title}
+            zIndex={isSelected ? 100 : 20}
+            onClick={() => handleGroupClick(item.location.id)}
+          >
+            <MapMarkerVisual
+              location={item.location}
+              isSelected={isSelected}
+              animation={animation}
+              zoom={zoom}
+            />
+          </AdvancedMarker>
+        );
+      })}
 
+      {visibleLocations.map((location) => {
+        const isSelected = location.id === selectedId;
         return (
           <AdvancedMarker
             key={location.id}
             position={{ lat: location.lat, lng: location.lng }}
-            title={formatLocationHeading(location)} // shows on hover (tooltip)
-            zIndex={isSelected ? 100 : isSub ? 5 : 10} // selected pins always on top
+            title={formatLocationHeading(location)}
+            zIndex={isSelected ? 100 : 5}
             onClick={() => onSelect(location.id)}
           >
-            {/* The JSX child is what actually renders on the map at this lat/lng */}
-            {isSub ? (
-              <StudyPin location={location} isSelected={isSelected} />
-            ) : (
-              <BuildingPin location={location} isSelected={isSelected} />
-            )}
+            <MapMarkerVisual
+              location={location}
+              isSelected={isSelected}
+              animation={animation}
+              zoom={zoom}
+            />
           </AdvancedMarker>
         );
       })}

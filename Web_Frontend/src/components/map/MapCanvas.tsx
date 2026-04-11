@@ -22,6 +22,7 @@ function MapCanvas({ onMapClick, children }: MapCanvasProps) {
       defaultCenter={DEFAULT_CENTER}   // where the map starts centered
       defaultZoom={DEFAULT_ZOOM}       // zoom level on first load
       mapId={MAP_ID}                   // enables AdvancedMarker + vector tiles
+      colorScheme="DARK"              // force the dark cloud style at render time
       clickableIcons={false}           // prevent clicking on Google's built-in POI icons
       disableDefaultUI={true}          // hide all default Google controls (zoom buttons, etc.)
       onClick={onMapClick}             // clicking the map background deselects the active pin

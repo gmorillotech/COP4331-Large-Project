@@ -18,11 +18,13 @@ const { ReportProcessingService } = require("./services/reportProcessingService"
 const {
   baseLocationAnnotations,
   baseLocationAnnotationsById,
+  buildMapMarkerState,
   formatUpdatedAtLabel,
   toNoiseText,
   toOccupancyText,
   toSeverity,
 } = require("./services/mapSearchData");
+const { REPORT_STALE_MINUTES } = require("./config/appConfig");
 const { loadSearchSource } = require("./services/locationSearchSource");
 
 const app = express();
@@ -51,6 +53,12 @@ function buildMapAnnotation(location, group) {
   const liveOccupancy = Number.isFinite(location.currentOccupancyLevel)
     ? location.currentOccupancyLevel
     : (baseAnnotation?.occupancyValue ?? null);
+
+  const markerState = buildMapMarkerState(
+    location.updatedAt,
+    location.currentNoiseLevel,
+    REPORT_STALE_MINUTES,
+  );
 
   return {
     id: location.studyLocationId,
@@ -81,6 +89,70 @@ function buildMapAnnotation(location, group) {
       : (baseAnnotation?.severity ?? "low"),
     color: baseAnnotation?.color ?? "#3A86FF",
     isFavorite: baseAnnotation?.isFavorite ?? false,
+    // Marker animation state
+    kind: "location",
+    locationGroupId: location.locationGroupId ?? null,
+    noiseBand: markerState.noiseBand,
+    hasRecentData: markerState.hasRecentData,
+    isAnimated: markerState.isAnimated,
+    updatedAtIso: markerState.updatedAtIso,
+  };
+}
+
+function polygonCentroid(vertices) {
+  if (!vertices || vertices.length === 0) return null;
+  const lat = vertices.reduce((sum, v) => sum + v.latitude, 0) / vertices.length;
+  const lng = vertices.reduce((sum, v) => sum + v.longitude, 0) / vertices.length;
+  return { lat, lng };
+}
+
+function buildGroupAnnotation(group, childLocations) {
+  // Derive center from polygon centroid, then explicit fields, then child locations
+  let lat = null;
+  let lng = null;
+
+  const centroid = polygonCentroid(group.polygon);
+  if (centroid) {
+    lat = centroid.lat;
+    lng = centroid.lng;
+  } else if (Number.isFinite(group.centerLatitude) && Number.isFinite(group.centerLongitude)) {
+    lat = group.centerLatitude;
+    lng = group.centerLongitude;
+  } else if (childLocations.length > 0) {
+    lat = childLocations.reduce((sum, l) => sum + l.latitude, 0) / childLocations.length;
+    lng = childLocations.reduce((sum, l) => sum + l.longitude, 0) / childLocations.length;
+  } else {
+    return null; // no way to place this group on the map
+  }
+
+  const markerState = buildMapMarkerState(
+    group.updatedAt,
+    group.currentNoiseLevel,
+    REPORT_STALE_MINUTES,
+  );
+
+  return {
+    id: group.locationGroupId,
+    lat,
+    lng,
+    title: group.name,
+    buildingName: group.name,
+    noiseText: toNoiseText(group.currentNoiseLevel),
+    noiseValue: group.currentNoiseLevel ?? null,
+    occupancyText: toOccupancyText(group.currentOccupancyLevel),
+    severity: Number.isFinite(group.currentNoiseLevel)
+      ? toSeverity(group.currentNoiseLevel)
+      : "low",
+    updatedAtLabel: group.updatedAt
+      ? formatUpdatedAtLabel(group.updatedAt)
+      : "Awaiting live reports",
+    kind: "group",
+    locationGroupId: group.locationGroupId,
+    noiseBand: markerState.noiseBand,
+    hasRecentData: markerState.hasRecentData,
+    isAnimated: markerState.isAnimated,
+    updatedAtIso: markerState.updatedAtIso,
+    studyAreaCount: childLocations.length,
   };
 }
 
@@ -150,13 +222,27 @@ app.get("/api/map-annotations", async (req, res) => {
     const groupsById = new Map(
       sourceData.groups.map((group) => [group.locationGroupId, group]),
     );
-    const results = sourceData.locations.length > 0
+
+    // Build location markers
+    const locationResults = sourceData.locations.length > 0
       ? sourceData.locations.map((location) =>
           buildMapAnnotation(location, groupsById.get(location.locationGroupId)))
       : baseLocationAnnotations;
 
+    // Build group markers (derive center from polygon centroid)
+    const locationsByGroup = new Map();
+    for (const loc of sourceData.locations) {
+      const gid = loc.locationGroupId;
+      if (!locationsByGroup.has(gid)) locationsByGroup.set(gid, []);
+      locationsByGroup.get(gid).push(loc);
+    }
+
+    const groupResults = sourceData.groups
+      .map((group) => buildGroupAnnotation(group, locationsByGroup.get(group.locationGroupId) ?? []))
+      .filter(Boolean);
+
     res.status(200).json({
-      results,
+      results: [...groupResults, ...locationResults],
       error: "",
       source: sourceData.source,
     });

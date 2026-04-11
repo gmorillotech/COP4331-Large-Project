@@ -17,6 +17,7 @@ function AdminSearchMap({ results, selectedId, onSelect }: AdminSearchMapProps) 
         defaultCenter={DEFAULT_CENTER}
         defaultZoom={DEFAULT_ZOOM}
         mapId={MAP_ID}
+        colorScheme="DARK"
         clickableIcons={false}
         disableDefaultUI={true}
         style={{ width: '100%', height: '100%' }}

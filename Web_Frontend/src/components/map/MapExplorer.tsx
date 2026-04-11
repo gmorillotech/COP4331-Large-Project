@@ -14,17 +14,18 @@
 //     → searchFiltered (by debouncedSearch)
 //       → severityFiltered (by severityFilter)
 //         → sortedLocations (by sortOrder)
-//           → passed to MapMarkers, MapHeatOverlay, MapLocationList
+//           → zoom-aware filtering for sidebar vs map
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
 import MapCanvas from './MapCanvas.tsx';
-import MapMarkers from './MapMarkers.tsx';
+import MapMarkers, { ZOOM_THRESHOLD } from './MapMarkers.tsx';
 import MapHeatOverlay from './MapHeatOverlay.tsx';
 import MapInfoPopup from './MapInfoPopup.tsx';
 import MapLocationList from './MapLocationList.tsx';
+import { useMarkerAnimation } from './mapMarkerAnimation.ts';
 import { useFavorites } from '../../useFavorites.ts';
 import FavoritesDrawer from '../FavoritesDrawer.tsx';
 import { apiUrl } from '../../config';
@@ -45,25 +46,21 @@ const SORT_OPTIONS: Array<{ value: SortOrder; label: string }> = [
 
 // ---- Sort helpers (pure functions — no side effects) ------------------------
 
-// Sorts locations so those whose name starts with the query float to the top.
-// Everything else keeps its original order (stable sort).
 function sortByRelevance(locations: MapLocation[], query: string): MapLocation[] {
-  if (!query) return locations; // no search active → original order
+  if (!query) return locations;
   return [...locations].sort((a, b) => {
     const aName = (a.buildingName ?? a.title).toLowerCase();
     const bName = (b.buildingName ?? b.title).toLowerCase();
-    const aStarts = aName.startsWith(query) ? 0 : 1; // 0 = higher priority
+    const aStarts = aName.startsWith(query) ? 0 : 1;
     const bStarts = bName.startsWith(query) ? 0 : 1;
-    return aStarts - bStarts; // sort: starts-with matches come first
+    return aStarts - bStarts;
   });
 }
 
-// Sorts locations by noise intensity (0 = quiet, 1 = loud).
-// direction 'asc' = quietest first, 'desc' = loudest first.
 function sortByNoise(locations: MapLocation[], direction: 'asc' | 'desc'): MapLocation[] {
   return [...locations].sort((a, b) => {
     const diff = inferNoiseValue(a) - inferNoiseValue(b);
-    return direction === 'asc' ? diff : -diff; // flip sign for loudest-first
+    return direction === 'asc' ? diff : -diff;
   });
 }
 
@@ -72,91 +69,86 @@ function sortByNoise(locations: MapLocation[], direction: 'asc' | 'desc'): MapLo
 function MapExplorer() {
   // ---- State ----------------------------------------------------------------
 
-  // Raw location list from the API — never modified after fetch
   const [locations, setLocations] = useState<MapLocation[]>([]);
-
-  // Loading and error states for the fetch
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg]   = useState<string | null>(null);
-
-  // ID of the currently selected location — drives pin highlight + map pan
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // What the user has typed in the search box (raw, updates on every keystroke)
   const [searchInput, setSearchInput] = useState('');
-
-  // Debounced version of searchInput — only updates 180ms after the user stops typing.
-  // We filter by this instead of searchInput so we don't re-filter on every keystroke.
   const [debouncedSearch, setDebouncedSearch] = useState('');
-
-  // Which severity chip is active
   const [severityFilter, setSeverityFilter] = useState<AnnotationSeverity | 'all'>('all');
-
-  // Which sort option is active
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
 
-  const {isFavorite, toggleFavorite } = useFavorites(); 
+  // Current map zoom — reported up from MapMarkers via onZoomChange
+  const [mapZoom, setMapZoom] = useState<number>(0);
+  const isZoomedIn = mapZoom >= ZOOM_THRESHOLD;
 
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const animation = useMarkerAnimation();
+
+  // Stable callback for MapMarkers to report zoom changes
+  const handleZoomChange = useCallback((z: number) => setMapZoom(z), []);
+
+  // ---- Reusable fetch -------------------------------------------------------
+
+  const fetchLocations = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch(apiUrl('/api/map-annotations'), { signal });
+      const data: MapAnnotationsResponse = await res.json();
+
+      if (signal?.aborted) return;
+
+      if (data.error) {
+        setErrorMsg(data.error);
+        setLocations([]);
+      } else {
+        // TODO: TEMP — force animated markers with bands 1–5 for visual testing
+        let bandCounter = 0;
+        setLocations(data.results.map(r => {
+          if (r.kind === 'group') return r;
+          bandCounter++;
+          return { ...r, hasRecentData: true, isAnimated: true, noiseBand: ((bandCounter % 5) + 1) as 1|2|3|4|5 };
+        }));
+      }
+    } catch (err) {
+      if (signal?.aborted) return;
+      setErrorMsg(err instanceof Error ? err.message : 'Could not reach the server.');
+      setLocations([]);
+    } finally {
+      if (!signal?.aborted) setIsLoading(false);
+    }
+  }, []);
 
   // ---- Effects --------------------------------------------------------------
 
-  // Fetch location data from the backend on mount.
-  // isActive flag prevents state updates if the component unmounts before fetch completes.
   useEffect(() => {
-    let isActive = true;
+    const controller = new AbortController();
+    void fetchLocations(controller.signal);
+    return () => controller.abort();
+  }, [fetchLocations]);
 
-    async function fetchLocations() {
-      setIsLoading(true);
-      setErrorMsg(null);
-
-      try {
-        const res = await fetch(apiUrl('/api/map-annotations'));
-        const data: MapAnnotationsResponse = await res.json();
-
-        if (!isActive) return;
-
-        if (data.error) {
-          // API returned an application-level error
-          setErrorMsg(data.error);
-          setLocations([]);
-        } else {
-          setLocations(data.results);
-          // Auto-select the first result so the map pans to it on load
-          setSelectedId(data.results[0]?.id ?? null);
-        }
-      } catch (err) {
-        if (!isActive) return;
-        // Network error or JSON parse failure
-        setErrorMsg(err instanceof Error ? err.message : 'Could not reach the server.');
-        setLocations([]);
-      } finally {
-        if (isActive) setIsLoading(false);
-      }
-    }
-
-    void fetchLocations();
-
-    // Cleanup: if this component unmounts while fetching, ignore the result
-    return () => { isActive = false; };
-  }, []); // empty array = run once on mount
-
-  // Debounce: wait 180ms after the user stops typing before updating debouncedSearch.
-  // This prevents re-filtering on every single keystroke.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(searchInput.trim().toLowerCase());
     }, 180);
-    return () => window.clearTimeout(timer); // cancel the timer if user types again
-  }, [searchInput]); // re-run every time searchInput changes
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
-  // ---- Derived data (useMemo — recomputes only when inputs change) ----------
+  // ---- Derived data ---------------------------------------------------------
+
+  // Zoom-aware base set: when zoomed out show groups, when zoomed in show locations
+  const zoomFiltered = useMemo(() => {
+    if (isZoomedIn) return locations.filter((l) => l.kind !== 'group');
+    return locations.filter((l) => l.kind === 'group');
+  }, [locations, isZoomedIn]);
 
   // Step 1: filter by search text
   const searchFiltered = useMemo(() => {
-    if (!debouncedSearch) return locations; // no search → show everything
-    // buildSearchableText combines all searchable fields into one lowercase string
-    return locations.filter((loc) => buildSearchableText(loc).includes(debouncedSearch));
-  }, [locations, debouncedSearch]);
+    if (!debouncedSearch) return zoomFiltered;
+    return zoomFiltered.filter((loc) => buildSearchableText(loc).includes(debouncedSearch));
+  }, [zoomFiltered, debouncedSearch]);
 
   // Step 2: filter by severity chip
   const severityFiltered = useMemo(() => {
@@ -164,27 +156,21 @@ function MapExplorer() {
     return searchFiltered.filter((loc) => loc.severity === severityFilter);
   }, [searchFiltered, severityFilter]);
 
-  // Step 3: sort the remaining locations
+  // Step 3: sort
   const sortedLocations = useMemo(() => {
     if (sortOrder === 'noise-asc')  return sortByNoise(severityFiltered, 'asc');
     if (sortOrder === 'noise-desc') return sortByNoise(severityFiltered, 'desc');
-    return sortByRelevance(severityFiltered, debouncedSearch); // 'relevance' is default
+    return sortByRelevance(severityFiltered, debouncedSearch);
   }, [severityFiltered, sortOrder, debouncedSearch]);
 
-  // Keep selectedId valid: if the selected item was removed by a filter change,
-  // auto-select the first visible result.
-  // IMPORTANT: skip when selectedId is null — that means the user deliberately
-  // closed the popup, and we must not immediately re-open it.
+  // Keep selectedId valid when filters change
   useEffect(() => {
-    if (selectedId === null) return;         // user closed the popup → do nothing
+    if (selectedId === null) return;
     if (sortedLocations.length === 0) return;
     const stillVisible = sortedLocations.some((l) => l.id === selectedId);
-    if (!stillVisible) setSelectedId(sortedLocations[0].id); // item filtered out → pick first
+    if (!stillVisible) setSelectedId(sortedLocations[0].id);
   }, [sortedLocations, selectedId]);
 
-  // The full location object for the currently selected ID — passed to the popup.
-  // Search across ALL locations (not just filtered) so the popup still shows
-  // even if filters are changed while a pin is open.
   const selectedLocation = locations.find((l) => l.id === selectedId) ?? null;
 
   // ---- Render ---------------------------------------------------------------
@@ -192,20 +178,14 @@ function MapExplorer() {
   return (
     <section className="map-page">
 
-      {/* ---- Controls bar: title, search, sort, filter chips ---- */}
       <header className="map-controls-bar">
-
-        {/* Left side: title and subtitle */}
         <div className="map-controls-title">
           <p className="map-controls-eyebrow">SpotStudy</p>
           <h2>Study Space Search</h2>
           <p className="map-controls-subtitle">Search from the current map center</p>
         </div>
 
-        {/* Right side: search + sort + filter chips */}
         <div className="map-controls-right">
-
-          {/* Search input + clear button */}
           <div className="map-controls-search">
             <input
               type="search"
@@ -215,7 +195,6 @@ function MapExplorer() {
               onChange={(e) => setSearchInput(e.target.value)}
               aria-label="Search study spaces"
             />
-            {/* Only show the clear button when there is text to clear */}
             {searchInput && (
               <button
                 type="button"
@@ -228,10 +207,7 @@ function MapExplorer() {
             )}
           </div>
 
-          {/* Sort order dropdown + filter chips in one row */}
           <div className="map-controls-filters-row">
-
-            {/* Sort dropdown */}
             <label className="map-sort-label">
               <span>1st by</span>
               <select
@@ -245,7 +221,6 @@ function MapExplorer() {
               </select>
             </label>
 
-            {/* Severity filter chips — one button per option */}
             <div className="map-filter-chips" role="group" aria-label="Filter by noise level">
               {SEVERITY_OPTIONS.map((opt) => (
                 <button
@@ -254,57 +229,46 @@ function MapExplorer() {
                   className={`map-chip ${severityFilter === opt ? 'is-active' : ''}`}
                   onClick={() => setSeverityFilter(opt)}
                 >
-                  {/* "All levels" for 'all', capitalized label for others */}
                   {opt === 'all' ? 'All levels' : opt.charAt(0).toUpperCase() + opt.slice(1)}
                 </button>
               ))}
             </div>
           </div>
-
         </div>
       </header>
 
-      {/* ---- Status line: loading / error / count ---- */}
-      {isLoading && <p className="map-status">Loading study spaces...</p>}
-      {errorMsg  && <p className="map-status map-status--error">{errorMsg}</p>}
-      {!isLoading && !errorMsg && (
-        <p className="map-status">
-          {sortedLocations.length} location{sortedLocations.length !== 1 ? 's' : ''} shown
-        </p>
-      )}
+      <div className="map-status-row">
+        {isLoading && <p className="map-status">Loading study spaces...</p>}
+        {errorMsg  && <p className="map-status map-status--error">{errorMsg}</p>}
+        {!isLoading && !errorMsg && (
+          <p className="map-status">
+            {sortedLocations.length} location{sortedLocations.length !== 1 ? 's' : ''} shown
+          </p>
+        )}
+        <button
+          type="button"
+          className="map-refresh-btn"
+          disabled={isLoading}
+          onClick={() => void fetchLocations()}
+          aria-label="Refresh study spaces"
+        >
+          {isLoading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
 
-      {/* ---- Body: map canvas (left) + sidebar card list (right) ---- */}
       <div className="map-body-row">
-
-        {/* Map canvas — takes up the remaining width */}
         <div className="map-canvas-wrapper">
-          {/*
-            MapProvider wraps everything in APIProvider, which loads the Google Maps
-            JavaScript API exactly once and makes useMap() / useMapsLibrary() available
-            to all children.
-          */}
           <MapProvider apiKey={GOOGLE_MAPS_API_KEY}>
-            {/*
-              MapCanvas renders the <Map> component — this creates the actual
-              google.maps.Map instance and puts it into React context.
-              Children rendered inside <Map> can call useMap() to get the instance.
-            */}
             <MapCanvas onMapClick={() => setSelectedId(null)}>
-              {/*
-                MapMarkers renders one AdvancedMarker per location.
-                The camera controller (pan + zoom) lives inside here.
-              */}
+              {/* MapMarkers gets ALL locations — it handles zoom-based visibility internally */}
               <MapMarkers
-                locations={sortedLocations}
+                locations={locations}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
+                onZoomChange={handleZoomChange}
+                animation={animation}
               />
-              {/*
-                MapHeatOverlay draws the diffuse noise blobs directly on the map
-                canvas using OverlayView — not floating above the map.
-              */}
               <MapHeatOverlay locations={sortedLocations} />
-              {/* Info popup anchored to the selected pin on the map canvas */}
               <MapInfoPopup
                 location={selectedLocation}
                 onClose={() => setSelectedId(null)}
@@ -315,7 +279,6 @@ function MapExplorer() {
           </MapProvider>
         </div>
 
-        {/* Right sidebar: scrollable list of location cards */}
         <aside className="map-sidebar" aria-label="Study space list">
           <MapLocationList
             locations={sortedLocations}
@@ -325,10 +288,8 @@ function MapExplorer() {
             onToggleFavorite={toggleFavorite}
           />
         </aside>
-
       </div>
 
-      {/* Favorites drawer */}
       <FavoritesDrawer
         locations={locations}
         isFavorite={isFavorite}

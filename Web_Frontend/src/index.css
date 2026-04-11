@@ -804,16 +804,65 @@ code {
 
 /* ---- Status line ---- */
 /* Shows loading state, error, or result count */
-.map-status {
+.map-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 6px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.map-status {
   font-size: 13px;
   color: var(--text);
   margin: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .map-status--error {
   color: #dc2626;           /* red for errors */
+}
+
+.map-refresh-btn {
+  margin-left: auto;
+  padding: 4px 14px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.map-refresh-btn:hover:not(:disabled) {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.map-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Marker visuals ---- */
+.marker-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+
+.marker-visual.is-selected {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.3));
+}
+
+.marker-visual--cluster {
+  cursor: pointer;
+}
+
+.cluster-badge {
+  user-select: none;
+  z-index: 1;
 }
 
 /* ---- Body row: map + sidebar ---- */
