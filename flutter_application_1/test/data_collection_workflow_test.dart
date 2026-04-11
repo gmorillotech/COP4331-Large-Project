@@ -196,6 +196,45 @@ void main() {
       );
     });
 
+    test('location resolver recognizes explicit circle-backed location groups', () {
+      final resolver = LocalStudyLocationResolver(
+        studyLocations: const <DataCollectionStudyLocation>[
+          DataCollectionStudyLocation(
+            studyLocationId: 'new-group-main',
+            locationGroupId: 'group-new-building',
+            locationName: 'Main Room',
+            buildingName: 'New Building',
+            floorLabel: 'Floor 1',
+            sublocationLabel: 'Window Side',
+            latitude: 28.60095,
+            longitude: -81.19975,
+            groupCenterLatitude: 28.60095,
+            groupCenterLongitude: -81.19975,
+            groupRadiusMeters: 60,
+          ),
+        ],
+      );
+
+      final insideGroup = resolver.resolveNearestGroup(
+        latitude: 28.60110,
+        longitude: -81.19975,
+      );
+      final outsideGroup = resolver.resolveNearestGroup(
+        latitude: 28.60250,
+        longitude: -81.19975,
+      );
+
+      expect(insideGroup, isNotNull);
+      expect(insideGroup!.locationGroupId, 'group-new-building');
+      expect(
+        insideGroup.contains(
+          const SessionCoordinates(latitude: 28.60110, longitude: -81.19975),
+        ),
+        isTrue,
+      );
+      expect(outsideGroup, isNull);
+    });
+
     test(
       'location resolver prefers explicit polygon groups over overlapping derived circles',
       () {

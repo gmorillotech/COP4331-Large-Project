@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_svg: ^2.0.17
   geolocator: ^14.0.2
   google_maps_flutter: ^2.15.0
   noise_meter: ^5.1.0
@@ -24,3 +25,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/map_markers/animated/
+    - assets/map_markers/static/

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,14 +44,34 @@ class FakeBackendClient implements DataCollectionBackendClient {
     required double creatorLatitude,
     required double creatorLongitude,
   }) async {
+    const apothemMeters = 60.0;
+    final circumradiusMeters = apothemMeters / 0.8660254037844386;
+    final metersPerDegreeLat = 111320.0;
+    final metersPerDegreeLng =
+        metersPerDegreeLat * math.cos(centerLatitude * math.pi / 180);
+    final vertices = List<DataCollectionGroupVertex>.generate(6, (index) {
+      final angleRadians = (-90 + (index * 60)) * math.pi / 180;
+      return DataCollectionGroupVertex(
+        latitude:
+            centerLatitude +
+            (math.sin(angleRadians) * circumradiusMeters) /
+                metersPerDegreeLat,
+        longitude:
+            centerLongitude +
+            (math.cos(angleRadians) * circumradiusMeters) /
+                metersPerDegreeLng,
+      );
+    });
     final group = DataCollectionLocationGroup(
       locationGroupId:
           'group-${name.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-').toLowerCase()}',
       buildingName: name,
       centerLatitude: centerLatitude,
       centerLongitude: centerLongitude,
-      radiusMeters: 60,
+      radiusMeters: apothemMeters,
       studyLocations: const <DataCollectionStudyLocation>[],
+      polygon: <DataCollectionGroupVertex>[...vertices, vertices.first],
+      hasExplicitBoundary: true,
     );
     createdGroups.add(group);
     return group;
@@ -92,6 +113,27 @@ class FakeBackendClient implements DataCollectionBackendClient {
       sublocationLabel: sublocationLabel,
       latitude: latitude,
       longitude: longitude,
+      groupCenterLatitude: createdGroups
+          .where((group) => group.locationGroupId == locationGroupId)
+          .map((group) => group.centerLatitude)
+          .cast<double?>()
+          .firstWhere((value) => value != null, orElse: () => null),
+      groupCenterLongitude: createdGroups
+          .where((group) => group.locationGroupId == locationGroupId)
+          .map((group) => group.centerLongitude)
+          .cast<double?>()
+          .firstWhere((value) => value != null, orElse: () => null),
+      groupRadiusMeters: createdGroups
+          .where((group) => group.locationGroupId == locationGroupId)
+          .map((group) => group.radiusMeters)
+          .cast<double?>()
+          .firstWhere((value) => value != null, orElse: () => null),
+      groupPolygon: createdGroups
+          .where((group) => group.locationGroupId == locationGroupId)
+          .map((group) => group.polygon)
+          .cast<List<DataCollectionGroupVertex>?>()
+          .firstWhere((value) => value != null, orElse: () => null) ??
+          const <DataCollectionGroupVertex>[],
     );
     locations = <DataCollectionStudyLocation>[...locations, created];
     return created;
@@ -468,6 +510,32 @@ void main() {
       find.textContaining('Currently inside Student Union'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('location card shows live app coordinates as they change', (
+    tester,
+  ) async {
+    final coordinatesController =
+        StreamController<SessionCoordinates>.broadcast();
+    addTearDown(coordinatesController.close);
+
+    await tester.pumpWidget(
+      buildScreen(
+        draftRepository: repository,
+        backendClient: backendClient,
+        coordinatesStreamFactory: () => coordinatesController.stream,
+      ),
+    );
+    await waitForLocationLockReady(tester);
+
+    expect(find.text('28.6002, -81.2018'), findsOneWidget);
+
+    coordinatesController.add(
+      const SessionCoordinates(latitude: 28.60192, longitude: -81.19994),
+    );
+    await tester.pump();
+
+    expect(find.text('28.6019, -81.1999'), findsOneWidget);
   });
 
   testWidgets('screen explains when location permission is denied', (

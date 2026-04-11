@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +8,9 @@ import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:flutter_application_1/auth/login_page.dart';
 import 'package:flutter_application_1/data_collection/data_collection_screen.dart';
+import 'package:flutter_application_1/map_search/map_marker_animation.dart';
+import 'package:flutter_application_1/map_search/map_marker_types.dart';
+import 'package:flutter_application_1/map_search/map_marker_widget.dart';
 import 'package:flutter_application_1/map_search/map_search_viewport.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -277,6 +279,10 @@ class MapNode {
     this.noiseValue,
     this.occupancyValue,
     this.distanceMeters,
+    this.noiseBand,
+    this.hasRecentData = false,
+    this.isAnimated = false,
+    this.updatedAtIso,
   });
 
   final String id;
@@ -301,6 +307,10 @@ class MapNode {
   final double? noiseValue;
   final double? occupancyValue;
   final double? distanceMeters;
+  final int? noiseBand;
+  final bool hasRecentData;
+  final bool isAnimated;
+  final String? updatedAtIso;
 
   bool get isGroup => kind == NodeKind.group;
 
@@ -355,6 +365,10 @@ class MapNode {
       noiseValue: (json['noiseValue'] as num?)?.toDouble(),
       occupancyValue: (json['occupancyValue'] as num?)?.toDouble(),
       distanceMeters: (json['distanceMeters'] as num?)?.toDouble(),
+      noiseBand: (json['noiseBand'] as num?)?.toInt(),
+      hasRecentData: json['hasRecentData'] as bool? ?? false,
+      isAnimated: json['isAnimated'] as bool? ?? false,
+      updatedAtIso: (json['updatedAtIso'] as String?)?.trim(),
     );
   }
 }
@@ -366,7 +380,8 @@ class MapSearchPage extends StatefulWidget {
   State<MapSearchPage> createState() => _MapSearchPageState();
 }
 
-class _MapSearchPageState extends State<MapSearchPage> {
+class _MapSearchPageState extends State<MapSearchPage>
+    with TickerProviderStateMixin {
   static const CameraPosition _defaultCamera = CameraPosition(
     target: LatLng(28.6003, -81.2012),
     zoom: 15.4,
@@ -409,6 +424,8 @@ class _MapSearchPageState extends State<MapSearchPage> {
   double? _minNoise;
   double? _maxNoise;
   double? _maxOccupancy;
+  late final MarkerAnimationClock _markerClock;
+  MarkerAnimationState _markerAnimation = MarkerAnimationState.zero;
   bool _showAllResults = true;
   bool _showBuildings = true;
   bool _showSpots = true;
@@ -452,6 +469,12 @@ class _MapSearchPageState extends State<MapSearchPage> {
   @override
   void initState() {
     super.initState();
+    _markerClock = MarkerAnimationClock(this)
+      ..onStateChanged = () {
+        setState(() {
+          _markerAnimation = _markerClock.state;
+        });
+      };
     unawaited(_runSearch(showLoading: true));
   }
 
@@ -471,6 +494,7 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   @override
   void dispose() {
+    _markerClock.dispose();
     _authService?.removeListener(_syncFavoritesFromAuth);
     _debounce?.cancel();
     _filterDebounce?.cancel();
@@ -881,28 +905,36 @@ class _MapSearchPageState extends State<MapSearchPage> {
   List<MapNode> _fallbackNodes() {
     final locationNodes = _seededRecords
         .map(
-          (record) => MapNode(
-            id: record.id,
-            kind: NodeKind.location,
-            title: record.title,
-            buildingName: record.buildingName,
-            summary: record.summary,
-            statusText: record.statusText,
-            noiseText: record.noiseText,
-            occupancyText: record.occupancyText,
-            updatedAtLabel: record.updatedAtLabel,
-            position: record.position,
-            color: record.color,
-            severity: record.severity,
-            searchTerms:
-                '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'
-                    .toLowerCase(),
-            badge: _badgeForFloor(record.floorLabel, record.title),
-            floorLabel: record.floorLabel,
-            groupId: _groupId(record.buildingName),
-            sublocationLabel: record.sublocationLabel,
-            isFavorite: record.isFavorite,
-          ),
+          (record) {
+            final band = _fallbackNoiseBand(record.severity);
+            final animated = record.severity != Severity.low;
+            return MapNode(
+              id: record.id,
+              kind: NodeKind.location,
+              title: record.title,
+              buildingName: record.buildingName,
+              summary: record.summary,
+              statusText: record.statusText,
+              noiseText: record.noiseText,
+              occupancyText: record.occupancyText,
+              updatedAtLabel: record.updatedAtLabel,
+              position: record.position,
+              color: record.color,
+              severity: record.severity,
+              searchTerms:
+                  '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'
+                      .toLowerCase(),
+              badge: _badgeForFloor(record.floorLabel, record.title),
+              floorLabel: record.floorLabel,
+              groupId: _groupId(record.buildingName),
+              sublocationLabel: record.sublocationLabel,
+              isFavorite: record.isFavorite,
+              noiseBand: band,
+              hasRecentData: true,
+              isAnimated: animated,
+              updatedAtIso: DateTime.now().toIso8601String(),
+            );
+          },
         )
         .toList(growable: false);
 
@@ -926,6 +958,9 @@ class _MapSearchPageState extends State<MapSearchPage> {
           final quietCount = items
               .where((e) => e.severity == Severity.low)
               .length;
+          final groupSeverity = Severity.values[severityIndex];
+          final groupBand = _fallbackNoiseBand(groupSeverity);
+          final groupAnimated = items.any((e) => e.isAnimated);
           return MapNode(
             id: _groupId(entry.key),
             kind: NodeKind.group,
@@ -934,12 +969,12 @@ class _MapSearchPageState extends State<MapSearchPage> {
             summary:
                 '${items.length} study areas, $quietCount quiet option${quietCount == 1 ? '' : 's'}.',
             statusText: 'Building overview',
-            noiseText: _severityLabel(Severity.values[severityIndex]),
+            noiseText: _severityLabel(groupSeverity),
             occupancyText: '${items.length} reported study areas',
             updatedAtLabel: items.first.updatedAtLabel,
             position: LatLng(lat, lng),
             color: items.first.color,
-            severity: Severity.values[severityIndex],
+            severity: groupSeverity,
             searchTerms: items
                 .expand(
                   (e) => [
@@ -954,6 +989,10 @@ class _MapSearchPageState extends State<MapSearchPage> {
             badge: entry.key.substring(0, 1).toUpperCase(),
             locationCount: items.length,
             isFavorite: items.any((e) => e.isFavorite),
+            noiseBand: groupBand,
+            hasRecentData: true,
+            isAnimated: groupAnimated,
+            updatedAtIso: DateTime.now().toIso8601String(),
           );
         })
         .toList(growable: false);
@@ -2029,148 +2068,26 @@ class _MapSearchPageState extends State<MapSearchPage> {
 
   Widget _overlayMarker(MapNode node, Offset point) {
     final selected = node.id == _selectedId;
-    final zoomScale = _overlayZoomScale(_zoom, node.isGroup);
-    final markerHeight = (node.isGroup ? 44.0 : 30.0) * zoomScale;
-    final markerWidth = (node.isGroup ? 34.0 : 24.0) * zoomScale;
-    final badgeSize = (node.isGroup ? 22.0 : 16.0) * zoomScale;
-    final left = point.dx - (markerWidth / 2);
-    final top = point.dy - markerHeight;
+    final isSub = node.sublocationLabel != null && !node.isGroup;
+    final size = _markerSize(_zoom, node.isGroup, isSub, selected);
+    final left = point.dx - (size / 2);
+    final top = point.dy - size;
 
     return Positioned(
       left: left,
       top: top,
-      width: markerWidth + badgeSize,
-      height: markerHeight + 4,
+      width: size,
+      height: size,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () => _focusNode(node),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned(
-              left: 0,
-              bottom: 0,
-              child: _pinGlyph(
-                color: node.color,
-                label: node.badge,
-                isMini: !node.isGroup,
-                selected: selected,
-                scale: zoomScale,
-              ),
-            ),
-            Positioned(
-              top: selected ? 0 : 2,
-              right: 0,
-              child: _soundBadge(
-                color: _heatColor(node),
-                size: badgeSize,
-                selected: selected,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _pinGlyph({
-    required Color color,
-    required String label,
-    required bool isMini,
-    required bool selected,
-    required double scale,
-  }) {
-    final shellSize = (isMini ? 18.0 : 26.0) * scale;
-    final borderWidth = (isMini ? 2.4 : 3.2) * scale;
-
-    return SizedBox(
-      width: shellSize + (6 * scale),
-      height: shellSize + (10 * scale),
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: [
-          Positioned(
-            bottom: 0,
-            child: Transform.rotate(
-              angle: -math.pi / 4,
-              child: Container(
-                width: shellSize,
-                height: shellSize,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular((isMini ? 5 : 8) * scale),
-                  border: Border.all(
-                    color: selected ? const Color(0xFF102A43) : color,
-                    width: borderWidth,
-                  ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: (isMini ? 7 : 9) * scale,
-            child: CircleAvatar(
-              radius: (isMini ? 5.5 : 8.5) * scale,
-              backgroundColor: color,
-              foregroundColor: Colors.white,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: (isMini ? 7 : 10) * scale,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _soundBadge({
-    required Color color,
-    required double size,
-    required bool selected,
-  }) {
-    final iconSize = size * 0.52;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFF102A43),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Center(
-        child: Container(
-          width: size * 0.62,
-          height: size * 0.62,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color,
-            border: Border.all(
-              color: selected ? Colors.white : const Color(0xFF102A43),
-              width: 1.4,
-            ),
-          ),
-          child: Icon(
-            Icons.volume_up_rounded,
-            size: iconSize,
-            color: const Color(0xFF102A43),
-          ),
+        child: MapMarkerVisual(
+          size: size,
+          isAnimated: node.isAnimated,
+          noiseBand: node.noiseBand,
+          isSub: isSub,
+          isSelected: selected,
+          animation: _markerAnimation,
         ),
       ),
     );
@@ -2445,4 +2362,29 @@ Color _colorFromHex(String hex) {
     normalized.length == 6 ? 'ff$normalized' : normalized,
   );
   return Color(int.parse(buffer.toString(), radix: 16));
+}
+
+int _fallbackNoiseBand(Severity severity) => switch (severity) {
+  Severity.low => 1,
+  Severity.medium => 3,
+  Severity.high => 5,
+};
+
+/// Marker sizing that mirrors the web's `getSize()` in MapMarkerVisual.tsx.
+double _markerSize(double zoom, bool isGroup, bool isSub, bool isSelected) {
+  const referenceZoom = 15.0;
+  const scalePerZoom = 0.12;
+  const minScale = 0.6;
+  const shrinkPerZoom = 0.06;
+  const selectedBoost = 14.0;
+
+  final base = isGroup ? 48.0 : (isSub ? 36.0 : 48.0);
+  double scaleFactor;
+  if (zoom >= referenceZoom) {
+    scaleFactor = 1 + (zoom - referenceZoom) * scalePerZoom;
+  } else {
+    scaleFactor = (1 - (referenceZoom - zoom) * shrinkPerZoom).clamp(minScale, 1.0);
+  }
+  final size = base * scaleFactor;
+  return isSelected ? size + selectedBoost : size;
 }

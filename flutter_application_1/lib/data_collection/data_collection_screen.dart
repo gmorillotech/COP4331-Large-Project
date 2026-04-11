@@ -1588,6 +1588,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         _LocationCard(
           locations: _availableLocations,
           selectedLocation: _selectedLocation,
+          currentCoordinates: _lastKnownCoordinates,
           isLocked: _hasLockedSession,
           isCreatingLocation: _isCreatingLocation,
           isCreatingGroup: _isCreatingGroup,
@@ -1925,6 +1926,7 @@ class _LocationCard extends StatelessWidget {
   const _LocationCard({
     required this.locations,
     required this.selectedLocation,
+    required this.currentCoordinates,
     required this.isLocked,
     required this.isCreatingLocation,
     required this.isCreatingGroup,
@@ -1942,6 +1944,7 @@ class _LocationCard extends StatelessWidget {
 
   final List<DataCollectionStudyLocation> locations;
   final DataCollectionStudyLocation? selectedLocation;
+  final SessionCoordinates? currentCoordinates;
   final bool isLocked;
   final bool isCreatingLocation;
   final bool isCreatingGroup;
@@ -2131,12 +2134,18 @@ class _LocationCard extends StatelessWidget {
               spacing: 10,
               runSpacing: 10,
               children: [
+                if (currentCoordinates != null)
+                  _MetricChip(
+                    label: 'App coordinates',
+                    value:
+                        '${currentCoordinates!.latitude.toStringAsFixed(4)}, ${currentCoordinates!.longitude.toStringAsFixed(4)}',
+                  ),
                 _MetricChip(
                   label: 'Study location ID',
                   value: effectiveSelectedLocation.studyLocationId,
                 ),
                 _MetricChip(
-                  label: 'Coordinates',
+                  label: 'Study area coordinates',
                   value:
                       '${effectiveSelectedLocation.latitude.toStringAsFixed(4)}, ${effectiveSelectedLocation.longitude.toStringAsFixed(4)}',
                 ),
@@ -2432,7 +2441,7 @@ class _NewLocationGroupDialogState extends State<_NewLocationGroupDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'This creates a new 60 meter radius group and the first study area inside it. You can adjust the group center, but your current position must still be inside the new boundary.',
+              'This creates a new 60 meter hexagonal group and the first study area inside it. You can adjust the group center, but your current position must still be inside the new boundary.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.76),
                 height: 1.35,

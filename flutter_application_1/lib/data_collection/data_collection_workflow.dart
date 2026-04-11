@@ -77,15 +77,25 @@ class DataCollectionLocationGroup {
   final bool hasExplicitBoundary;
 
   bool contains(SessionCoordinates coords) {
-    if (polygon.length < 3) {
+    if (polygon.length >= 3) {
+      return _pointInOrOnPolygon(
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        polygon: polygon,
+      );
+    }
+
+    if (!radiusMeters.isFinite || radiusMeters <= 0) {
       return false;
     }
 
-    return _pointInOrOnPolygon(
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      polygon: polygon,
+    final distanceMeters = _haversineDistanceMeters(
+      latitudeA: coords.latitude,
+      longitudeA: coords.longitude,
+      latitudeB: centerLatitude,
+      longitudeB: centerLongitude,
     );
+    return distanceMeters <= radiusMeters;
   }
 
   DataCollectionStudyLocation resolveNearestLocation(
@@ -301,14 +311,19 @@ class LocalStudyLocationResolver {
   }) {
     final coords = SessionCoordinates(latitude: latitude, longitude: longitude);
     final containingGroups =
-        locationGroups
-            .where((group) => group.polygon.length >= 3 && group.contains(coords))
-            .toList();
+        locationGroups.where((group) => group.contains(coords)).toList();
 
     if (containingGroups.isNotEmpty) {
       containingGroups.sort(
-        (left, right) => _distanceToGroup(left, coords)
-            .compareTo(_distanceToGroup(right, coords)),
+        (left, right) {
+          if (left.hasExplicitBoundary != right.hasExplicitBoundary) {
+            return left.hasExplicitBoundary ? -1 : 1;
+          }
+
+          return _distanceToGroup(left, coords).compareTo(
+            _distanceToGroup(right, coords),
+          );
+        },
       );
       return containingGroups.first;
     }

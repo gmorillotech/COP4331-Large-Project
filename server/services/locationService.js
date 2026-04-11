@@ -172,6 +172,12 @@ class LocationService {
     }
 
     const proposedBoundary = {
+      shapeType: "polygon",
+      polygon: buildRegularHexagonBoundary({
+        centerLatitude,
+        centerLongitude,
+        apothemMeters: this.userCreatedLocationGroupRadiusMeters,
+      }),
       centerLatitude,
       centerLongitude,
       radiusMeters: this.userCreatedLocationGroupRadiusMeters,
@@ -191,6 +197,8 @@ class LocationService {
       centerLatitude,
       centerLongitude,
       radiusMeters: this.userCreatedLocationGroupRadiusMeters,
+      shapeType: "polygon",
+      polygon: proposedBoundary.polygon,
       currentNoiseLevel: null,
       currentOccupancyLevel: null,
       updatedAt: null,
@@ -337,6 +345,31 @@ function haversineDistanceMeters(a, b) {
 
 function toRadians(value) {
   return (value * Math.PI) / 180;
+}
+
+function buildRegularHexagonBoundary({
+  centerLatitude,
+  centerLongitude,
+  apothemMeters,
+}) {
+  const circumradiusMeters = apothemMeters / Math.cos(Math.PI / 6);
+  const metersPerDegreeLat = 111_320;
+  const metersPerDegreeLng =
+    metersPerDegreeLat * Math.max(Math.cos(toRadians(centerLatitude)), Number.EPSILON);
+
+  const openVertices = Array.from({ length: 6 }, (_, index) => {
+    const angleRadians = toRadians(-90 + (index * 60));
+    return {
+      latitude:
+        centerLatitude +
+        (Math.sin(angleRadians) * circumradiusMeters) / metersPerDegreeLat,
+      longitude:
+        centerLongitude +
+        (Math.cos(angleRadians) * circumradiusMeters) / metersPerDegreeLng,
+    };
+  });
+
+  return isClosedPolygon(openVertices).vertices;
 }
 
 function isWithinBoundary(boundary, coords) {

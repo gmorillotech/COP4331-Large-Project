@@ -284,7 +284,7 @@ it("GET /api/locations/groups returns location groups sorted by name", async () 
   });
 });
 
-it("POST /api/locations/groups creates a new fixed-radius group when the user is outside existing groups", async () => {
+it("POST /api/locations/groups creates a new hexagonal group when the user is outside existing groups", async () => {
   const StudyLocationModel = createQueryModel([
     {
       studyLocationId: "loc-a",
@@ -331,7 +331,10 @@ it("POST /api/locations/groups creates a new fixed-radius group when the user is
 
     assert.equal(response.status, 201);
     assert.equal(body.name, "Chemistry Building");
+    assert.equal(body.shapeType, "polygon");
     assert.equal(body.radiusMeters, 60);
+    assert.equal(body.polygon.length, 7);
+    assert.deepEqual(body.polygon[0], body.polygon[body.polygon.length - 1]);
     assert.ok(body.locationGroupId.startsWith("group-chemistry-building"));
   });
 });
