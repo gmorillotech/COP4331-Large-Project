@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 
 const {
   A1Service,
@@ -245,7 +244,6 @@ class ReportProcessingService {
 
   async submitCanonicalReport(reportData) {
     await this.#ensureCatalogLocation(reportData.studyLocationId);
-    await this.#ensureCollectorUser(reportData.userId);
 
     const report = await this.reportService.submitNewReport(reportData);
     const metadataRecords = await this.reportRepository.getReportsByLocation(report.studyLocationId);
@@ -394,6 +392,8 @@ class ReportProcessingService {
           studyLocationId: catalogLocation.studyLocationId,
           locationGroupId: catalogLocation.locationGroupId,
           name: catalogLocation.name,
+          floorLabel: catalogLocation.floorLabel,
+          sublocationLabel: catalogLocation.sublocationLabel,
           latitude: catalogLocation.latitude,
           longitude: catalogLocation.longitude,
           currentNoiseLevel: null,
@@ -405,42 +405,6 @@ class ReportProcessingService {
     );
   }
 
-  async #ensureCollectorUser(userId) {
-    const normalizedUserId =
-      typeof userId === "string" && userId.trim().length > 0 ? userId.trim() : "local-user";
-    const existing = await User.findOne({ userId: normalizedUserId }).select("userId");
-    if (existing) {
-      return normalizedUserId;
-    }
-
-    const passwordHash = await bcrypt.hash(`collector-${normalizedUserId}`, 10);
-    const safeLogin = normalizedUserId.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
-    await new User({
-      userId: normalizedUserId,
-      login: `collector-${safeLogin}`,
-      email: `${safeLogin}@local.invalid`,
-      passwordHash,
-      role: "user",
-      accountStatus: "active",
-      firstName: "Local",
-      lastName: "Collector",
-      displayName: "Local Collector",
-      hideLocation: false,
-      pinColor: "#0F766E",
-      favorites: [],
-      userNoiseWF: 1,
-      userOccupancyWF: 1,
-      emailVerificationCode: null,
-      emailVerificationExpiresAt: null,
-      emailVerifiedAt: new Date(),
-      passwordResetCode: null,
-      passwordResetCodeExpiresAt: null,
-      passwordChangedAt: new Date(),
-    }).save();
-
-    return normalizedUserId;
-  }
 }
 
 module.exports = {
