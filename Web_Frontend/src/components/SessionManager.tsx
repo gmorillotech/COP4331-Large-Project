@@ -652,7 +652,7 @@ function SessionManager() {
           <div className="session-modal session-modal--form">
             <h2>Create Location Study Group</h2>
             <p className="session-modal__desc">
-              This creates a new 60 meter radius group and the first study area inside it. You can
+              This creates a new 60 meter hexagonal group and the first study area inside it. You can
               adjust the group center, but your current position must still be inside the new boundary.
             </p>
 
