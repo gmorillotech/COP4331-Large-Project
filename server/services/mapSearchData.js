@@ -212,12 +212,58 @@ function parseOccupancyFallback(value) {
   return value;
 }
 
+/**
+ * Returns true when the given updatedAt timestamp is within the stale window.
+ * Uses the same REPORT_STALE_MINUTES constant as the rest of the system.
+ */
+function isRecentReading(updatedAt, staleMinutes) {
+  if (!updatedAt) return false;
+  const cutoff = Date.now() - staleMinutes * 60 * 1000;
+  return new Date(updatedAt).getTime() >= cutoff;
+}
+
+/**
+ * Maps a numeric currentNoiseLevel to a qualitative band 1..5.
+ * Returns null when the noise level is not a finite number.
+ *
+ * Band 1: very quiet  (< 40 dB)
+ * Band 2: quiet       (40–51 dB)
+ * Band 3: moderate    (52–61 dB)
+ * Band 4: busy        (62–67 dB)
+ * Band 5: loud        (>= 68 dB)
+ */
+function toNoiseBand(noiseLevel) {
+  if (!Number.isFinite(noiseLevel)) return null;
+  if (noiseLevel < 40) return 1;
+  if (noiseLevel < 52) return 2;
+  if (noiseLevel < 62) return 3;
+  if (noiseLevel < 68) return 4;
+  return 5;
+}
+
+/**
+ * Builds the marker-state fields that the frontend needs for animated vs
+ * static marker rendering.
+ */
+function buildMapMarkerState(updatedAt, currentNoiseLevel, staleMinutes) {
+  const recent = isRecentReading(updatedAt, staleMinutes);
+  return {
+    noiseBand: toNoiseBand(currentNoiseLevel),
+    hasRecentData: recent,
+    isAnimated: recent && Number.isFinite(currentNoiseLevel),
+    updatedAtIso: updatedAt ? new Date(updatedAt).toISOString() : null,
+  };
+}
+
 module.exports = {
   baseLocationAnnotations,
   baseLocationAnnotationsById,
+  buildMapMarkerState,
   distanceInMeters,
   formatUpdatedAtLabel,
+  isRecentReading,
   parseOccupancyFallback,
+  toNoiseBand,
   toNoiseText,
   toOccupancyText,
   toSeverity,
