@@ -5,9 +5,10 @@ import './DataCollectionPage.css';
 function DataCollectionPage() {
   const navigate = useNavigate();
   return (
+    <main>
     <div className="datacollection-page">
       <button className="datacollection-back-btn" onClick={() => navigate('/home')}>
-        ← Back to Map
+        Back to Map
       </button>
       <div className="datacollection-content">
         <h1 className="datacollection-title">Contribute Data</h1>
@@ -15,6 +16,7 @@ function DataCollectionPage() {
         <SessionManager />
       </div>
     </div>
+    </main>
   );
 }
 
