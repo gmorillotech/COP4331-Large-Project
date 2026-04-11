@@ -28,6 +28,10 @@ export type MapLocation = {
   studyAreaCount?: number;     // e.g. 4 → "4 study areas in this building"
   quietOptionCount?: number;   // e.g. 2 → "2 quiet options"
 
+  // Numeric live readings — present when the backend has a current estimate
+  noiseValue?: number | null;    // actual dB level, e.g. 45.2
+  occupancyValue?: number | null; // 0–5 scale, e.g. 2.3
+
   // Marker animation state — driven by explicit API fields, not parsed from text
   kind?: MarkerKind;           // "group" or "location"
   locationGroupId?: string;    // which group this marker belongs to (both kinds carry this)
