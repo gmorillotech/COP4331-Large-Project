@@ -13,8 +13,9 @@
 //   fetch → locations
 //     → searchFiltered (by debouncedSearch)
 //       → severityFiltered (by severityFilter)
-//         → sortedLocations (by sortOrder)
-//           → zoom-aware filtering for sidebar vs map
+//         → rangeFiltered (by minNoise / maxNoise / maxOccupancy)
+//           → sortedLocations (by sortOrder)
+//             → zoom-aware filtering for sidebar vs map
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
@@ -92,7 +93,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   // Parsed numeric values (null when input is empty or non-numeric)
   const minNoise = minNoiseStr !== '' && Number.isFinite(Number(minNoiseStr)) ? Number(minNoiseStr) : null;
   const maxNoise = maxNoiseStr !== '' && Number.isFinite(Number(maxNoiseStr)) ? Number(maxNoiseStr) : null;
-  const maxOccupancy = maxOccupancyStr !== '' ? Number(maxOccupancyStr) : null;
+  const maxOccupancy = maxOccupancyStr !== '' && Number.isFinite(Number(maxOccupancyStr)) ? Number(maxOccupancyStr) : null;
 
   const activeFilterCount = [minNoise, maxNoise, maxOccupancy].filter((v) => v !== null).length;
   const hasActiveFilters = activeFilterCount > 0;
