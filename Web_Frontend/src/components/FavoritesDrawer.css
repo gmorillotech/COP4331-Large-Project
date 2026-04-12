@@ -60,7 +60,7 @@
 .favorites-drawer__close {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(109, 214, 255, 0.75);
   font-size: 1.1em;
   cursor: pointer;
   padding: 4px 6px;
@@ -137,13 +137,13 @@
 
 .favorites-drawer__sub {
   font-size: 0.8em;
-  color: #60c8c0;
+  color: #aa3bff;
   font-weight: 600;
 }
 
 .favorites-drawer__noise {
   font-size: 0.78em;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(109, 214, 255, 0.6);
 }
 
 /* ── SCROLLBAR ───────────────────────────────────────── */
@@ -191,7 +191,7 @@
   border-radius: 8px;
   font-size: 0.85em;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(109, 214, 255, 0.6);
   transition: all 0.15s ease;
   text-align: center;
 }
@@ -214,7 +214,7 @@
   border: none;
   font-size: 1.2em;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(109, 214, 255, 0.3);
   padding: 4px;
   border-radius: 50%;
   transition: color 0.15s ease, transform 0.1s ease;

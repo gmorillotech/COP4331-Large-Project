@@ -673,8 +673,12 @@ function SessionManager() {
   const qualitativeLabel = currentDb !== null ? dbToQualitative(currentDb) : '—';
   const tierIndex = currentDb !== null ? dbToTierIndex(currentDb) : 0;
   const currentMarkerSrc = NOISE_TIER_MARKERS[tierIndex][markerVariant];
-  // dot position: Full(5)=0% top, Empty(1)=100% bottom
-  const occupancyDotPosition = occupancyLevel !== null ? ((5 - occupancyLevel) / 4) * 100 : null;
+  const selectedOccupancy = OCCUPANCY_LEVELS.find((o) => o.level === occupancyLevel) ?? null;
+  // Clamp dot so it never clips outside the 280px bar (dot radius = 12px → offset = 12/280*100)
+  const DOT_OFFSET_PCT = (12 / 280) * 100;
+  const occupancyDotPosition = occupancyLevel !== null
+    ? DOT_OFFSET_PCT + ((5 - occupancyLevel) / 4) * (100 - 2 * DOT_OFFSET_PCT)
+    : null;
 
   return (
     <>
@@ -1023,20 +1027,29 @@ function SessionManager() {
 
             {/* RIGHT — Occupancy */}
             <div className="dc-col">
-              <p className="dc-col__title">Occupancy</p>
               <div className="dc-occupancy-layout">
-                <div className="dc-occupancy-bar-wrap">
-                  <div
-                    className="dc-occupancy-bar"
-                    onPointerDown={handleBarPointerDown}
-                    onPointerMove={handleBarPointerMove}
-                  >
-                    {occupancyDotPosition !== null && (
-                      <div
-                        className="dc-occupancy-bar__dot"
-                        style={{ top: `${occupancyDotPosition}%` }}
-                      />
-                    )}
+                <div className="dc-occ-bar-col">
+                  <p className="dc-col__title">Occupancy</p>
+                  {selectedOccupancy ? (
+                    <p className="dc-occupancy-selected" style={{ color: selectedOccupancy.color }}>
+                      {selectedOccupancy.label}
+                    </p>
+                  ) : (
+                    <p className="dc-occupancy-sub">Choose level</p>
+                  )}
+                  <div className="dc-occupancy-bar-wrap">
+                    <div
+                      className="dc-occupancy-bar"
+                      onPointerDown={handleBarPointerDown}
+                      onPointerMove={handleBarPointerMove}
+                    >
+                      {occupancyDotPosition !== null && (
+                        <div
+                          className="dc-occupancy-bar__dot"
+                          style={{ top: `${occupancyDotPosition}%` }}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="dc-occupancy-labels">
