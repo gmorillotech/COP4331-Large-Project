@@ -13,8 +13,9 @@
 //   fetch → locations
 //     → searchFiltered (by debouncedSearch)
 //       → severityFiltered (by severityFilter)
-//         → sortedLocations (by sortOrder)
-//           → zoom-aware filtering for sidebar vs map
+//         → rangeFiltered (by minNoise / maxNoise / maxOccupancy)
+//           → sortedLocations (by sortOrder)
+//             → zoom-aware filtering for sidebar vs map
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
@@ -83,6 +84,26 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<AnnotationSeverity | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
+
+  // Range filters — stored as strings so inputs stay controlled while typing
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [minNoiseStr, setMinNoiseStr] = useState('');
+  const [maxNoiseStr, setMaxNoiseStr] = useState('');
+  const [maxOccupancyStr, setMaxOccupancyStr] = useState('');
+
+  // Parsed numeric values (null when input is empty or non-numeric)
+  const minNoise = minNoiseStr !== '' && Number.isFinite(Number(minNoiseStr)) ? Number(minNoiseStr) : null;
+  const maxNoise = maxNoiseStr !== '' && Number.isFinite(Number(maxNoiseStr)) ? Number(maxNoiseStr) : null;
+  const maxOccupancy = maxOccupancyStr !== '' && Number.isFinite(Number(maxOccupancyStr)) ? Number(maxOccupancyStr) : null;
+
+  const activeFilterCount = [minNoise, maxNoise, maxOccupancy].filter((v) => v !== null).length;
+  const hasActiveFilters = activeFilterCount > 0;
+
+  function clearRangeFilters() {
+    setMinNoiseStr('');
+    setMaxNoiseStr('');
+    setMaxOccupancyStr('');
+  }
 
   // Current map zoom — reported up from MapMarkers via onZoomChange
   const [mapZoom, setMapZoom] = useState<number>(0);
@@ -162,12 +183,29 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
     return searchFiltered.filter((loc) => loc.severity === severityFilter);
   }, [searchFiltered, severityFilter]);
 
-  // Step 3: sort
+  // Step 3: filter by noise range and max occupancy
+  // Locations with no live data (noiseValue/occupancyValue is null) are excluded
+  // when the corresponding filter is active — same behaviour as the backend service.
+  const rangeFiltered = useMemo(() => {
+    let result = severityFiltered;
+    if (minNoise !== null) {
+      result = result.filter((l) => Number.isFinite(l.noiseValue) && (l.noiseValue as number) >= minNoise);
+    }
+    if (maxNoise !== null) {
+      result = result.filter((l) => Number.isFinite(l.noiseValue) && (l.noiseValue as number) <= maxNoise);
+    }
+    if (maxOccupancy !== null) {
+      result = result.filter((l) => Number.isFinite(l.occupancyValue) && (l.occupancyValue as number) <= maxOccupancy);
+    }
+    return result;
+  }, [severityFiltered, minNoise, maxNoise, maxOccupancy]);
+
+  // Step 4: sort
   const sortedLocations = useMemo(() => {
-    if (sortOrder === 'noise-asc')  return sortByNoise(severityFiltered, 'asc');
-    if (sortOrder === 'noise-desc') return sortByNoise(severityFiltered, 'desc');
-    return sortByRelevance(severityFiltered, debouncedSearch);
-  }, [severityFiltered, sortOrder, debouncedSearch]);
+    if (sortOrder === 'noise-asc')  return sortByNoise(rangeFiltered, 'asc');
+    if (sortOrder === 'noise-desc') return sortByNoise(rangeFiltered, 'desc');
+    return sortByRelevance(rangeFiltered, debouncedSearch);
+  }, [rangeFiltered, sortOrder, debouncedSearch]);
 
   // Keep selectedId valid when filters change
   useEffect(() => {
@@ -251,6 +289,66 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
               {isLoading ? 'Refreshing…' : '↻ Refresh'}
             </button>
           </div>
+
+          {filtersOpen && (
+            <div className="map-range-filters-row" role="group" aria-label="Range filters">
+              <label className="map-sort-label">
+                <span>Min dB</span>
+                <input
+                  type="number"
+                  className="map-filter-input"
+                  placeholder="e.g. 30"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={minNoiseStr}
+                  onChange={(e) => setMinNoiseStr(e.target.value)}
+                  aria-label="Minimum noise level in decibels"
+                />
+              </label>
+              <label className="map-sort-label">
+                <span>Max dB</span>
+                <input
+                  type="number"
+                  className="map-filter-input"
+                  placeholder="e.g. 80"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={maxNoiseStr}
+                  onChange={(e) => setMaxNoiseStr(e.target.value)}
+                  aria-label="Maximum noise level in decibels"
+                />
+              </label>
+              {minNoise !== null && maxNoise !== null && minNoise > maxNoise && (
+                <span className="map-filter-warning">Min &gt; Max</span>
+              )}
+              <label className="map-sort-label">
+                <span>Max occupancy</span>
+                <select
+                  className="map-sort-select"
+                  value={maxOccupancyStr}
+                  onChange={(e) => setMaxOccupancyStr(e.target.value)}
+                  aria-label="Maximum occupancy level"
+                >
+                  <option value="">Any</option>
+                  <option value="1">≤ 1 / 5</option>
+                  <option value="2">≤ 2 / 5</option>
+                  <option value="3">≤ 3 / 5</option>
+                  <option value="4">≤ 4 / 5</option>
+                </select>
+              </label>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  className="map-chip"
+                  onClick={clearRangeFilters}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

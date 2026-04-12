@@ -821,6 +821,49 @@ code {
   flex-wrap: wrap;
 }
 
+/* ---- Range filter row (expandable, shown below the chips row) ---- */
+.map-range-filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Number input styled to match the sort select */
+.map-filter-input {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  font-size: 14px;
+  outline: none;
+  width: 90px;
+  /* Remove browser spin buttons */
+  -moz-appearance: textfield;
+}
+
+.map-filter-input::-webkit-outer-spin-button,
+.map-filter-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.map-filter-input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.map-filter-input:focus {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Warning shown when min > max */
+.map-filter-warning {
+  font-size: 12px;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
 /* ---- Status line ---- */
 /* Shows loading state, error, or result count */
 .map-status-row {
