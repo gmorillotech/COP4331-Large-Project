@@ -29,11 +29,38 @@ function buildHistoricalStatusText(historicalBaseline) {
   }
 }
 
+function isLiveDataFresh(liveUpdatedAt, now, freshnessMinutes) {
+  if (!liveUpdatedAt || !Number.isFinite(freshnessMinutes) || freshnessMinutes <= 0) {
+    return false;
+  }
+
+  const updatedMs =
+    liveUpdatedAt instanceof Date
+      ? liveUpdatedAt.getTime()
+      : new Date(liveUpdatedAt).getTime();
+  if (!Number.isFinite(updatedMs)) {
+    return false;
+  }
+
+  const nowMs = (now instanceof Date ? now : new Date(now)).getTime();
+  return nowMs - updatedMs <= freshnessMinutes * 60 * 1000;
+}
+
 function buildLocationStatusText({
   historicalBaseline = null,
   liveNoise = null,
   liveOccupancy = null,
+  liveUpdatedAt = null,
+  freshnessMinutes = null,
+  now = new Date(),
 } = {}) {
+  const hasFiniteLive =
+    Number.isFinite(liveNoise) && Number.isFinite(liveOccupancy);
+
+  if (hasFiniteLive && isLiveDataFresh(liveUpdatedAt, now, freshnessMinutes)) {
+    return buildLiveStatusText(liveNoise, liveOccupancy);
+  }
+
   return (
     buildHistoricalStatusText(historicalBaseline) ??
     buildLiveStatusText(liveNoise, liveOccupancy)
@@ -74,5 +101,6 @@ module.exports = {
   buildHistoricalStatusText,
   buildLocationStatusText,
   buildLiveStatusText,
+  isLiveDataFresh,
   loadHistoricalBaselines,
 };

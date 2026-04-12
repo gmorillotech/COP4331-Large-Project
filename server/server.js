@@ -24,11 +24,12 @@ const {
 } = require("./services/mapSearchData");
 const {
   buildLocationStatusText,
-  loadHistoricalBaselines,
 } = require("./services/locationStatusText");
 const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
 
 const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
+const STATUS_FALLBACK_FRESHNESS_MINUTES =
+  SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
 const { loadSearchSource } = require("./services/locationSearchSource");
 
 const app = express();
@@ -49,7 +50,7 @@ app.use((req, res, next) => {
   next();
 });
 
-function buildMapAnnotation(location, group, historicalBaseline = null) {
+function buildMapAnnotation(location, group, historicalBaseline = null, now = new Date()) {
   const liveNoise = Number.isFinite(location.currentNoiseLevel)
     ? location.currentNoiseLevel
     : null;
@@ -76,6 +77,9 @@ function buildMapAnnotation(location, group, historicalBaseline = null) {
       historicalBaseline,
       liveNoise,
       liveOccupancy,
+      liveUpdatedAt: location.updatedAt ?? null,
+      freshnessMinutes: STATUS_FALLBACK_FRESHNESS_MINUTES,
+      now,
     }),
     noiseText: toNoiseText(liveNoise),
     noiseValue: liveNoise,
@@ -224,18 +228,16 @@ app.get("/api/map-annotations", async (req, res) => {
     const groupsById = new Map(
       sourceData.groups.map((group) => [group.locationGroupId, group]),
     );
-    const historicalBaselines = await loadHistoricalBaselines(
-      sourceData.locations,
-      reportProcessingService,
-      now,
-    );
 
-    // Build location markers
+    // Annotations stay minimal: no catalog-wide baseline hydration here.
+    // Live status text (or "Awaiting live reports") is sufficient for markers;
+    // the richer historical fallback is scoped to search/result flows.
     const locationResults = sourceData.locations.map((location) =>
       buildMapAnnotation(
         location,
         groupsById.get(location.locationGroupId),
-        historicalBaselines.get(location.studyLocationId) ?? null,
+        null,
+        now,
       ));
 
     // Build group markers (derive center from polygon centroid)

@@ -232,6 +232,160 @@ it("GET /api/locations/search can return grouped building results sorted by dist
   });
 });
 
+it("GET /api/locations/search prefers fresh live status text over historical baseline", async () => {
+  const freshUpdatedAt = new Date(Date.now() - 30 * 60 * 1000); // 30 min ago
+
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "library-floor-1-quiet",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: 58,
+      currentOccupancyLevel: 4,
+      updatedAt: freshUpdatedAt,
+    },
+  ]);
+
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: 58,
+      currentOccupancyLevel: 4,
+      updatedAt: freshUpdatedAt,
+    },
+  ]);
+
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline() {
+          return { usualNoise: 44, usualOccupancy: 2 };
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.match(body.results[0].statusText, /^Live estimate:/);
+  });
+});
+
+it("GET /api/locations/search falls back to historical text when live data is older than the freshness window", async () => {
+  const staleUpdatedAt = new Date(Date.now() - 4 * 60 * 60 * 1000); // 4 hours ago (> 3h)
+
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "library-floor-1-quiet",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: 58,
+      currentOccupancyLevel: 4,
+      updatedAt: staleUpdatedAt,
+    },
+  ]);
+
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: 58,
+      currentOccupancyLevel: 4,
+      updatedAt: staleUpdatedAt,
+    },
+  ]);
+
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline() {
+          return { usualNoise: 44, usualOccupancy: 2 };
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.equal(body.results[0].statusText, "Usually quiet at this time");
+  });
+});
+
+it("GET /api/locations/search returns waiting text when neither fresh live data nor baseline is available", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "library-floor-1-quiet",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Quiet Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline() {
+          return null;
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.equal(body.results[0].statusText, "Awaiting live reports");
+  });
+});
+
 it("GET /api/locations/search prefers historical status text when archived baseline exists", async () => {
   const StudyLocationModel = createQueryModel([
     {
@@ -284,6 +438,226 @@ it("GET /api/locations/search prefers historical status text when archived basel
     assert.equal(response.status, 200);
     assert.equal(body.results.length, 1);
     assert.equal(body.results[0].statusText, "Usually quiet at this time");
+  });
+});
+
+it("GET /api/locations/search skips historical baseline fetches for locations with fresh live data", async () => {
+  const freshUpdatedAt = new Date(Date.now() - 30 * 60 * 1000);
+
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "fresh-loc",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Fresh Study",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: 50,
+      currentOccupancyLevel: 3,
+      updatedAt: freshUpdatedAt,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      currentNoiseLevel: 50,
+      currentOccupancyLevel: 3,
+      updatedAt: freshUpdatedAt,
+    },
+  ]);
+
+  const baselineCalls = [];
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline(locationId) {
+          baselineCalls.push(locationId);
+          return { usualNoise: 44, usualOccupancy: 2 };
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.deepEqual(baselineCalls, []);
+  });
+});
+
+it("GET /api/locations/search limits baseline hydration to returned locations", async () => {
+  const staleUpdatedAt = new Date(Date.now() - 4 * 60 * 60 * 1000);
+
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "match-loc",
+      locationGroupId: "group-john-c-hitt-library",
+      name: "Quiet Study Zone",
+      latitude: 28.60024,
+      longitude: -81.20182,
+      currentNoiseLevel: 58,
+      currentOccupancyLevel: 4,
+      updatedAt: staleUpdatedAt,
+    },
+    {
+      studyLocationId: "excluded-loc",
+      locationGroupId: "group-student-union",
+      name: "Food Court Seating",
+      latitude: 28.60192,
+      longitude: -81.19994,
+      currentNoiseLevel: 74,
+      currentOccupancyLevel: 5,
+      updatedAt: staleUpdatedAt,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    {
+      locationGroupId: "group-john-c-hitt-library",
+      name: "John C. Hitt Library",
+      updatedAt: staleUpdatedAt,
+    },
+    {
+      locationGroupId: "group-student-union",
+      name: "Student Union",
+      updatedAt: staleUpdatedAt,
+    },
+  ]);
+
+  const baselineCalls = [];
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline(locationId) {
+          baselineCalls.push(locationId);
+          return { usualNoise: 44, usualOccupancy: 2 };
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?q=quiet&includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.equal(body.results[0].id, "match-loc");
+    assert.deepEqual(baselineCalls, ["match-loc"]);
+  });
+});
+
+it("GET /api/locations/search restricts results to the viewport bounds when provided", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "in-bounds",
+      locationGroupId: "group-a",
+      name: "In Bounds",
+      latitude: 28.60050,
+      longitude: -81.20150,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "out-of-bounds",
+      locationGroupId: "group-b",
+      name: "Out Of Bounds",
+      latitude: 28.70000,
+      longitude: -81.10000,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    { locationGroupId: "group-a", name: "Group A", updatedAt: null },
+    { locationGroupId: "group-b", name: "Group B", updatedAt: null },
+  ]);
+
+  const baselineCalls = [];
+  const app = express();
+  app.use(
+    "/api/locations",
+    createLocationRouter({
+      StudyLocationModel,
+      LocationGroupModel,
+      reportProcessingService: {
+        async getHistoricalBaseline(locationId) {
+          baselineCalls.push(locationId);
+          return null;
+        },
+      },
+    }),
+  );
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true&minLat=28.6&minLng=-81.205&maxLat=28.605&maxLng=-81.19`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.results.length, 1);
+    assert.equal(body.results[0].id, "in-bounds");
+    assert.deepEqual(baselineCalls, ["in-bounds"]);
+  });
+});
+
+it("GET /api/locations/search returns the full catalog when no bounds or query are provided", async () => {
+  const StudyLocationModel = createQueryModel([
+    {
+      studyLocationId: "loc-1",
+      locationGroupId: "group-a",
+      name: "Alpha",
+      latitude: 28.60010,
+      longitude: -81.20100,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+    {
+      studyLocationId: "loc-2",
+      locationGroupId: "group-b",
+      name: "Beta",
+      latitude: 28.60020,
+      longitude: -81.20200,
+      currentNoiseLevel: null,
+      currentOccupancyLevel: null,
+      updatedAt: null,
+    },
+  ]);
+  const LocationGroupModel = createQueryModel([
+    { locationGroupId: "group-a", name: "Group A", updatedAt: null },
+    { locationGroupId: "group-b", name: "Group B", updatedAt: null },
+  ]);
+
+  const app = express();
+  app.use("/api/locations", createLocationRouter({ StudyLocationModel, LocationGroupModel }));
+
+  await withServer(app, async (baseUrl) => {
+    const response = await fetch(
+      `${baseUrl}/api/locations/search?includeGroups=false&includeLocations=true`,
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    const returnedIds = body.results.map((entry) => entry.id).sort();
+    assert.deepEqual(returnedIds, ["loc-1", "loc-2"]);
   });
 });
 

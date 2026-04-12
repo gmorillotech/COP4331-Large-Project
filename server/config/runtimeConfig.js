@@ -1,6 +1,8 @@
 const SERVER_RUNTIME_CONFIG = Object.freeze({
   display: Object.freeze({
     reportStaleMinutes: Number(process.env.REPORT_STALE_MINUTES) || 1440,
+    statusFallbackFreshnessMinutes:
+      Number(process.env.STATUS_FALLBACK_FRESHNESS_MINUTES) || 180,
     noiseThresholds: Object.freeze({
       quiet: Number(process.env.NOISE_THRESHOLD_QUIET) || 50,
       moderate: Number(process.env.NOISE_THRESHOLD_MODERATE) || 60,
