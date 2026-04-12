@@ -551,7 +551,7 @@ function Login() {
             onClick={doRequestResetCode}
           />
           <span className="auth-link" onClick={() => { setLoginView('form'); setMessage(''); }}>
-            ← Back to Login
+             Back to Login
           </span>
         </div>
       )}
@@ -674,7 +674,7 @@ function Login() {
             Resend code
           </span>
           <span className="auth-link" onClick={() => { setLoginView('form'); setMessage(''); }}>
-            ← Back to Login
+             Back to Login
           </span>
         </div>
       )}

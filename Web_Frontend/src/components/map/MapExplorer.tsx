@@ -76,7 +76,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [_errorMsg, setErrorMsg]   = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');

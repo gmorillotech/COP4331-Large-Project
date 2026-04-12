@@ -24,7 +24,7 @@
 }
 
 .profile-initials {
-  color: white;
+  color: #6dd6ff;
   font-size: 1.60em;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -88,7 +88,7 @@
 }
 
 .profile-avatar-large span {
-  color: white;
+  color: #6dd6ff;
   font-size: 1.2em;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -100,7 +100,7 @@
 }
 
 .profile-header-info h2 {
-  color: white;
+  color: #6dd6ff;
   font-size: 1.05em;
   font-weight: 700;
   margin: 0 0 3px;
@@ -110,7 +110,7 @@
 }
 
 .profile-header-info p {
-  color: rgba(255, 255, 255, 0.7);
+  color: #aa3bff;
   font-size: 0.82em;
   margin: 0;
 }
@@ -118,7 +118,7 @@
 .profile-close-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(109, 214, 255, 0.8);
   font-size: 1.1em;
   cursor: pointer;
   padding: 4px 6px;
@@ -129,7 +129,7 @@
 
 .profile-close-btn:hover {
   background-color: rgba(255, 255, 255, 0.15);
-  color: white;
+  color: #6dd6ff;
 }
 
 /* ── MESSAGE BAR ─────────────────────────────────────── */
@@ -159,7 +159,8 @@
   padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: stretch;
+  gap: 10px;
   background-color: #0C1A49;
 }
 
@@ -179,7 +180,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(109, 214, 255, 0.7);
   margin-bottom: 5px;
 }
 
@@ -192,14 +193,14 @@
 
 .profile-value {
   font-size: 0.95em;
-  color: white;
+  color: #aa3bff;
   word-break: break-word;
   flex: 1;
 }
 
 .profile-value1 {
   font-size: 0.95em;
-  color: white;
+  color: #aa3bff;
   word-break: break-word;
   flex: 1;
   margin-left: 60px;
@@ -208,7 +209,7 @@
 .profile-edit-btn {
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.45);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(109, 214, 255, 0.9);
   font-size: 0.78em;
   font-weight: 600;
   padding: 4px 12px;
@@ -220,7 +221,7 @@
 
 .profile-edit-btn:hover {
   background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(109, 214, 255, 0.7);
 }
 
 .profile-edit-btn:disabled {
@@ -228,11 +229,44 @@
   cursor: not-allowed;
 }
 
+.edit-centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 /* ── EDIT VIEWS ──────────────────────────────────────── */
+.profile-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #6dd6ff;
+
+  font-size: 0.85em;
+  font-weight: 600;
+
+  padding: 6px 12px;
+  border-radius: 8px;
+
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+
+  align-self: flex-start; /* 👈 THIS pins it left */
+}
+
+.profile-back-btn:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+/*
 .profile-back-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(109, 214, 255, 0.8);
   font-size: 0.88em;
   cursor: pointer;
   padding: 0;
@@ -242,52 +276,59 @@
 }
 
 .profile-back-btn:hover {
-  color: white;
+  color: #6dd6ff;
   text-decoration: underline;
 }
+  */
 
 .profile-edit-title {
   font-size: 1.05em;
   font-weight: 700;
-  color: white;
+  color: #6dd6ff;
   margin: 0 0 8px;
 }
 
 .profile-edit-info {
   font-size: 0.83em;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(109, 214, 255, 0.6);
   margin: 0 0 16px;
   line-height: 1.5;
 }
 
 .profile-input {
-  width: 100%;
-  padding: 10px 14px;
+  width: 90%;
+  /* padding: 12px; */ 
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 10px;
   font-size: 0.95em;
   outline: none;
   box-sizing: border-box;
-  margin-bottom: 14px;
+  margin: 0;
+  display: block;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
   background: rgba(255, 255, 255, 0.1);
-  color: white;
+  color: #6dd6ff;
 }
 
 .profile-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(109, 214, 255, 0.4);
 }
 
 .profile-input:focus {
-  border-color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(109, 214, 255, 0.6);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
 }
 
 .profile-save-btn {
-  width: 100%;
-  padding: 11px;
+  display: block; 
+  width: 90%;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  padding: 12px;
   background-color: rgba(255, 255, 255, 0.15);
-  color: white;
+  color: #6dd6ff;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 10px;
   font-size: 0.95em;
@@ -307,6 +348,11 @@
   transform: none;
 }
 
+.profile-save-btn,
+.profile-input {
+  max-width: 420px;
+}
+
 /* ── INFO BOX (password reset sent) ─────────────────── */
 .profile-info-box {
   background-color: rgba(255, 255, 255, 0.08);
@@ -320,13 +366,13 @@
 .profile-info-icon {
   display: block;
   font-size: 1.8em;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(109, 214, 255, 0.8);
   margin-bottom: 10px;
 }
 
 .profile-info-box p {
   font-size: 0.88em;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(109, 214, 255, 0.8);
   line-height: 1.6;
   margin: 0;
 }
@@ -334,7 +380,8 @@
 /* ── FIELD VALIDATION WRAPPERS ───────────────────────── */
 .field-wrap {
   width: 100%;
-  margin-bottom: 0;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .password-input-wrap {
@@ -355,7 +402,7 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(109, 214, 255, 0.5);
   display: flex;
   align-items: center;
   padding: 0;
@@ -364,7 +411,7 @@
 }
 
 .eye-toggle:hover {
-  color: white;
+  color: #6dd6ff;
 }
 
 .profile-input.input-error {
@@ -401,5 +448,5 @@
 }
 
 .rule-pending {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(109, 214, 255, 0.5);
 }

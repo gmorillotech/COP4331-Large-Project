@@ -381,7 +381,7 @@ function ProfilePanel({ externalOpen, onExternalClose }: ProfilePanelProps = {})
 
         {/* ── EDIT DISPLAY NAME ── */}
         {view === 'editDisplay' && (
-          <div className="profile-panel-body">
+          <div className="profile-panel-body edit-centered">
             <button className="profile-back-btn" onClick={() => { setView('profile'); setMessage(''); }}>
               ← Back
             </button>
@@ -408,7 +408,7 @@ function ProfilePanel({ externalOpen, onExternalClose }: ProfilePanelProps = {})
 
         {/* ── CHANGE PASSWORD FLOW ── */}
         {view === 'forgotSent' && (
-          <div className="profile-panel-body">
+          <div className="profile-panel-body edit-centered">
             <button
               className="profile-back-btn"
               onClick={() => { setView('profile'); setMessage(''); setResetStep('idle'); setFieldErrors({}); }}
