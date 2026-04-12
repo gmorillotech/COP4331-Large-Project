@@ -10,7 +10,6 @@ const {
 const Report = require("../models/Report");
 const ReportTagMetadata = require("../models/ReportTagMetadata");
 const StudyLocation = require("../models/StudyLocation");
-const LocationGroup = require("../models/LocationGroup");
 const User = require("../models/User");
 const {
   StudyLocationRepository,
@@ -18,10 +17,6 @@ const {
 const {
   LocationGroupRepository,
 } = require("../repositories/LocationGroupRepository");
-const {
-  findCatalogGroup,
-  findCatalogLocation,
-} = require("./locationCatalog");
 
 function toReport(document) {
   return {
@@ -359,50 +354,9 @@ class ReportProcessingService {
 
   async #ensureCatalogLocation(studyLocationId) {
     const existing = await StudyLocation.findOne({ studyLocationId }).select("studyLocationId");
-    if (existing) {
-      return;
-    }
-
-    const catalogLocation = findCatalogLocation(studyLocationId);
-    if (!catalogLocation) {
+    if (!existing) {
       throw new Error(`Study location ${studyLocationId} is not configured.`);
     }
-
-    const catalogGroup = findCatalogGroup(catalogLocation.locationGroupId);
-    if (!catalogGroup) {
-      throw new Error(`Location group ${catalogLocation.locationGroupId} is not configured.`);
-    }
-
-    await LocationGroup.findOneAndUpdate(
-      { locationGroupId: catalogGroup.locationGroupId },
-      {
-        $setOnInsert: {
-          locationGroupId: catalogGroup.locationGroupId,
-          name: catalogGroup.name,
-          currentNoiseLevel: null,
-          currentOccupancyLevel: null,
-          updatedAt: null,
-        },
-      },
-      { upsert: true, new: true },
-    );
-
-    await StudyLocation.findOneAndUpdate(
-      { studyLocationId: catalogLocation.studyLocationId },
-      {
-        $setOnInsert: {
-          studyLocationId: catalogLocation.studyLocationId,
-          locationGroupId: catalogLocation.locationGroupId,
-          name: catalogLocation.name,
-          latitude: catalogLocation.latitude,
-          longitude: catalogLocation.longitude,
-          currentNoiseLevel: null,
-          currentOccupancyLevel: null,
-          updatedAt: null,
-        },
-      },
-      { upsert: true, new: true },
-    );
   }
 
   async #ensureCollectorUser(userId) {
