@@ -14,10 +14,11 @@ import {
 import PolygonEditor from '../../components/admin/PolygonEditor.tsx';
 import SplitLineEditor from '../../components/admin/SplitLineEditor.tsx';
 import GroupBoundaryOverlays from '../../components/admin/GroupBoundaryOverlays.tsx';
+import { ADMIN_GEOMETRY_TUNING } from '../../config/uiTuning.ts';
 import '../../components/admin/RedrawMerge.css';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
-const DEFAULT_MAX_RADIUS_METERS = 60;
+const DEFAULT_MAX_RADIUS_METERS = ADMIN_GEOMETRY_TUNING.defaultMaxRadiusMeters;
 
 type Vertex = { latitude: number; longitude: number };
 

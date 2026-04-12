@@ -22,6 +22,7 @@ const {
   findCatalogGroup,
   findCatalogLocation,
 } = require("./locationCatalog");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 function toReport(document) {
   return {
@@ -273,7 +274,11 @@ class ReportProcessingService {
 
   async listArchivedSummariesByLocation(
     studyLocationId,
-    { from = null, to = null, limit = 500 } = {},
+    {
+      from = null,
+      to = null,
+      limit = SERVER_RUNTIME_CONFIG.reports.archivedSummaryDefaultLimit,
+    } = {},
   ) {
     const filter = {
       studyLocationId,
@@ -292,7 +297,11 @@ class ReportProcessingService {
       }
     }
 
-    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 500));
+    const {
+      archivedSummaryDefaultLimit: defaultLimit,
+      archivedSummaryMaxLimit: maxLimit,
+    } = SERVER_RUNTIME_CONFIG.reports;
+    const safeLimit = Math.max(1, Math.min(maxLimit, Number(limit) || defaultLimit));
     const summaries = await Report.find(filter)
       .sort({ windowStart: 1 })
       .limit(safeLimit)
@@ -308,18 +317,27 @@ class ReportProcessingService {
     const summaries = await this.listArchivedSummariesByLocation(studyLocationId, {
       from,
       to: now,
-      limit: 1000,
+      limit: SERVER_RUNTIME_CONFIG.reports.historicalBaselineFetchLimit,
     });
 
     return computeHistoricalBaseline(summaries, now, defaultA1Config);
   }
 
-  startPollingLoop(pollIntervalMs = 60_000) {
+  startPollingLoop(
+    pollIntervalMs = SERVER_RUNTIME_CONFIG.polling.reportPollIntervalMs,
+  ) {
     if (this.pollTimer) {
       return;
     }
 
-    const safePollIntervalMs = Math.max(1_000, Number(pollIntervalMs) || 60_000);
+    const {
+      reportPollIntervalMs: defaultInterval,
+      minimumPollIntervalMs: minInterval,
+    } = SERVER_RUNTIME_CONFIG.polling;
+    const safePollIntervalMs = Math.max(
+      minInterval,
+      Number(pollIntervalMs) || defaultInterval,
+    );
     const pollOnce = async () => {
       if (this.pollInFlight) {
         return this.pollInFlight;

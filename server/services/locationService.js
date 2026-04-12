@@ -3,15 +3,25 @@ const {
   pointInPolygon,
   pointOnPolygonBoundary,
 } = require("./geometryValidation");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 class LocationService {
-  constructor(studyLocationRepository, locationGroupRepository, maxResolutionDistanceMeters = 150) {
+  constructor(
+    studyLocationRepository,
+    locationGroupRepository,
+    maxResolutionDistanceMeters = SERVER_RUNTIME_CONFIG.location.nearestResolutionDistanceMeters,
+  ) {
     this.studyLocationRepository = studyLocationRepository;
     this.locationGroupRepository = locationGroupRepository;
     this.maxResolutionDistanceMeters = maxResolutionDistanceMeters;
-    this.locationGroupPaddingMeters = 45;
-    this.minimumLocationGroupRadiusMeters = 40;
-    this.userCreatedLocationGroupRadiusMeters = 60;
+    this.locationGroupPaddingMeters =
+      SERVER_RUNTIME_CONFIG.location.locationGroupPaddingMeters;
+    this.minimumLocationGroupRadiusMeters =
+      SERVER_RUNTIME_CONFIG.location.minimumLocationGroupRadiusMeters;
+    this.userCreatedLocationGroupRadiusMeters =
+      SERVER_RUNTIME_CONFIG.location.defaultUserCreatedLocationGroupRadiusMeters;
+    this.duplicateLocationRadiusMeters =
+      SERVER_RUNTIME_CONFIG.location.duplicateLocationRadiusMeters;
   }
 
   async getAllGroups() {
@@ -108,7 +118,7 @@ class LocationService {
       haversineDistanceMeters(
         { latitude, longitude },
         { latitude: location.latitude, longitude: location.longitude },
-      ) <= 20,
+      ) <= this.duplicateLocationRadiusMeters,
     );
 
     if (duplicate) {

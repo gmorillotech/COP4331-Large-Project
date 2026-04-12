@@ -12,8 +12,9 @@ import type { AnimationState } from './mapMarkerAnimation.ts';
 import { clusterGroups, calcUnclusterZoom } from './mapClustering.ts';
 import type { ClusterMarker } from './mapClustering.ts';
 import MapMarkerVisual, { ClusterMarkerVisual } from './MapMarkerVisual.tsx';
+import { MAP_UI_TUNING } from '../../config/uiTuning.ts';
 
-export const ZOOM_THRESHOLD = 17;
+export const ZOOM_THRESHOLD = MAP_UI_TUNING.locationZoomThreshold;
 
 // ---- Camera controller -------------------------------------------------------
 

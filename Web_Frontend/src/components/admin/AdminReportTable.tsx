@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../config';
+import { ADMIN_UI_TUNING } from '../../config/uiTuning.ts';
 
 type Report = {
   reportId: string;
@@ -29,7 +30,7 @@ type AdminReportTableProps = {
   refreshKey?: number;
 };
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = ADMIN_UI_TUNING.reportPageSize;
 
 function formatDate(iso: string): string {
   const d = new Date(iso);

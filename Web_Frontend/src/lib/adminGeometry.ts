@@ -1,3 +1,5 @@
+import { ADMIN_GEOMETRY_TUNING } from '../config/uiTuning.ts';
+
 export type Vertex = {
   latitude: number;
   longitude: number;
@@ -459,7 +461,7 @@ export function findParentVertexIndex(
 export function snapToVertex(
   point: Vertex,
   polygon: Vertex[],
-  thresholdDeg = 0.0001,
+  thresholdDeg = ADMIN_GEOMETRY_TUNING.vertexSnapThresholdDeg,
 ): Vertex | null {
   let bestDist = Infinity;
   let bestVertex: Vertex | null = null;
@@ -485,7 +487,7 @@ function generateEdgeNodes(polygon: Vertex[]): Vertex[] {
   const ring = closePolygon(polygon);
   const nodes: Vertex[] = [];
   const METERS_PER_DEGREE = 111_320;
-  const NODE_SPACING_METERS = 12;
+  const NODE_SPACING_METERS = ADMIN_GEOMETRY_TUNING.boundaryNodeSpacingMeters;
 
   for (let i = 0; i < ring.length - 1; i++) {
     nodes.push(ring[i]);
@@ -514,7 +516,7 @@ function generateEdgeNodes(polygon: Vertex[]): Vertex[] {
 export function snapToPolygonBoundary(
   point: Vertex,
   polygon: Vertex[],
-  thresholdDeg = 0.0005,
+  thresholdDeg = ADMIN_GEOMETRY_TUNING.boundarySnapThresholdDeg,
 ): Vertex | null {
   const nodes = generateEdgeNodes(polygon);
   let bestDist = Infinity;

@@ -29,6 +29,7 @@ import { useMarkerAnimation } from './mapMarkerAnimation.ts';
 import { useFavorites } from '../../useFavorites.ts';
 import FavoritesDrawer from '../FavoritesDrawer.tsx';
 import { apiUrl } from '../../config';
+import { MAP_UI_TUNING } from '../../config/uiTuning.ts';
 
 // The API key is read from .env at build time (VITE_ prefix makes it browser-accessible)
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -131,7 +132,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(searchInput.trim().toLowerCase());
-    }, 180);
+    }, MAP_UI_TUNING.searchDebounceMs);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 

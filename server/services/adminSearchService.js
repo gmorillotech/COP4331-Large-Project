@@ -7,15 +7,27 @@ const ReportTagMetadata = require("../models/ReportTagMetadata");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 
-const { REPORT_STALE_MINUTES } = require("../config/appConfig");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
+
+const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function getActiveReports({ groupId, locationId, q, page = 1, limit = 50 }) {
+async function getActiveReports({
+  groupId,
+  locationId,
+  q,
+  page = 1,
+  limit = SERVER_RUNTIME_CONFIG.admin.activeReportsDefaultPageSize,
+}) {
+  const {
+    activeReportsDefaultPageSize: defaultPageSize,
+    activeReportsMaxPageSize: maxPageSize,
+  } = SERVER_RUNTIME_CONFIG.admin;
   const safePage = Math.max(1, Number(page) || 1);
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeLimit = Math.max(1, Math.min(maxPageSize, Number(limit) || defaultPageSize));
   const skip = (safePage - 1) * safeLimit;
 
   const staleCutoff = new Date(Date.now() - REPORT_STALE_MINUTES * 60 * 1000);
