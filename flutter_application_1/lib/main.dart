@@ -358,9 +358,13 @@ class MapNode {
                     (json['title'] as String? ?? 'S').trim(),
                   )),
       floorLabel: (json['floorLabel'] as String?)?.trim(),
-      groupId: (json['groupId'] as String?)?.trim(),
+      groupId: ((json['locationGroupId'] ?? json['groupId']) as String?)
+          ?.trim(),
       sublocationLabel: (json['sublocationLabel'] as String?)?.trim(),
-      locationCount: (json['locationCount'] as num?)?.toInt() ?? 0,
+      locationCount:
+          ((json['studyAreaCount'] ?? json['locationCount']) as num?)
+                  ?.toInt() ??
+              0,
       isFavorite: json['isFavorite'] as bool? ?? false,
       noiseValue: (json['noiseValue'] as num?)?.toDouble(),
       occupancyValue: (json['occupancyValue'] as num?)?.toDouble(),
