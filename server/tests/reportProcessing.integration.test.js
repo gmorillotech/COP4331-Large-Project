@@ -55,8 +55,29 @@ function installInMemoryModelPatches() {
     reports: [],
     metadata: [],
     users: [],
-    studyLocations: [],
-    locationGroups: [],
+    studyLocations: [
+      {
+        studyLocationId: "library-floor-1-quiet",
+        locationGroupId: "group-john-c-hitt-library",
+        name: "Quiet Study",
+        floorLabel: "Floor 1",
+        sublocationLabel: "North Reading Room",
+        latitude: 28.60024,
+        longitude: -81.20182,
+        currentNoiseLevel: null,
+        currentOccupancyLevel: null,
+        updatedAt: null,
+      },
+    ],
+    locationGroups: [
+      {
+        locationGroupId: "group-john-c-hitt-library",
+        name: "John C. Hitt Library",
+        currentNoiseLevel: null,
+        currentOccupancyLevel: null,
+        updatedAt: null,
+      },
+    ],
   };
 
   const originals = {

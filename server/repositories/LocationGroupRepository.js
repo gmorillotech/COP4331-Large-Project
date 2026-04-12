@@ -17,6 +17,29 @@ class LocationGroupRepository {
     return group ? toLocationGroup(group) : null;
   }
 
+  async createLocationGroup(group) {
+    const created = await resolveQuery(this.LocationGroupModel.findOneAndUpdate(
+      { locationGroupId: group.locationGroupId },
+      {
+        $set: {
+          locationGroupId: group.locationGroupId,
+          name: group.name,
+          centerLatitude: group.centerLatitude ?? null,
+          centerLongitude: group.centerLongitude ?? null,
+          radiusMeters: group.radiusMeters ?? null,
+          shapeType: group.shapeType ?? "circle",
+          polygon: group.polygon ?? [],
+          shapeUpdatedAt: group.shapeUpdatedAt ?? null,
+          currentNoiseLevel: group.currentNoiseLevel ?? null,
+          currentOccupancyLevel: group.currentOccupancyLevel ?? null,
+          updatedAt: group.updatedAt ?? null,
+        },
+      },
+      { new: true, upsert: true },
+    ));
+    return created ? toLocationGroup(created) : null;
+  }
+
   async updateLocationGroup(group) {
     const updated = await resolveQuery(this.LocationGroupModel.findOneAndUpdate(
       { locationGroupId: group.locationGroupId },

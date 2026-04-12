@@ -131,7 +131,7 @@ class LocationService {
       existingLocations,
     );
 
-    return this.studyLocationRepository.updateStudyLocation({
+    return this.studyLocationRepository.createStudyLocation({
       studyLocationId,
       locationGroupId: groupId,
       name,
@@ -201,7 +201,7 @@ class LocationService {
       existingGroups,
     );
 
-    return this.locationGroupRepository.updateLocationGroup({
+    return this.locationGroupRepository.createLocationGroup({
       locationGroupId,
       name,
       centerLatitude,

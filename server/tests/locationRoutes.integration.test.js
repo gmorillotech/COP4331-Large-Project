@@ -661,7 +661,7 @@ it("GET /api/locations/search returns the full catalog when no bounds or query a
   });
 });
 
-it("GET /api/locations/search bootstraps catalog data into an empty connected database", async () => {
+it("GET /api/locations/search returns empty results when both collections are empty (no catalog seeding)", async () => {
   const StudyLocationModel = createQueryModel([]);
   const LocationGroupModel = createQueryModel([]);
 
@@ -675,9 +675,9 @@ it("GET /api/locations/search bootstraps catalog data into an empty connected da
     assert.equal(response.status, 200);
     assert.equal(body.error, "");
     assert.equal(body.source, "database");
-    assert.ok(body.results.length > 0);
-    assert.ok(StudyLocationModel.records.length > 0);
-    assert.ok(LocationGroupModel.records.length > 0);
+    assert.equal(body.results.length, 0);
+    assert.equal(StudyLocationModel.records.length, 0);
+    assert.equal(LocationGroupModel.records.length, 0);
   });
 });
 
