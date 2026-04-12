@@ -12,6 +12,8 @@ exports.defaultA1Config = {
     initialDecayWF: 1.0,
     reportHalfLifeMs: 5 * 60 * 1000,
     minWeightThreshold: 0.05,
+    archiveThresholdMs: 3 * 60 * 60 * 1000,
+    archiveBucketMinutes: 30,
     groupFreshnessWindowMs: 3 * 60 * 1000,
     varianceSoftCap: 25,
     minReportsForTrustUpdate: 3,
@@ -40,6 +42,11 @@ exports.defaultA1Config = {
         user: 0.2,
         peer: 0.4,
     },
+    historicalHalfLifeDays: 14,
+    historicalMaxAgeDays: 30,
+    minimumHistoricalWeight: 0.2,
+    occupancyTrustNormalizationDivisor: 4,
+    neutralUserWeight: 1.0,
     // Tune these later after calibration with real report data.
 };
 class AuthService {
@@ -440,7 +447,7 @@ class A1Service {
                 continue;
             if (location.currentNoiseLevel === null || location.currentOccupancyLevel === null)
                 continue;
-            const occupancySignedError = clamp((activeRecord.report.occupancy - location.currentOccupancyLevel) / 4, -1, 1);
+            const occupancySignedError = clamp((activeRecord.report.occupancy - location.currentOccupancyLevel) / this.config.occupancyTrustNormalizationDivisor, -1, 1);
             const noiseSignedError = clamp((activeRecord.report.avgNoise - location.currentNoiseLevel) / this.config.noiseTrustRangeDb, -1, 1);
             const bucket = userBuckets.get(activeRecord.user.userId) ?? {
                 user: { ...activeRecord.user },
@@ -737,8 +744,8 @@ function getOrCreateUser(userMap, userId, config) {
     }
     const createdUser = {
         userId,
-        userNoiseWF: clamp(1.0, config.minUserNoiseWF, config.maxUserNoiseWF),
-        userOccupancyWF: clamp(1.0, config.minUserOccupancyWF, config.maxUserOccupancyWF),
+        userNoiseWF: clamp(config.neutralUserWeight, config.minUserNoiseWF, config.maxUserNoiseWF),
+        userOccupancyWF: clamp(config.neutralUserWeight, config.minUserOccupancyWF, config.maxUserOccupancyWF),
     };
     userMap.set(userId, createdUser);
     return createdUser;

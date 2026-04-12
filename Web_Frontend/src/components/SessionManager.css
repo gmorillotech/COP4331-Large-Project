@@ -61,7 +61,7 @@
 .session-modal h2 {
   font-size: 1.25em;
   font-weight: 700;
-  color: white;
+  color: #60c8c0;
   margin: 0 0 12px;
 }
 
@@ -157,7 +157,7 @@
   border: 1.5px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
   font-size: 0.92em;
-  color: white;
+  color: #60c8c0;
   background: rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
   transition: border-color 0.15s ease;
@@ -194,7 +194,7 @@
 
 .session-btn--primary {
   background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: white;
+  color: #60c8c0;
 }
 
 .session-btn--primary:hover:not(:disabled) {
@@ -243,7 +243,7 @@
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
-  color: white;
+  color: #60c8c0;
   font-weight: 600;
 }
 
@@ -274,20 +274,21 @@
 /* ── THREE-COLUMN LAYOUT ─────────────────────────────── */
 .dc-three-col {
   display: flex;
-  gap: 10px;
-  align-items: stretch;
-  flex: 1;
-  min-height: 0;
+  gap: 0;
+  align-items: flex-start;
+  flex: 0 0 auto;
   width: 100%;
 }
 
 .dc-col {
-  flex: 1;
+  flex: 0 0 95px;
+  width: 95px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
-  min-width: 0; /* prevent flex overflow */
+  padding: 4px 8px;
 }
 
 /* Prominent section title above each card */
@@ -301,7 +302,7 @@
   margin: 0;
 }
 
-/* Floating dark card */
+/* Shared card wrapping all three columns */
 .dc-card {
   width: 100%;
   flex: 1;
@@ -313,15 +314,27 @@
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   gap: 10px;
   box-sizing: border-box;
 }
 
-.dc-card--session {
-  /* center column card — slightly more vertical padding */
-  padding: 20px 12px;
+/* When the card wraps the whole three-col row */
+.dc-card--shared {
+  padding: 20px 16px;
+}
+
+/* Dividers between columns inside the shared card */
+.dc-card--shared .dc-col + .dc-col {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  padding-left: 14px;
+}
+
+/* Center column grows to fill all remaining space */
+.dc-col--center {
+  flex: 1 1 0;
+  padding-right: 14px;
 }
 
 .dc-card__note {
@@ -358,7 +371,7 @@
 .dc-location-banner__name {
   font-size: 1em;
   font-weight: 700;
-  color: white;
+  color: #60c8c0;
 }
 
 .dc-location-banner__building {
@@ -406,7 +419,7 @@
 .dc-noise-meter__db {
   font-size: 1.8em;
   font-weight: 800;
-  color: white;
+  color: #60c8c0;
   line-height: 1;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -448,7 +461,7 @@
 .dc-noise-meter__qualitative {
   font-size: 1em;
   font-weight: 700;
-  color: white;
+  color: #60c8c0;
   text-align: center;
 }
 
@@ -469,30 +482,49 @@
 }
 
 .session-mic-btn {
-  width: 160px;
-  height: 160px;
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  height: auto;
   border-radius: 50%;
   border: none;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  font-size: 68px;
+  background: transparent;
+  padding: 0;
   cursor: pointer;
-  box-shadow: 0 10px 40px rgba(37, 99, 235, 0.5);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+  transition: transform 0.15s ease, filter 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
+  overflow: hidden;
+}
+
+.session-mic-marker {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.session-mic-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 45%;
+  height: 45%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .session-mic-btn--active {
-  background: linear-gradient(135deg, #dc2626, #ef4444);
-  box-shadow: 0 8px 32px rgba(220, 38, 38, 0.35);
   animation: pulse-active 2s infinite;
 }
 
 @keyframes pulse-active {
-  0%, 100% { box-shadow: 0 8px 32px rgba(220, 38, 38, 0.35); }
-  50%       { box-shadow: 0 8px 48px rgba(220, 38, 38, 0.55); }
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.5)); }
+  50%       { filter: drop-shadow(0 0 22px rgba(220, 38, 38, 0.8)); }
 }
 
 .session-mic-btn:hover:not(:disabled) {
@@ -504,9 +536,9 @@
 }
 
 .session-mic-btn:disabled {
-  background: #cbd5e1;
-  box-shadow: none;
+  opacity: 0.4;
   cursor: not-allowed;
+  filter: grayscale(1);
 }
 
 .session-mic-label {
@@ -544,7 +576,7 @@
 .dc-occupancy-bar {
   position: relative;
   width: 32px;
-  height: 280px;
+  height: 317px;
   border-radius: 99px;
   background: linear-gradient(to bottom,
     #ef4444 0%,
@@ -576,7 +608,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 280px;
+  height: 317px;
   padding: 2px 0;
 }
 
@@ -601,7 +633,7 @@
 .dc-occupancy-label-btn.active {
   font-weight: 800;
   font-size: 0.9em;
-  color: white;
+  color: #60c8c0;
 }
 
 /* ── CREATE GROUP BUTTON ─────────────────────────────── */
@@ -609,7 +641,7 @@
   width: 100%;
   padding: 14px 20px;
   background: #4f46e5;
-  color: white;
+  color: #60c8c0;
   border: none;
   border-radius: 14px;
   font-size: 0.95em;
@@ -629,6 +661,13 @@
 }
 
 /* ── STATUS MESSAGES ─────────────────────────────────── */
+@keyframes msg-fade {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .session-bar__message {
   width: 100%;
   padding: 12px 16px;
@@ -638,6 +677,7 @@
   text-align: center;
   margin-top: 4px;
   box-sizing: border-box;
+  animation: msg-fade 4s forwards;
 }
 
 .session-bar__message.success {

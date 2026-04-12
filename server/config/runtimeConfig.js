@@ -27,7 +27,6 @@ const SERVER_RUNTIME_CONFIG = Object.freeze({
   }),
   auth: Object.freeze({
     verificationCodeTtlMs: 15 * 60 * 1000,
-    verificationCodeDigits: 6,
   }),
   location: Object.freeze({
     nearestResolutionDistanceMeters: 150,

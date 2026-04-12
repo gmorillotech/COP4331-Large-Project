@@ -8,6 +8,7 @@
 // It renders null when nothing is selected, so it's always safe to include
 // inside <MapCanvas> without any conditional rendering in the parent.
 
+import { memo } from 'react';
 import { InfoWindow } from '@vis.gl/react-google-maps';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
 import { inferNoiseValue, buildHeatColor } from '../../lib/mapUtils.ts';
@@ -133,4 +134,4 @@ function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapIn
   );
 }
 
-export default MapInfoPopup;
+export default memo(MapInfoPopup);

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../config/api_config.dart';
+import '../config/app_tuning.dart';
 import 'data_collection_model.dart';
 
 enum ReportDeliveryStatus { submittedToApi, queuedOffline }
@@ -218,9 +219,12 @@ const List<DataCollectionStudyLocation> seededStudyLocations = [
 class LocalStudyLocationResolver {
   const LocalStudyLocationResolver({
     this.studyLocations = seededStudyLocations,
-    this.maxResolutionDistanceMeters = 150,
-    this.locationGroupPaddingMeters = 45,
-    this.minimumLocationGroupRadiusMeters = 40,
+    this.maxResolutionDistanceMeters =
+        MobileCaptureTuning.locationResolutionDistanceMeters,
+    this.locationGroupPaddingMeters =
+        MobileCaptureTuning.locationGroupPaddingMeters,
+    this.minimumLocationGroupRadiusMeters =
+        MobileCaptureTuning.minimumLocationGroupRadiusMeters,
   });
 
   final List<DataCollectionStudyLocation> studyLocations;
@@ -645,10 +649,10 @@ bool _pointOnSegment(
 
 class CaptureNoiseSummaryConfig {
   const CaptureNoiseSummaryConfig({
-    this.minimumSampleCount = 10,
-    this.smoothingWindowSize = 5,
-    this.winsorizeLowerQuantile = 0.05,
-    this.winsorizeUpperQuantile = 0.95,
+    this.minimumSampleCount = MobileSummaryTuning.minimumSampleCount,
+    this.smoothingWindowSize = MobileSummaryTuning.smoothingWindowSize,
+    this.winsorizeLowerQuantile = MobileSummaryTuning.winsorizeLowerQuantile,
+    this.winsorizeUpperQuantile = MobileSummaryTuning.winsorizeUpperQuantile,
   });
 
   final int minimumSampleCount;

@@ -103,7 +103,7 @@ Main backend models:
 
 Other notable backend files:
 - `config/db.js`: database connection setup
-- `config/appConfig.js`: app configuration
+- `config/runtimeConfig.js`: canonical server operational config (noise thresholds, report limits, auth TTL, location defaults)
 - `middleware/authMiddleware.js`: auth protection
 - `createJWT.js`: JWT support
 - `seed.js`: seed/setup script

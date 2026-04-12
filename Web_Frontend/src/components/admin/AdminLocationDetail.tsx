@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../../config';
+import { ADMIN_UI_TUNING } from '../../config/uiTuning.ts';
 import type { SearchResultItem } from '../../pages/admin/AdminSearchPage.tsx';
 import AdminReportTable from './AdminReportTable.tsx';
 
@@ -29,7 +30,7 @@ function AdminLocationDetail({ selected, onSelectChild }: AdminLocationDetailPro
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedReportSearch(reportSearch.trim());
-    }, 300);
+    }, ADMIN_UI_TUNING.locationDetailSearchDebounceMs);
     return () => window.clearTimeout(timer);
   }, [reportSearch]);
 

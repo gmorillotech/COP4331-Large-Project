@@ -9,9 +9,6 @@ const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_TTL_MS = SERVER_RUNTIME_CONFIG.auth.verificationCodeTtlMs;
 const CODE_TTL_MINUTES = Math.round(CODE_TTL_MS / 60_000);
-const VERIFICATION_CODE_DIGITS = SERVER_RUNTIME_CONFIG.auth.verificationCodeDigits;
-const CODE_MIN = 10 ** (VERIFICATION_CODE_DIGITS - 1);
-const CODE_RANGE = 9 * CODE_MIN;
 const sendgridConfigured =
   typeof process.env.SENDGRID_API_KEY === "string" &&
   process.env.SENDGRID_API_KEY.startsWith("SG.") &&
@@ -23,7 +20,7 @@ if (sendgridConfigured) {
 }
 
 function generateSixDigitCode() {
-  return Math.floor(CODE_MIN + Math.random() * CODE_RANGE).toString();
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 async function sendForcedResetCode(email, code) {
@@ -36,7 +33,7 @@ async function sendForcedResetCode(email, code) {
     to: email,
     from: process.env.EMAIL_FROM,
     subject: "Verify Your Account and Reset Your Password",
-    html: `<p>An administrator has required you to verify your email again and set a new password.</p><p>Use this ${VERIFICATION_CODE_DIGITS}-digit code when prompted:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>`,
+    html: `<p>An administrator has required you to verify your email again and set a new password.</p><p>Use this 6-digit code when prompted:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>`,
   });
 }
 

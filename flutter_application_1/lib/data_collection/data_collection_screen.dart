@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/auth_service.dart';
+import '../config/app_tuning.dart';
 import 'background_collection_controller.dart';
 import 'data_collection_backend.dart';
 import 'data_collection_model.dart';
@@ -71,7 +72,7 @@ Stream<SessionCoordinates> _watchCoordinates() {
   return Geolocator.getPositionStream(
     locationSettings: const LocationSettings(
       accuracy: LocationAccuracy.best,
-      distanceFilter: 15,
+      distanceFilter: MobileCaptureTuning.locationDistanceFilterMeters,
     ),
   ).map(
     (position) => SessionCoordinates(
@@ -142,9 +143,9 @@ class DataCollectionScreen extends StatefulWidget {
 
 class _DataCollectionScreenState extends State<DataCollectionScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  static const Duration _sampleInterval = Duration(milliseconds: 250);
-  static const Duration _reportWindow = Duration(seconds: 15);
-  static const Duration _queueRetryDelay = Duration(seconds: 5);
+  static const Duration _sampleInterval = MobileCaptureTuning.sampleInterval;
+  static const Duration _reportWindow = MobileCaptureTuning.reportWindow;
+  static const Duration _queueRetryDelay = MobileCaptureTuning.queueRetryDelay;
 
   late final Ticker _ticker;
   late final ProceduralSurfaceEngine _engine;

@@ -26,11 +26,11 @@ const {
   buildLocationStatusText,
 } = require("./services/locationStatusText");
 const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
+const { loadSearchSource } = require("./services/locationSearchSource");
 
 const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
 const STATUS_FALLBACK_FRESHNESS_MINUTES =
   SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
-const { loadSearchSource } = require("./services/locationSearchSource");
 
 const app = express();
 const reportProcessingService = new ReportProcessingService();
