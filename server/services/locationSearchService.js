@@ -7,6 +7,10 @@ const {
   toOccupancyText,
   toSeverity,
 } = require("./mapSearchData");
+const {
+  buildLocationStatusText,
+  loadHistoricalBaselines,
+} = require("./locationStatusText");
 const { loadSearchSource } = require("./locationSearchSource");
 
 function isFiniteNumber(value) {
@@ -71,7 +75,7 @@ function buildSummary(occupancyValue, noiseValue) {
   return "Study area data available from recent reports.";
 }
 
-function buildLocationNode(location, group, anchor) {
+function buildLocationNode(location, group, anchor, historicalBaseline = null) {
   const lat = location.latitude ?? 0;
   const lng = location.longitude ?? 0;
   const noiseValue = isFiniteNumber(location.currentNoiseLevel)
@@ -93,10 +97,11 @@ function buildLocationNode(location, group, anchor) {
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? "",
     summary: buildSummary(occupancyValue, noiseValue),
-    statusText:
-      isFiniteNumber(location.currentNoiseLevel) && isFiniteNumber(location.currentOccupancyLevel)
-        ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : "Awaiting live reports",
+    statusText: buildLocationStatusText({
+      historicalBaseline,
+      liveNoise: noiseValue,
+      liveOccupancy: occupancyValue,
+    }),
     noiseText: toNoiseText(location.currentNoiseLevel),
     occupancyText: toOccupancyText(location.currentOccupancyLevel),
     updatedAtLabel: location.updatedAt
@@ -297,12 +302,24 @@ function normalizeSearchParams(query = {}) {
 async function searchLocations(rawQuery = {}, {
   StudyLocationModel = StudyLocation,
   LocationGroupModel = LocationGroup,
+  reportProcessingService = null,
+  now = new Date(),
 } = {}) {
   const params = normalizeSearchParams(rawQuery);
   const sourceData = await loadSearchSource({ StudyLocationModel, LocationGroupModel });
   const groupsById = new Map(sourceData.groups.map((group) => [group.locationGroupId, group]));
+  const historicalBaselines = await loadHistoricalBaselines(
+    sourceData.locations,
+    reportProcessingService,
+    now,
+  );
   const rawLocationNodes = sourceData.locations.map((location) =>
-    buildLocationNode(location, groupsById.get(location.locationGroupId) ?? null, params.anchor),
+    buildLocationNode(
+      location,
+      groupsById.get(location.locationGroupId) ?? null,
+      params.anchor,
+      historicalBaselines.get(location.studyLocationId) ?? null,
+    ),
   );
   const locationNodesByGroupId = new Map();
 

@@ -1,8 +1,17 @@
 const adminSearchService = require("../services/adminSearchService");
+const { ReportProcessingService } = require("../services/reportProcessingService");
 const { searchLocations } = require("../services/locationSearchService");
 
+const reportProcessingService = new ReportProcessingService();
+
 function createAdminSearchController({
-  locationSearchService = { searchLocations },
+  locationSearchService = {
+    searchLocations(query) {
+      return searchLocations(query, {
+        reportProcessingService,
+      });
+    },
+  },
   reportAdminService = adminSearchService,
 } = {}) {
   return {

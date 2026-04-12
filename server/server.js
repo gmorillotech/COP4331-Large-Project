@@ -22,7 +22,13 @@ const {
   toOccupancyText,
   toSeverity,
 } = require("./services/mapSearchData");
-const { REPORT_STALE_MINUTES } = require("./config/appConfig");
+const {
+  buildLocationStatusText,
+  loadHistoricalBaselines,
+} = require("./services/locationStatusText");
+const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
+
+const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
 const { loadSearchSource } = require("./services/locationSearchSource");
 
 const app = express();
@@ -43,7 +49,7 @@ app.use((req, res, next) => {
   next();
 });
 
-function buildMapAnnotation(location, group) {
+function buildMapAnnotation(location, group, historicalBaseline = null) {
   const liveNoise = Number.isFinite(location.currentNoiseLevel)
     ? location.currentNoiseLevel
     : null;
@@ -66,11 +72,11 @@ function buildMapAnnotation(location, group) {
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? location.name,
     summary: `Live study-space reading for ${location.name}.`,
-    statusText:
-      Number.isFinite(location.currentNoiseLevel) &&
-      Number.isFinite(location.currentOccupancyLevel)
-        ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : "Awaiting live reports",
+    statusText: buildLocationStatusText({
+      historicalBaseline,
+      liveNoise,
+      liveOccupancy,
+    }),
     noiseText: toNoiseText(liveNoise),
     noiseValue: liveNoise,
     occupancyText: toOccupancyText(liveOccupancy),
@@ -210,6 +216,7 @@ startServer();
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
+    const now = new Date();
     const sourceData = await loadSearchSource({
       StudyLocationModel: StudyLocation,
       LocationGroupModel: LocationGroup,
@@ -217,10 +224,19 @@ app.get("/api/map-annotations", async (req, res) => {
     const groupsById = new Map(
       sourceData.groups.map((group) => [group.locationGroupId, group]),
     );
+    const historicalBaselines = await loadHistoricalBaselines(
+      sourceData.locations,
+      reportProcessingService,
+      now,
+    );
 
     // Build location markers
     const locationResults = sourceData.locations.map((location) =>
-      buildMapAnnotation(location, groupsById.get(location.locationGroupId)));
+      buildMapAnnotation(
+        location,
+        groupsById.get(location.locationGroupId),
+        historicalBaselines.get(location.studyLocationId) ?? null,
+      ));
 
     // Build group markers (derive center from polygon centroid)
     const locationsByGroup = new Map();

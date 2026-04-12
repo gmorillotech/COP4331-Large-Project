@@ -1,7 +1,11 @@
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
+
 function createReportController({
   ReportModel,
   reportProcessingService,
 } = {}) {
+  const { reportsByLocationLimit, recentReportsLimit } =
+    SERVER_RUNTIME_CONFIG.reports;
   const createReport = async (req, res) => {
     try {
       const {
@@ -50,7 +54,7 @@ function createReportController({
         reportKind: "live",
       })
         .sort({ createdAt: -1 })
-        .limit(20);
+        .limit(reportsByLocationLimit);
 
       return res.status(200).json(reports);
     } catch (_error) {
@@ -62,7 +66,7 @@ function createReportController({
     try {
       const reports = await ReportModel.find({ reportKind: "live" })
         .sort({ createdAt: -1 })
-        .limit(15);
+        .limit(recentReportsLimit);
 
       return res.status(200).json(reports);
     } catch (_error) {
