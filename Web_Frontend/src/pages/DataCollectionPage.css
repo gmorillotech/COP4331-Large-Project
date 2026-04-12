@@ -1,32 +1,61 @@
-/* ── PAGE — fills exactly the viewport, no scroll ───── */
+/* ── PAGE — break out of #root's 1126px cap and cover the whole viewport ─ */
 .datacollection-page {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #0C1A49;
-  position: relative;
+  background-color: #0C1A49;
+  background-image: url('../assets/spiral.png'),
+    linear-gradient(rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.07));
+  background-repeat: no-repeat, no-repeat;
+  background-position: center center, center center;
+  background-size: cover, cover;
+  z-index: 1;
 }
 
-/* ── BACK BUTTON — fixed top-left corner ─────────────── */
+/* ── TOP BAR — full-width glass header ───────────────── */
+.datacollection-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 20px;
+  background: rgba(12, 26, 73, 0.55);
+  border-bottom: 1px solid rgba(109, 214, 255, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.datacollection-topbar__spacer {
+  /* Mirrors the back button's footprint so the title stays visually centered */
+  flex: 0 0 auto;
+  width: 108px;
+}
+
+/* ── BACK BUTTON — lives inside the top bar ──────────── */
 .datacollection-back-btn {
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 100;
-  background: #0C1A49;
-  border: 1.5px solid #0C1A49;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(109, 214, 255, 0.35);
   border-radius: 10px;
   padding: 8px 16px;
   font-size: 14px;
   font-weight: 600;
   color: #6dd6ff;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .datacollection-back-btn:hover {
-  background: #14245f; 
+  background: rgba(109, 214, 255, 0.18);
+  border-color: rgba(109, 214, 255, 0.6);
 }
 
 /* ── PAGE CONTENT — flex column, fills remaining height ─ */
@@ -42,17 +71,37 @@
 }
 
 .datacollection-title {
-  font-size: 26px;
+  flex: 1 1 auto;
+  font-size: 22px;
   font-weight: 700;
   color: #6dd6ff;
-  margin-bottom: 6px;
-  flex-shrink: 0;
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.02em;
+  transform: translateX(-40.5px);
 }
 
 .datacollection-subtitle {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0 0 16px;
   max-width: 400px;
   flex-shrink: 0;
+}
+
+@media (max-width: 520px) {
+  .datacollection-topbar {
+    padding: 10px 12px;
+  }
+  .datacollection-topbar__spacer {
+    display: none;
+  }
+  .datacollection-title {
+    font-size: 18px;
+    text-align: right;
+    /* On narrow screens the card collapses and the 56px mic nudge dominates
+       less visibly — drop the alignment tweak so the title sits where the
+       topbar flex wants it. */
+    transform: none;
+  }
 }
