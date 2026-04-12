@@ -22,8 +22,15 @@ const {
   toOccupancyText,
   toSeverity,
 } = require("./services/mapSearchData");
-const { REPORT_STALE_MINUTES } = require("./config/appConfig");
+const {
+  buildLocationStatusText,
+} = require("./services/locationStatusText");
+const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
 const { loadSearchSource } = require("./services/locationSearchSource");
+
+const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
+const STATUS_FALLBACK_FRESHNESS_MINUTES =
+  SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
 
 const app = express();
 const reportProcessingService = new ReportProcessingService();
@@ -43,7 +50,7 @@ app.use((req, res, next) => {
   next();
 });
 
-function buildMapAnnotation(location, group) {
+function buildMapAnnotation(location, group, historicalBaseline = null, now = new Date()) {
   const liveNoise = Number.isFinite(location.currentNoiseLevel)
     ? location.currentNoiseLevel
     : null;
@@ -66,11 +73,14 @@ function buildMapAnnotation(location, group) {
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? location.name,
     summary: `Live study-space reading for ${location.name}.`,
-    statusText:
-      Number.isFinite(location.currentNoiseLevel) &&
-      Number.isFinite(location.currentOccupancyLevel)
-        ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : "Awaiting live reports",
+    statusText: buildLocationStatusText({
+      historicalBaseline,
+      liveNoise,
+      liveOccupancy,
+      liveUpdatedAt: location.updatedAt ?? null,
+      freshnessMinutes: STATUS_FALLBACK_FRESHNESS_MINUTES,
+      now,
+    }),
     noiseText: toNoiseText(liveNoise),
     noiseValue: liveNoise,
     occupancyText: toOccupancyText(liveOccupancy),
@@ -210,6 +220,7 @@ startServer();
 
 app.get("/api/map-annotations", async (req, res) => {
   try {
+    const now = new Date();
     const sourceData = await loadSearchSource({
       StudyLocationModel: StudyLocation,
       LocationGroupModel: LocationGroup,
@@ -218,9 +229,16 @@ app.get("/api/map-annotations", async (req, res) => {
       sourceData.groups.map((group) => [group.locationGroupId, group]),
     );
 
-    // Build location markers
+    // Annotations stay minimal: no catalog-wide baseline hydration here.
+    // Live status text (or "Awaiting live reports") is sufficient for markers;
+    // the richer historical fallback is scoped to search/result flows.
     const locationResults = sourceData.locations.map((location) =>
-      buildMapAnnotation(location, groupsById.get(location.locationGroupId)));
+      buildMapAnnotation(
+        location,
+        groupsById.get(location.locationGroupId),
+        null,
+        now,
+      ));
 
     // Build group markers (derive center from polygon centroid)
     const locationsByGroup = new Map();

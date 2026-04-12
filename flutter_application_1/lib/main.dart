@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_application_1/config/api_config.dart';
+import 'package:flutter_application_1/config/app_tuning.dart';
 
 const String _loginRoute = '/login';
 const String _mapRoute = '/map';
@@ -419,8 +420,9 @@ class _MapSearchPageState extends State<MapSearchPage>
     SearchSort.distance,
     null,
   ];
-  static const double _maxRadiusMetersCeiling = 500;
-  double _maxRadiusMeters = 300;
+  static const double _maxRadiusMetersCeiling =
+      MobileMapSearchTuning.maxRadiusMetersCeiling;
+  double _maxRadiusMeters = MobileMapSearchTuning.defaultMaxRadiusMeters;
   double? _minNoise;
   double? _maxNoise;
   double? _maxOccupancy;
@@ -1021,7 +1023,7 @@ class _MapSearchPageState extends State<MapSearchPage>
 
   void _onSearch(String value) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 180), () {
+    _debounce = Timer(MobileMapSearchTuning.searchDebounce, () {
       if (!mounted) return;
       setState(() => _query = value.trim().toLowerCase());
       unawaited(_runSearch());
@@ -1048,7 +1050,7 @@ class _MapSearchPageState extends State<MapSearchPage>
 
   void _scheduleFilterSearch() {
     _filterDebounce?.cancel();
-    _filterDebounce = Timer(const Duration(milliseconds: 250), () {
+    _filterDebounce = Timer(MobileMapSearchTuning.filterDebounce, () {
       if (!mounted) return;
       unawaited(_runSearch());
     });

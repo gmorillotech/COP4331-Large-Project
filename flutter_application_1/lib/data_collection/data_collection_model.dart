@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../config/app_tuning.dart';
+
 enum OccupancyLevel { empty, sparse, moderate, busy, full }
 
 extension OccupancyLevelX on OccupancyLevel {
@@ -71,23 +73,23 @@ class Ripple {
 
 class SurfaceConfig {
   const SurfaceConfig({
-    this.noiseFloor = 0.08,
-    this.smoothingFactor = 0.18,
-    this.peakThreshold = 0.58,
-    this.peakRiseDelta = 0.1,
-    this.peakCooldownMs = 320,
-    this.rippleSpeed = 0.00022,
-    this.rippleDecayMs = 2800,
-    this.rippleWidth = 0.085,
-    this.maxActiveRipples = 6,
-    this.baseAmplitude = 0.02,
-    this.rippleAmplitude = 0.085,
-    this.lineCount = 14,
-    this.minDecibels = 34,
-    this.maxDecibels = 86,
-    this.quietThreshold = 0.26,
-    this.moderateThreshold = 0.5,
-    this.livelyThreshold = 0.74,
+    this.noiseFloor = MobileSurfaceTuning.noiseFloor,
+    this.smoothingFactor = MobileSurfaceTuning.smoothingFactor,
+    this.peakThreshold = MobileSurfaceTuning.peakThreshold,
+    this.peakRiseDelta = MobileSurfaceTuning.peakRiseDelta,
+    this.peakCooldownMs = MobileSurfaceTuning.peakCooldownMs,
+    this.rippleSpeed = MobileSurfaceTuning.rippleSpeed,
+    this.rippleDecayMs = MobileSurfaceTuning.rippleDecayMs,
+    this.rippleWidth = MobileSurfaceTuning.rippleWidth,
+    this.maxActiveRipples = MobileSurfaceTuning.maxActiveRipples,
+    this.baseAmplitude = MobileSurfaceTuning.baseAmplitude,
+    this.rippleAmplitude = MobileSurfaceTuning.rippleAmplitude,
+    this.lineCount = MobileSurfaceTuning.lineCount,
+    this.minDecibels = MobileSurfaceTuning.minDecibels,
+    this.maxDecibels = MobileSurfaceTuning.maxDecibels,
+    this.quietThreshold = MobileSurfaceTuning.quietThreshold,
+    this.moderateThreshold = MobileSurfaceTuning.moderateThreshold,
+    this.livelyThreshold = MobileSurfaceTuning.livelyThreshold,
   });
 
   final double noiseFloor;

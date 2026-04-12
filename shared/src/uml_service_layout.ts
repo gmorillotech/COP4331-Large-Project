@@ -254,6 +254,8 @@ export interface A1Config {
   historicalHalfLifeDays: number;
   historicalMaxAgeDays: number;
   minimumHistoricalWeight: number;
+  occupancyTrustNormalizationDivisor: number;
+  neutralUserWeight: number;
 }
 
 export interface HistoricalBaseline {
@@ -290,6 +292,9 @@ export const defaultSessionServiceConfig: SessionServiceConfig = {
   winsorizeUpperQuantile: 0.95,
 };
 
+// Canonical live source of A1 tuning defaults. `shared/src/config/a1Tuning.ts`
+// re-exports this object and provides named slices for active vs dormant
+// session-correction fields. Edit values here, not in any other file.
 export const defaultA1Config: A1Config = {
   initialDecayWF: 1.0,
   reportHalfLifeMs: 5 * 60 * 1000,
@@ -327,6 +332,8 @@ export const defaultA1Config: A1Config = {
   historicalHalfLifeDays: 14,
   historicalMaxAgeDays: 30,
   minimumHistoricalWeight: 0.2,
+  occupancyTrustNormalizationDivisor: 4,
+  neutralUserWeight: 1.0,
   // Tune these later after calibration with real report data.
 };
 
@@ -370,7 +377,7 @@ export class LocationService {
   constructor(
     private readonly studyLocationRepository: LocationQueryRepository,
     private readonly locationGroupRepository: LocationGroupQueryRepository,
-    private readonly maxResolutionDistanceMeters: number = 100,
+    private readonly maxResolutionDistanceMeters: number = 150,
   ) {}
 
   async getAllGroups(): Promise<LocationGroup[]> {
@@ -1071,7 +1078,8 @@ export class A1Service {
       if (location.currentNoiseLevel === null || location.currentOccupancyLevel === null) continue;
 
       const occupancySignedError = clamp(
-        (activeRecord.report.occupancy - location.currentOccupancyLevel) / 4,
+        (activeRecord.report.occupancy - location.currentOccupancyLevel) /
+          this.config.occupancyTrustNormalizationDivisor,
         -1,
         1,
       );
@@ -1568,8 +1576,8 @@ function getOrCreateUser(userMap: Map<string, User>, userId: string, config: A1C
 
   const createdUser: User = {
     userId,
-    userNoiseWF: clamp(1.0, config.minUserNoiseWF, config.maxUserNoiseWF),
-    userOccupancyWF: clamp(1.0, config.minUserOccupancyWF, config.maxUserOccupancyWF),
+    userNoiseWF: clamp(config.neutralUserWeight, config.minUserNoiseWF, config.maxUserNoiseWF),
+    userOccupancyWF: clamp(config.neutralUserWeight, config.minUserOccupancyWF, config.maxUserOccupancyWF),
   };
 
   userMap.set(userId, createdUser);

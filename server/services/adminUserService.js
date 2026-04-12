@@ -4,9 +4,11 @@ const sgMail = require("@sendgrid/mail");
 const User = require("../models/User");
 const Report = require("../models/Report");
 const AuditLog = require("../models/AuditLog");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CODE_TTL_MS = 15 * 60 * 1000;
+const CODE_TTL_MS = SERVER_RUNTIME_CONFIG.auth.verificationCodeTtlMs;
+const CODE_TTL_MINUTES = Math.round(CODE_TTL_MS / 60_000);
 const sendgridConfigured =
   typeof process.env.SENDGRID_API_KEY === "string" &&
   process.env.SENDGRID_API_KEY.startsWith("SG.") &&
@@ -31,7 +33,7 @@ async function sendForcedResetCode(email, code) {
     to: email,
     from: process.env.EMAIL_FROM,
     subject: "Verify Your Account and Reset Your Password",
-    html: `<p>An administrator has required you to verify your email again and set a new password.</p><p>Use this 6-digit code when prompted:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+    html: `<p>An administrator has required you to verify your email again and set a new password.</p><p>Use this 6-digit code when prompted:</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>`,
   });
 }
 

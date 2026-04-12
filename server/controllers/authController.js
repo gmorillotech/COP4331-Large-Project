@@ -4,9 +4,11 @@ const sgMail = require("@sendgrid/mail");
 
 const User = require("../models/User");
 const tokenService = require("../createJWT");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 const DEFAULT_PIN_COLOR = "#0F766E";
-const CODE_TTL_MS = 15 * 60 * 1000;
+const CODE_TTL_MS = SERVER_RUNTIME_CONFIG.auth.verificationCodeTtlMs;
+const CODE_TTL_MINUTES = Math.round(CODE_TTL_MS / 60_000);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const sendgridConfigured =
   typeof process.env.SENDGRID_API_KEY === "string" &&
@@ -63,7 +65,7 @@ async function sendCodeEmail({ to, subject, intro, code }) {
     to,
     from: process.env.EMAIL_FROM,
     subject,
-    html: `<p>${intro}</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in 15 minutes.</p>`,
+    html: `<p>${intro}</p><p><strong style="font-size:24px;">${code}</strong></p><p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>`,
   });
 }
 

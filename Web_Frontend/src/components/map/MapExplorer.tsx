@@ -16,7 +16,7 @@
 //         → sortedLocations (by sortOrder)
 //           → zoom-aware filtering for sidebar vs map
 
-import { useCallback, useEffect, useMemo, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
@@ -29,6 +29,7 @@ import { useMarkerAnimation } from './mapMarkerAnimation.ts';
 import { useFavorites } from '../../useFavorites.ts';
 import FavoritesDrawer from '../FavoritesDrawer.tsx';
 import { apiUrl } from '../../config';
+import { MAP_UI_TUNING } from '../../config/uiTuning.ts';
 
 // The API key is read from .env at build time (VITE_ prefix makes it browser-accessible)
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
@@ -76,7 +77,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [_errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [, setErrorMsg]           = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -131,7 +132,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(searchInput.trim().toLowerCase());
-    }, 180);
+    }, MAP_UI_TUNING.searchDebounceMs);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 

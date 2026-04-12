@@ -1,3 +1,7 @@
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
+
+const NOISE_THRESHOLDS = SERVER_RUNTIME_CONFIG.display.noiseThresholds;
+
 function toRadians(value) {
   return (value * Math.PI) / 180;
 }
@@ -21,11 +25,11 @@ function toSeverity(noiseLevel) {
     return "low";
   }
 
-  if (noiseLevel >= 68) {
+  if (noiseLevel >= NOISE_THRESHOLDS.busy) {
     return "high";
   }
 
-  if (noiseLevel >= 52) {
+  if (noiseLevel >= NOISE_THRESHOLDS.moderate) {
     return "medium";
   }
 
@@ -37,11 +41,15 @@ function toNoiseText(noiseLevel) {
     return "Noise unavailable";
   }
 
-  if (noiseLevel >= 68) {
+  if (noiseLevel >= NOISE_THRESHOLDS.loud) {
     return `Noise: Loud (${noiseLevel.toFixed(1)} dB)`;
   }
 
-  if (noiseLevel >= 52) {
+  if (noiseLevel >= NOISE_THRESHOLDS.busy) {
+    return `Noise: Busy (${noiseLevel.toFixed(1)} dB)`;
+  }
+
+  if (noiseLevel >= NOISE_THRESHOLDS.moderate) {
     return `Noise: Moderate (${noiseLevel.toFixed(1)} dB)`;
   }
 
@@ -99,18 +107,15 @@ function isRecentReading(updatedAt, staleMinutes) {
  * Maps a numeric currentNoiseLevel to a qualitative band 1..5.
  * Returns null when the noise level is not a finite number.
  *
- * Band 1: very quiet  (< 40 dB)
- * Band 2: quiet       (40–51 dB)
- * Band 3: moderate    (52–61 dB)
- * Band 4: busy        (62–67 dB)
- * Band 5: loud        (>= 68 dB)
+ * Thresholds are defined in config/runtimeConfig.js and calibrated for
+ * uncalibrated phone microphones (noise_meter).
  */
 function toNoiseBand(noiseLevel) {
   if (!Number.isFinite(noiseLevel)) return null;
-  if (noiseLevel < 40) return 1;
-  if (noiseLevel < 52) return 2;
-  if (noiseLevel < 62) return 3;
-  if (noiseLevel < 68) return 4;
+  if (noiseLevel < NOISE_THRESHOLDS.quiet) return 1;
+  if (noiseLevel < NOISE_THRESHOLDS.moderate) return 2;
+  if (noiseLevel < NOISE_THRESHOLDS.busy) return 3;
+  if (noiseLevel < NOISE_THRESHOLDS.loud) return 4;
   return 5;
 }
 

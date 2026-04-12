@@ -6,11 +6,13 @@ const { LocationController } = require("../controllers/locationController");
 const { LocationGroupRepository } = require("../repositories/LocationGroupRepository");
 const { StudyLocationRepository } = require("../repositories/StudyLocationRepository");
 const { LocationService } = require("../services/locationService");
+const { ReportProcessingService } = require("../services/reportProcessingService");
 const { searchLocations } = require("../services/locationSearchService");
 
 function createLocationRouter({
   StudyLocationModel = StudyLocation,
   LocationGroupModel = LocationGroup,
+  reportProcessingService = null,
 } = {}) {
   const router = express.Router();
   const studyLocationRepository = new StudyLocationRepository(StudyLocationModel);
@@ -32,7 +34,11 @@ function createLocationRouter({
 
   router.get("/search", async (req, res) => {
     try {
-      const results = await searchLocations(req.query, { StudyLocationModel, LocationGroupModel });
+      const results = await searchLocations(req.query, {
+        StudyLocationModel,
+        LocationGroupModel,
+        reportProcessingService,
+      });
       return res.status(200).json(results);
     } catch (_error) {
       return res.status(500).json({ error: "Server error searching locations." });
@@ -46,5 +52,7 @@ function createLocationRouter({
   return router;
 }
 
-module.exports = createLocationRouter();
+module.exports = createLocationRouter({
+  reportProcessingService: new ReportProcessingService(),
+});
 module.exports.createLocationRouter = createLocationRouter;

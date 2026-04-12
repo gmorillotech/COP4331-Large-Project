@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useMap } from '@vis.gl/react-google-maps';
 import { polygonFromCircle, polygonsAdjacent } from '../../lib/adminGeometry.ts';
+import { ADMIN_GEOMETRY_TUNING } from '../../config/uiTuning.ts';
 
 type Vertex = { latitude: number; longitude: number };
 
@@ -38,7 +39,7 @@ function groupToPolygon(group: BoundaryGroup): Vertex[] | null {
     return polygonFromCircle(
       { latitude: group.centerLatitude, longitude: group.centerLongitude },
       group.radiusMeters,
-      24,
+      ADMIN_GEOMETRY_TUNING.previewCirclePolygonSegments,
     );
   }
   return null;

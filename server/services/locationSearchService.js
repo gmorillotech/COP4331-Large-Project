@@ -7,7 +7,16 @@ const {
   toOccupancyText,
   toSeverity,
 } = require("./mapSearchData");
+const {
+  buildLocationStatusText,
+  isLiveDataFresh,
+  loadHistoricalBaselines,
+} = require("./locationStatusText");
 const { loadSearchSource } = require("./locationSearchSource");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
+
+const STATUS_FALLBACK_FRESHNESS_MINUTES =
+  SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
 
 function isFiniteNumber(value) {
   return Number.isFinite(value);
@@ -71,7 +80,7 @@ function buildSummary(occupancyValue, noiseValue) {
   return "Study area data available from recent reports.";
 }
 
-function buildLocationNode(location, group, anchor) {
+function buildLocationNode(location, group, anchor, historicalBaseline = null, now = new Date()) {
   const lat = location.latitude ?? 0;
   const lng = location.longitude ?? 0;
   const noiseValue = isFiniteNumber(location.currentNoiseLevel)
@@ -93,10 +102,14 @@ function buildLocationNode(location, group, anchor) {
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? "",
     summary: buildSummary(occupancyValue, noiseValue),
-    statusText:
-      isFiniteNumber(location.currentNoiseLevel) && isFiniteNumber(location.currentOccupancyLevel)
-        ? `Live estimate: ${location.currentNoiseLevel.toFixed(1)} dB, occupancy ${location.currentOccupancyLevel.toFixed(1)} / 5`
-        : "Awaiting live reports",
+    statusText: buildLocationStatusText({
+      historicalBaseline,
+      liveNoise: noiseValue,
+      liveOccupancy: occupancyValue,
+      liveUpdatedAt: location.updatedAt ?? null,
+      freshnessMinutes: STATUS_FALLBACK_FRESHNESS_MINUTES,
+      now,
+    }),
     noiseText: toNoiseText(location.currentNoiseLevel),
     occupancyText: toOccupancyText(location.currentOccupancyLevel),
     updatedAtLabel: location.updatedAt
@@ -281,12 +294,25 @@ function normalizeSearchParams(query = {}) {
     ? { lat: anchorLat, lng: anchorLng }
     : null;
 
+  const minLat = parseOptionalNumber(query.minLat);
+  const minLng = parseOptionalNumber(query.minLng);
+  const maxLat = parseOptionalNumber(query.maxLat);
+  const maxLng = parseOptionalNumber(query.maxLng);
+  const bounds =
+    isFiniteNumber(minLat) &&
+    isFiniteNumber(minLng) &&
+    isFiniteNumber(maxLat) &&
+    isFiniteNumber(maxLng)
+      ? { minLat, minLng, maxLat, maxLng }
+      : null;
+
   return {
     query: searchQuery,
     sortOrder: sortOrder.length > 0 ? sortOrder : ["relevance"],
     includeGroups,
     includeLocations,
     anchor,
+    bounds,
     maxRadiusMeters,
     minNoise,
     maxNoise,
@@ -294,19 +320,54 @@ function normalizeSearchParams(query = {}) {
   };
 }
 
+function isLocationInBounds(location, bounds) {
+  if (!bounds) {
+    return true;
+  }
+  const lat = location.latitude;
+  const lng = location.longitude;
+  if (!isFiniteNumber(lat) || !isFiniteNumber(lng)) {
+    return false;
+  }
+  return (
+    lat >= bounds.minLat &&
+    lat <= bounds.maxLat &&
+    lng >= bounds.minLng &&
+    lng <= bounds.maxLng
+  );
+}
+
 async function searchLocations(rawQuery = {}, {
   StudyLocationModel = StudyLocation,
   LocationGroupModel = LocationGroup,
+  reportProcessingService = null,
+  now = new Date(),
 } = {}) {
   const params = normalizeSearchParams(rawQuery);
   const sourceData = await loadSearchSource({ StudyLocationModel, LocationGroupModel });
   const groupsById = new Map(sourceData.groups.map((group) => [group.locationGroupId, group]));
-  const rawLocationNodes = sourceData.locations.map((location) =>
-    buildLocationNode(location, groupsById.get(location.locationGroupId) ?? null, params.anchor),
+
+  // Apply viewport bounds before building nodes so we don't pay to build
+  // location nodes for rows outside the current viewport.
+  const candidateLocations = params.bounds
+    ? sourceData.locations.filter((location) => isLocationInBounds(location, params.bounds))
+    : sourceData.locations;
+
+  // Build location nodes first without historical baselines. Baselines are
+  // hydrated later for just the locations that actually survive filtering
+  // and whose live data isn't already fresh.
+  const rawLocationNodes = candidateLocations.map((location) =>
+    buildLocationNode(
+      location,
+      groupsById.get(location.locationGroupId) ?? null,
+      params.anchor,
+      null,
+      now,
+    ),
   );
   const locationNodesByGroupId = new Map();
 
-  for (const location of sourceData.locations) {
+  for (const location of candidateLocations) {
     const node = rawLocationNodes.find((entry) => entry.id === location.studyLocationId);
     if (!node) {
       continue;
@@ -349,8 +410,63 @@ async function searchLocations(rawQuery = {}, {
     nodes = nodes.filter((node) => isFiniteNumber(node.distanceMeters) && node.distanceMeters <= params.maxRadiusMeters);
   }
 
+  const sorted = sortNodes(nodes, params.query, params.sortOrder);
+
+  // Hydrate historical baselines only for returned location-kind nodes whose
+  // live data is not already fresh. This keeps baseline fetches scoped to the
+  // viewport/result set and avoids catalog-wide hydration.
+  const locationsById = new Map(
+    candidateLocations.map((location) => [location.studyLocationId, location]),
+  );
+  const locationsNeedingBaseline = [];
+  for (const node of sorted) {
+    if (node.kind !== "location") {
+      continue;
+    }
+    const live = locationsById.get(node.id);
+    if (!live) {
+      continue;
+    }
+    const hasFiniteLive =
+      isFiniteNumber(live.currentNoiseLevel) &&
+      isFiniteNumber(live.currentOccupancyLevel);
+    if (
+      hasFiniteLive &&
+      isLiveDataFresh(live.updatedAt, now, STATUS_FALLBACK_FRESHNESS_MINUTES)
+    ) {
+      continue;
+    }
+    locationsNeedingBaseline.push(live);
+  }
+
+  const historicalBaselines = await loadHistoricalBaselines(
+    locationsNeedingBaseline,
+    reportProcessingService,
+    now,
+  );
+
+  if (historicalBaselines.size > 0) {
+    for (const node of sorted) {
+      if (node.kind !== "location") {
+        continue;
+      }
+      const baseline = historicalBaselines.get(node.id);
+      if (!baseline) {
+        continue;
+      }
+      node.statusText = buildLocationStatusText({
+        historicalBaseline: baseline,
+        liveNoise: node.noiseValue,
+        liveOccupancy: node.occupancyValue,
+        liveUpdatedAt: locationsById.get(node.id)?.updatedAt ?? null,
+        freshnessMinutes: STATUS_FALLBACK_FRESHNESS_MINUTES,
+        now,
+      });
+    }
+  }
+
   return {
-    results: sortNodes(nodes, params.query, params.sortOrder).map(({ searchText, ...node }) => node),
+    results: sorted.map(({ searchText, ...node }) => node),
     error: "",
     source: sourceData.source,
   };
