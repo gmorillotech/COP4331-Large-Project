@@ -34,10 +34,10 @@ class StudyLocationRepository {
           updatedAt: location.updatedAt,
         },
       },
-      { new: true, upsert: true },
+      { new: true },
     ));
 
-    return toStudyLocation(updated);
+    return updated ? toStudyLocation(updated) : null;
   }
 
   async bulkUpdateStudyLocations(locations) {

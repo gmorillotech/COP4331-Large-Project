@@ -35,10 +35,10 @@ class LocationGroupRepository {
           updatedAt: group.updatedAt,
         },
       },
-      { new: true, upsert: true },
+      { new: true },
     ));
 
-    return toLocationGroup(updated);
+    return updated ? toLocationGroup(updated) : null;
   }
 
   async bulkUpdateLocationGroups(groups) {
