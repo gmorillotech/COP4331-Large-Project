@@ -1,3 +1,9 @@
+// Cross-platform location domain rules live in the shared JSON file so that
+// the server and the Flutter client consume the same values. Update that file
+// when changing any of these three values; the Flutter mirror is documented in
+// flutter_application_1/lib/config/app_tuning.dart.
+const sharedLocationTuning = require("../../shared/config/locationTuning.json");
+
 const SERVER_RUNTIME_CONFIG = Object.freeze({
   display: Object.freeze({
     reportStaleMinutes: Number(process.env.REPORT_STALE_MINUTES) || 1440,
@@ -29,9 +35,11 @@ const SERVER_RUNTIME_CONFIG = Object.freeze({
     verificationCodeTtlMs: 15 * 60 * 1000,
   }),
   location: Object.freeze({
-    nearestResolutionDistanceMeters: 150,
-    locationGroupPaddingMeters: 45,
-    minimumLocationGroupRadiusMeters: 40,
+    nearestResolutionDistanceMeters:
+      sharedLocationTuning.nearestResolutionDistanceMeters,
+    locationGroupPaddingMeters: sharedLocationTuning.locationGroupPaddingMeters,
+    minimumLocationGroupRadiusMeters:
+      sharedLocationTuning.minimumLocationGroupRadiusMeters,
     defaultUserCreatedLocationGroupRadiusMeters: 60,
     duplicateLocationRadiusMeters: 20,
     generatedGroupBoundarySides: 6,

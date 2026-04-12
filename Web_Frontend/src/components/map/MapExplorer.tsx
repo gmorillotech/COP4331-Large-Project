@@ -16,7 +16,7 @@
 //         → sortedLocations (by sortOrder)
 //           → zoom-aware filtering for sidebar vs map
 
-import { useCallback, useEffect, useMemo, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
@@ -77,7 +77,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   const [locations, setLocations] = useState<MapLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [, setErrorMsg]           = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');

@@ -53,7 +53,7 @@ function groupBoundaryToPolygon(group: LocationGroup): Vertex[] | null {
     return polygonFromCircle(
       { latitude: group.centerLatitude, longitude: group.centerLongitude },
       group.radiusMeters,
-      24,
+      ADMIN_GEOMETRY_TUNING.previewCirclePolygonSegments,
     );
   }
 
@@ -75,7 +75,7 @@ function buildDefaultRedrawPolygon(
   let workingPolygon = polygonFromCircle(
     { latitude: centerLatitude, longitude: centerLongitude },
     cappedRadius,
-    6,
+    ADMIN_GEOMETRY_TUNING.workingCirclePolygonSegments,
   );
 
   for (const group of allGroups) {

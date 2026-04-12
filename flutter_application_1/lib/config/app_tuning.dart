@@ -4,6 +4,14 @@ class MobileCaptureTuning {
   static const Duration reportWindow = Duration(seconds: 15);
   static const Duration queueRetryDelay = Duration(seconds: 5);
 
+  // CROSS-PLATFORM DOMAIN RULES — the three values below must stay in sync
+  // with shared/config/locationTuning.json (the canonical source consumed by
+  // the server via server/config/runtimeConfig.js). Dart cannot import the
+  // JSON at compile time for `const`, so these mirror it manually. When
+  // changing a value, update the JSON first, then this file.
+  //   nearestResolutionDistanceMeters       -> locationResolutionDistanceMeters
+  //   locationGroupPaddingMeters            -> locationGroupPaddingMeters
+  //   minimumLocationGroupRadiusMeters      -> minimumLocationGroupRadiusMeters
   static const double locationResolutionDistanceMeters = 150;
   static const double locationGroupPaddingMeters = 45;
   static const double minimumLocationGroupRadiusMeters = 40;

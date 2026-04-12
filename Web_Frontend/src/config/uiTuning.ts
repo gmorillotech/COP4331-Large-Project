@@ -10,7 +10,12 @@ export const ADMIN_UI_TUNING = {
 } as const;
 
 export const ADMIN_GEOMETRY_TUNING = {
-  circlePolygonSegments: 8,
+  // High-segment-count circles used only for visual preview overlays.
+  previewCirclePolygonSegments: 24,
+  // Low-segment-count circles used as working polygons during
+  // redraw/split geometry computation. Kept low so subtract/split
+  // operations stay tractable.
+  workingCirclePolygonSegments: 6,
   vertexSnapThresholdDeg: 0.0001,
   boundarySnapThresholdDeg: 0.0005,
   boundaryNodeSpacingMeters: 12,

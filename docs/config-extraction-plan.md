@@ -21,194 +21,164 @@ Non-goals for the first pass:
 4. Add tests around behavior before consolidating duplicated callers.
 5. Do not mix algorithm changes with config-plumbing changes in the same PR.
 
-## Phase 1: Shared A1 Canonicalization
+## Phase 1: Shared A1 Canonicalization (PARTIAL)
 
-Objective:
-- make one canonical source for active A1 tuning values
+Status:
+- `shared/src/uml_service_layout.ts` is now explicitly marked as the canonical
+  live source of A1 tuning defaults (see header comment on `defaultA1Config`).
+- `shared/src/config/a1Tuning.ts` has been reshaped to a pure re-export: it
+  imports `defaultA1Config` and `defaultSessionServiceConfig` from the canonical
+  file and adds named slices (`A1_ACTIVE_FIELDS`,
+  `A1_DORMANT_SESSION_CORRECTION_FIELDS`) so callers can reason about active vs
+  dormant session-correction fields without duplicating literal values.
+- The previously hardcoded `occupancyTrustNormalizationDivisor = 4` and
+  `neutralUserWeight = 1.0` were already present in `defaultA1Config`; they are
+  now documented in `A1_ACTIVE_FIELDS`.
+- The location-resolution mismatch is resolved: the canonical value is `150`,
+  owned by `shared/config/locationTuning.json` and consumed by both the server
+  (via `server/config/runtimeConfig.js`) and Flutter mirror. The obsolete
+  `100`/`150` staging constants in `a1Tuning.ts` have been removed.
+- Unit suite (`unit_tests/a1_service.test.ts`) passes against the new TS.
 
-Tasks:
-- choose whether `shared/src/uml_service_layout.ts` remains the canonical live owner
-  or whether `shared/src/config/a1Tuning.ts` becomes the new owner
-- remove duplication between:
-  - `shared/src/uml_service_layout.ts`
-  - `shared/src/uml_service_layout.js`
-- keep session-correction settings marked as dormant, not active
-- extract the remaining hardcoded A1 values:
-  - occupancy trust normalization divisor (`4`)
-  - neutral user weight (`1.0`)
-- resolve the location-resolution mismatch between shared TS (`100`) and runtime (`150`)
+Remaining finding (risky — not done in this pass):
+- `shared/src/uml_service_layout.js` (the committed in-src compile output the
+  server loads at runtime) is structurally out of sync with
+  `uml_service_layout.ts`. The in-src `.js` is missing `computeHistoricalBaseline`,
+  `buildArchivedSummaries`, `recalculateLocationStatus`, `updateGroupStatus`,
+  `pruneExpiredReports`, and the optional `archivedSummaryRepository`
+  constructor parameter of `A1Service`. The server imports
+  `computeHistoricalBaseline` but receives `undefined` at runtime.
+- Regenerating the in-src `.js` from the current `.ts` (or redirecting the
+  server to `shared/dist/uml_service_layout`) would silently activate those
+  code paths, violating Phase 1's exit criterion "runtime server behavior
+  matches pre-extraction behavior". Treat this as its own PR with integration
+  validation, separate from config extraction.
 
-Validation:
-- `unit_tests/a1_service.test.ts`
-- `unit_tests/calibration/a1_calibration_harness.ts`
-- `server/tests/reportProcessing.integration.test.js`
+Exit criteria status:
+- [x] active A1 defaults are defined once
+- [x] location-resolution mismatch resolved
+- [ ] TS/JS duplication removed (blocked on the risk above — tracked as follow-up)
 
-Exit criteria:
-- active A1 defaults are defined once
-- runtime server behavior matches pre-extraction behavior
-- dormant session-correction values are still present only if intentionally retained
+## Phase 3: Location and Boundary Defaults (DONE for shared rules)
 
-## Phase 2: Server Runtime Config
+Status:
+- The three cross-platform domain rules
+  (`nearestResolutionDistanceMeters`, `locationGroupPaddingMeters`,
+  `minimumLocationGroupRadiusMeters`) now have a single source of truth:
+  `shared/config/locationTuning.json`.
+- Server side: `server/config/runtimeConfig.js` loads the JSON and populates
+  `SERVER_RUNTIME_CONFIG.location.*` from it.
+- Flutter side: `MobileCaptureTuning` in
+  `flutter_application_1/lib/config/app_tuning.dart` documents the contract
+  and mirrors the three values (Dart cannot import JSON at compile time for
+  `const`). The header comment points callers at the canonical JSON.
+- Platform-local defaults that were never meant to be cross-platform
+  (e.g. `defaultUserCreatedLocationGroupRadiusMeters`,
+  `duplicateLocationRadiusMeters`, `generatedGroupBoundarySides`) remain
+  server-owned in `runtimeConfig.js`.
 
-Objective:
-- move server operational thresholds into `server/config/runtimeConfig.js`
+Follow-up (optional):
+- Add a Flutter sync-check test that loads
+  `shared/config/locationTuning.json` at test time and asserts the three
+  `MobileCaptureTuning` fields match. This would mechanically enforce the
+  contract that today relies on a doc comment.
 
-Tasks:
-- rewire callers to use runtime config for:
-  - report stale minutes
-  - noise thresholds
-  - report polling interval
-  - report/history fetch limits
-  - admin active-report page sizes
-  - auth/admin code TTL and code digit count
-- stop hardcoding route limits in controllers where they represent policy, not query shape
-- keep environment-backed values in server config, not spread across services/controllers
-
-Primary files:
-- `server/config/appConfig.js`
-- `server/config/runtimeConfig.js`
-- `server/server.js`
-- `server/services/reportProcessingService.js`
-- `server/services/adminSearchService.js`
-- `server/controllers/reportController.js`
-- `server/controllers/authController.js`
-- `server/services/adminUserService.js`
-
-Validation:
-- `node server/tests/reportRoutes.integration.test.js`
-- `node server/tests/locationRoutes.integration.test.js`
-- `node server/tests/adminSearchRoutes.integration.test.js`
-
-Exit criteria:
-- server operational thresholds are read from one runtime config module
-- `appConfig.js` is either reduced to display-only compatibility or folded into runtime config cleanly
-
-## Phase 3: Location and Boundary Defaults
-
-Objective:
-- unify location/group creation and resolution constants across server, shared, Flutter, and admin tools
-
-Tasks:
-- extract and standardize:
-  - nearest-resolution distance
-  - location-group padding
-  - minimum group radius
-  - default user-created group radius
-  - duplicate-location collision radius
-  - generated boundary shape sides/segments
-- decide which values are:
-  - shared domain rules
-  - server-only operational defaults
-  - admin-geometry/editor affordances
-- rewire server `LocationService`
-- rewire Flutter `LocalStudyLocationResolver`
-- rewire admin redraw/split helpers where appropriate
-
-Primary files:
-- `server/services/locationService.js`
-- `shared/src/config/a1Tuning.ts`
-- `flutter_application_1/lib/data_collection/data_collection_workflow.dart`
-- `Web_Frontend/src/lib/adminGeometry.ts`
-- `Web_Frontend/src/pages/admin/RedrawGroupPage.tsx`
-- `Web_Frontend/src/pages/admin/SplitGroupPage.tsx`
-
-Validation:
-- `node server/tests/locationRoutes.integration.test.js`
-- manual admin boundary checks in redraw/split flows
-- Flutter location-resolution smoke check
+Validation performed:
+- `node server/tests/locationRoutes.integration.test.js` → all 21 tests pass.
+- Server boot smoke check confirms `SERVER_RUNTIME_CONFIG.location` values
+  match the JSON (`150 / 45 / 40`).
 
 Exit criteria:
-- same domain default is not defined separately in server and Flutter
-- geometry-editor-only values remain local to admin UI unless needed elsewhere
+- [x] shared domain defaults defined once (JSON)
+- [x] server consumes shared source
+- [x] geometry-editor-only values remain local (admin UI / web tuning)
 
-## Phase 4: Mobile Capture and Search Tuning
+## Phase 5: Web and Admin UI Thresholds (DONE)
 
-Objective:
-- move mobile operational thresholds into `flutter_application_1/lib/config/app_tuning.dart`
-
-Tasks:
-- rewire Flutter callers to use app tuning for:
-  - sample interval
-  - report window
-  - queue retry delay
-  - location distance filter
-  - search/filter debounce
-  - search radius defaults/ceiling
-  - procedural surface constants
-  - capture summarization defaults
-- decide which mobile values should mirror shared summarization defaults and which are mobile-specific
-
-Primary files:
-- `flutter_application_1/lib/config/app_tuning.dart`
-- `flutter_application_1/lib/data_collection/data_collection_screen.dart`
-- `flutter_application_1/lib/data_collection/data_collection_workflow.dart`
-- `flutter_application_1/lib/data_collection/data_collection_model.dart`
-- `flutter_application_1/lib/main.dart`
+Status:
+- The ambiguous `ADMIN_GEOMETRY_TUNING.circlePolygonSegments` (defined but
+  unread because all callers passed literals) has been replaced with two
+  named values that reflect the two intentionally-different use cases:
+  - `previewCirclePolygonSegments: 24` — visual preview overlays
+  - `workingCirclePolygonSegments: 6` — working polygons used by
+    redraw/split geometry computation
+- `polygonFromCircle` now requires `segments` explicitly (no default), and
+  all five callers in `GroupBoundaryOverlays.tsx`, `SplitGroupPage.tsx`, and
+  `RedrawGroupPage.tsx` consume the named tuning values.
+- All other fields in `ADMIN_GEOMETRY_TUNING` (`vertexSnapThresholdDeg`,
+  `boundarySnapThresholdDeg`, `boundaryNodeSpacingMeters`,
+  `defaultMaxRadiusMeters`) were already wired to their consumers.
 
 Validation:
-- relevant Flutter widget/unit tests
-- manual capture session
-- manual map-search interaction on device/emulator
+- `tsc -b` in `Web_Frontend/` shows no new errors (only two pre-existing
+  unused-import errors in `MapExplorer.tsx`, unrelated to this change).
 
 Exit criteria:
-- mobile behavior constants are not buried inside widgets/models
-- mobile search and capture timings are easy to review and tune
-
-## Phase 5: Web and Admin UI Thresholds
-
-Objective:
-- consolidate map/admin interaction thresholds into `Web_Frontend/src/config/uiTuning.ts`
-
-Tasks:
-- rewire:
-  - default zoom
-  - group/location zoom threshold
-  - search debounce
-  - admin location-detail debounce
-  - admin report page size
-  - admin geometry snapping thresholds
-  - default redraw/split fallback radius
-- leave purely visual constants alone unless they represent product policy
-
-Primary files:
-- `Web_Frontend/src/config/uiTuning.ts`
-- `Web_Frontend/src/lib/googleMaps.ts`
-- `Web_Frontend/src/components/map/MapMarkers.tsx`
-- `Web_Frontend/src/components/map/MapExplorer.tsx`
-- `Web_Frontend/src/components/admin/AdminLocationDetail.tsx`
-- `Web_Frontend/src/components/admin/AdminReportTable.tsx`
-- `Web_Frontend/src/lib/adminGeometry.ts`
-
-Validation:
-- web build
-- search/map manual smoke checks
-- admin search/detail/manual geometry flows
-
-Exit criteria:
-- interaction thresholds live in one web config module
-- map/admin behavior is unchanged from before extraction
+- [x] interaction thresholds live in one web config module
+- [x] every value in `uiTuning.ts` is actually read by its consumers
+- [x] map/admin behavior is unchanged (preview = 24, working = 6, same as before)
 
 ## Recommended PR Breakdown
 
-PR 1:
-- shared A1 canonicalization
-- no server/mobile/web rewiring beyond what is required to consume the canonical shared values
+Remaining PR:
+- Resolve the `shared/src/uml_service_layout.js` vs `.ts` drift (Phase 1
+  follow-up). The risk is real: the committed in-src `.js` is missing several
+  methods and exports that the current `.ts` defines, and the server already
+  imports one of them (`computeHistoricalBaseline`) as `undefined`. Options:
+  either regenerate the in-src `.js` from the current TS and validate the
+  activated code paths against integration tests, or redirect the server's
+  require path to `shared/dist/uml_service_layout` and add a build step.
+  Either way, this needs its own PR with regression coverage.
 
-PR 2:
-- server runtime config extraction
+Completed in-tree (prior PRs + this pass):
+- Phase 1 value-level canonicalization (this pass)
+- Phase 3 shared location domain rules via `shared/config/locationTuning.json`
+  (this pass)
+- Phase 5 admin geometry tuning cleanup (this pass)
 
-PR 3:
-- location/boundary default unification
+## Next Steps: Testing
 
-PR 4:
-- Flutter config extraction
+Config-plumbing work is in place. Before any further consolidation or the
+Phase 1 follow-up PR, lock in current behavior with the existing test
+surfaces (cf. `docs/project-memory-index.md` → Testing Surface):
 
-PR 5:
-- web/admin config extraction
+1. A1 unit harness
+   - `cd unit_tests && npm run build && npm run test`
+   - confirms `shared/src/uml_service_layout.ts` + the reshaped
+     `shared/src/config/a1Tuning.ts` still match Phase 1 defaults
+   - re-run `npm run calibrate` against
+     `calibration/tuning_profile.example.json` if tuning-adjacent values move
+
+2. Backend integration tests (`server/tests/`)
+   - `node server/tests/locationRoutes.integration.test.js` — exercises the
+     shared `locationTuning.json` path through `runtimeConfig.js` (Phase 3)
+   - `node server/tests/reportRoutes.integration.test.js`
+   - `node server/tests/reportProcessing.integration.test.js`
+   - `node server/tests/adminSearchRoutes.integration.test.js`
+   - goal: prove the JSON-backed location defaults and the A1 re-export
+     produce identical request/response behavior to pre-extraction
+
+3. Web frontend typecheck + admin geometry smoke
+   - `cd Web_Frontend && npx tsc -b`
+   - manually exercise `/admin/redraw/:groupId` and `/admin/split/:groupId`
+     in `npm run dev` to confirm preview (24-segment) vs working
+     (6-segment) polygons render unchanged (Phase 5)
+
+4. Flutter mirror check
+   - ask the user to run `flutter test` in `flutter_application_1/`
+     (Flutter CLI is not available in-sandbox)
+   - if the optional Phase 3 follow-up lands, the new sync-check test
+     will load `shared/config/locationTuning.json` and assert
+     `MobileCaptureTuning` matches
+
+5. Sign-off gate for the Phase 1 follow-up PR
+   - only attempt the `uml_service_layout.js` vs `.ts` drift fix after
+     steps 1–3 are green on `main`, so any regression from that PR is
+     attributable to the drift fix and not to residual extraction work
 
 ## After Extraction
 
-Once the plumbing is complete:
+Once the plumbing is complete and the tests above are green:
 
 1. review whether the three different freshness windows are all intentional
 2. decide whether display staleness, archive cutoff, and group recency should remain separate

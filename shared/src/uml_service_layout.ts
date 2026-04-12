@@ -292,6 +292,9 @@ export const defaultSessionServiceConfig: SessionServiceConfig = {
   winsorizeUpperQuantile: 0.95,
 };
 
+// Canonical live source of A1 tuning defaults. `shared/src/config/a1Tuning.ts`
+// re-exports this object and provides named slices for active vs dormant
+// session-correction fields. Edit values here, not in any other file.
 export const defaultA1Config: A1Config = {
   initialDecayWF: 1.0,
   reportHalfLifeMs: 5 * 60 * 1000,

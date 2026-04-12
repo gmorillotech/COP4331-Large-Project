@@ -1,0 +1,6 @@
+{
+  "_comment": "Canonical cross-platform location domain rules. This file is the single source of truth for values that must match between server and Flutter. Server loads it via server/config/runtimeConfig.js. Flutter mirrors it in flutter_application_1/lib/config/app_tuning.dart (MobileCaptureTuning) — update both when changing any value here.",
+  "nearestResolutionDistanceMeters": 150,
+  "locationGroupPaddingMeters": 45,
+  "minimumLocationGroupRadiusMeters": 40
+}
