@@ -1,6 +1,8 @@
 // Marker widget that renders either an animated crossfaded SVG pair
 // or a static pin, mirroring the web's `MapMarkerVisual.tsx`.
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -32,10 +34,53 @@ class MapMarkerVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isAnimated && noiseBand != null) {
-      return _buildAnimated();
-    }
-    return _buildStatic();
+    final content = (isAnimated && noiseBand != null)
+        ? _buildAnimated()
+        : _buildStatic();
+    return _wrapSelected(content);
+  }
+
+  /// Mirrors the web's `.marker-visual.is-selected` CSS:
+  ///   transform: scale(1.15);
+  ///   filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.3));
+  ///
+  /// The shadow layer is a blurred, alpha-tinted copy of the marker's
+  /// current silhouette stacked behind the live content, so it follows the
+  /// SVG alpha rather than the widget bounding box.
+  Widget _wrapSelected(Widget child) {
+    if (!isSelected) return child;
+    return Transform.scale(
+      scale: 1.15,
+      alignment: Alignment.bottomCenter,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+                child: ColorFiltered(
+                  colorFilter: const ColorFilter.mode(
+                    Color.fromRGBO(0, 0, 0, 0.3),
+                    BlendMode.srcIn,
+                  ),
+                  child: _buildShadowSource(),
+                ),
+              ),
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+
+  /// Single non-crossfaded SVG used as the alpha silhouette for the shadow.
+  Widget _buildShadowSource() {
+    final path = (isAnimated && noiseBand != null)
+        ? getAnimatedFramePath(noiseBand!, animation.currentFrame)
+        : getStaticPinPath(isSub);
+    return SvgPicture.asset(path, width: size, height: size);
   }
 
   Widget _buildAnimated() {
