@@ -9,9 +9,6 @@ const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 const DEFAULT_PIN_COLOR = "#0F766E";
 const CODE_TTL_MS = SERVER_RUNTIME_CONFIG.auth.verificationCodeTtlMs;
 const CODE_TTL_MINUTES = Math.round(CODE_TTL_MS / 60_000);
-const VERIFICATION_CODE_DIGITS = SERVER_RUNTIME_CONFIG.auth.verificationCodeDigits;
-const CODE_MIN = 10 ** (VERIFICATION_CODE_DIGITS - 1);
-const CODE_RANGE = 9 * CODE_MIN;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const sendgridConfigured =
   typeof process.env.SENDGRID_API_KEY === "string" &&
@@ -41,7 +38,7 @@ function normalizeEmail(email) {
 }
 
 function generateSixDigitCode() {
-  return Math.floor(CODE_MIN + Math.random() * CODE_RANGE).toString();
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 function maskEmail(email) {

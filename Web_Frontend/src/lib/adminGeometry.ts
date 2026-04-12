@@ -382,7 +382,7 @@ export function subtractPolygon(subjectPolygon: Vertex[], clipPolygon: Vertex[])
 export function polygonFromCircle(
   center: { latitude: number; longitude: number },
   radiusMeters: number,
-  segments = 8,
+  segments = ADMIN_GEOMETRY_TUNING.circlePolygonSegments,
 ): Vertex[] {
   const metersPerDegreeLat = 111_320;
   const metersPerDegreeLng = 111_320 * Math.cos((center.latitude * Math.PI) / 180);

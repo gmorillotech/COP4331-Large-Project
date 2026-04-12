@@ -22,8 +22,10 @@ const {
   toOccupancyText,
   toSeverity,
 } = require("./services/mapSearchData");
-const { REPORT_STALE_MINUTES } = require("./config/appConfig");
+const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
 const { loadSearchSource } = require("./services/locationSearchSource");
+
+const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
 
 const app = express();
 const reportProcessingService = new ReportProcessingService();
