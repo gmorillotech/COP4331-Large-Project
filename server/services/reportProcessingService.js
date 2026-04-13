@@ -17,6 +17,7 @@ const {
 const {
   LocationGroupRepository,
 } = require("../repositories/LocationGroupRepository");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 function toReport(document) {
   return {
