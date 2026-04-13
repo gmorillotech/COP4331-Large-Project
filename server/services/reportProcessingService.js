@@ -17,7 +17,6 @@ const {
 const {
   LocationGroupRepository,
 } = require("../repositories/LocationGroupRepository");
-const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 function toReport(document) {
   return {
@@ -240,7 +239,12 @@ class ReportProcessingService {
   }
 
   async submitCanonicalReport(reportData) {
-    await this.#ensureCatalogLocation(reportData.studyLocationId);
+    const existingLocation = await StudyLocation.findOne({
+      studyLocationId: reportData.studyLocationId,
+    }).select("studyLocationId");
+    if (!existingLocation) {
+      throw new Error(`Study location ${reportData.studyLocationId} is not configured.`);
+    }
     await this.#ensureCollectorUser(reportData.userId);
 
     const report = await this.reportService.submitNewReport(reportData);
@@ -368,13 +372,6 @@ class ReportProcessingService {
 
     clearInterval(this.pollTimer);
     this.pollTimer = null;
-  }
-
-  async #ensureCatalogLocation(studyLocationId) {
-    const existing = await StudyLocation.findOne({ studyLocationId }).select("studyLocationId");
-    if (!existing) {
-      throw new Error(`Study location ${studyLocationId} is not configured.`);
-    }
   }
 
   async #ensureCollectorUser(userId) {

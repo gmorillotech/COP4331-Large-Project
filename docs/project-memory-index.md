@@ -87,7 +87,6 @@ Main backend services:
 - `services/locationService.js`
 - `services/locationSearchService.js`
 - `services/locationSearchSource.js`
-- `services/locationCatalog.js`
 - `services/mapSearchData.js`
 - `services/geometryValidation.js`
 - `services/adminSearchService.js`

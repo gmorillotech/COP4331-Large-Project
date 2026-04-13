@@ -302,13 +302,32 @@ function installInMemoryModelPatches() {
 
 it("submitCanonicalReport persists report metadata and leaves aggregate state for polling", async () => {
   const harness = installInMemoryModelPatches();
+  harness.state.locationGroups.push({
+    locationGroupId: "group-john-c-hitt-library",
+    name: "John C. Hitt Library",
+    currentNoiseLevel: null,
+    currentOccupancyLevel: null,
+    updatedAt: null,
+  });
+  harness.state.studyLocations.push({
+    studyLocationId: "library-floor-1-quiet",
+    locationGroupId: "group-john-c-hitt-library",
+    name: "Quiet Study",
+    floorLabel: "Floor 1",
+    sublocationLabel: "North Reading Room",
+    latitude: 28.60024,
+    longitude: -81.20182,
+    currentNoiseLevel: null,
+    currentOccupancyLevel: null,
+    updatedAt: null,
+  });
   const service = new ReportProcessingService();
 
   try {
     const createdAt = new Date("2026-03-30T18:00:00.000Z");
     const first = await service.submitCanonicalReport({
-      userId: "collector-1",
       studyLocationId: "library-floor-1-quiet",
+      userId: "collector-1",
       createdAt,
       avgNoise: 48,
       maxNoise: 53,

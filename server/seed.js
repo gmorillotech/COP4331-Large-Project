@@ -2,6 +2,7 @@ require("dotenv").config();
 const bcrypt = require("bcryptjs");
 
 const connectDB = require("./config/db");
+
 const User = require("./models/User");
 
 const seedData = async () => {
@@ -10,7 +11,7 @@ const seedData = async () => {
 
     await User.deleteMany({ userId: "local-user" });
 
-    console.log("Old data cleared.");
+    console.log("Old collector user cleared.");
 
     await new User({
       userId: "local-user",

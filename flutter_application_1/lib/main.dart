@@ -92,170 +92,6 @@ enum NodeKind { group, location }
 
 enum SearchSort { relevance, distance, noise, occupancy }
 
-const List<LocationRecord> _seededRecords = [
-  LocationRecord(
-    id: 'library-floor-1-quiet',
-    title: 'Quiet Study',
-    buildingName: 'John C. Hitt Library',
-    floorLabel: 'Floor 1',
-    sublocationLabel: 'North Reading Room',
-    summary: 'Good for focused work with light foot traffic.',
-    statusText: 'Usually quiet at this time',
-    noiseText: 'Quiet',
-    occupancyText: '2 users',
-    updatedAtLabel: 'Updated 2 minutes ago',
-    position: LatLng(28.60024, -81.20182),
-    color: Color(0xFF2A9D8F),
-    severity: Severity.low,
-    isFavorite: true,
-  ),
-  LocationRecord(
-    id: 'library-floor-2-moderate',
-    title: 'Collaboration Tables',
-    buildingName: 'John C. Hitt Library',
-    floorLabel: 'Floor 2',
-    sublocationLabel: 'West Commons',
-    summary: 'Conversation-friendly seating with moderate ambient sound.',
-    statusText: 'Moderate buzz near group tables',
-    noiseText: 'Moderate',
-    occupancyText: '9 users',
-    updatedAtLabel: 'Updated 4 minutes ago',
-    position: LatLng(28.60036, -81.20168),
-    color: Color(0xFFFF9F1C),
-    severity: Severity.medium,
-    isFavorite: false,
-  ),
-  LocationRecord(
-    id: 'library-floor-3-busy',
-    title: 'Open Computer Lab',
-    buildingName: 'John C. Hitt Library',
-    floorLabel: 'Floor 3',
-    sublocationLabel: 'Digital Media Area',
-    summary: 'High circulation zone with steady keyboard and discussion noise.',
-    statusText: 'Busiest floor in the building',
-    noiseText: 'Busy',
-    occupancyText: '18 users',
-    updatedAtLabel: 'Updated 1 minute ago',
-    position: LatLng(28.60048, -81.20155),
-    color: Color(0xFFD9485F),
-    severity: Severity.high,
-    isFavorite: false,
-  ),
-  LocationRecord(
-    id: 'library-floor-4-empty',
-    title: 'Silent Study Cubicles',
-    buildingName: 'John C. Hitt Library',
-    floorLabel: 'Floor 4',
-    sublocationLabel: 'East Quiet Wing',
-    summary: 'Sparse traffic and the calmest option in the library right now.',
-    statusText: 'Mostly empty',
-    noiseText: 'Very quiet',
-    occupancyText: '1 user',
-    updatedAtLabel: 'Updated 6 minutes ago',
-    position: LatLng(28.60018, -81.20198),
-    color: Color(0xFF2A9D8F),
-    severity: Severity.low,
-    isFavorite: true,
-  ),
-  LocationRecord(
-    id: 'msb-floor-2-moderate',
-    title: 'Study Nook',
-    buildingName: 'Mathematical Sciences Building',
-    floorLabel: 'Floor 2',
-    sublocationLabel: 'Atrium Balcony',
-    summary:
-        'Reliable seating between classes with moderate hallway spillover.',
-    statusText: 'Moderate between class blocks',
-    noiseText: 'Moderate',
-    occupancyText: '6 users',
-    updatedAtLabel: 'Updated 7 minutes ago',
-    position: LatLng(28.60116, -81.19886),
-    color: Color(0xFF3A86FF),
-    severity: Severity.medium,
-    isFavorite: false,
-  ),
-  LocationRecord(
-    id: 'student-union-food-court',
-    title: 'Food Court Seating',
-    buildingName: 'Student Union',
-    floorLabel: 'Level 1',
-    sublocationLabel: 'South Dining Hall',
-    summary: 'Convenient seating but consistently loud during lunch hours.',
-    statusText: 'Lunch rush is active',
-    noiseText: 'Loud',
-    occupancyText: '21 users',
-    updatedAtLabel: 'Updated just now',
-    position: LatLng(28.60192, -81.19994),
-    color: Color(0xFFD9485F),
-    severity: Severity.high,
-    isFavorite: false,
-  ),
-];
-
-class LocationRecord {
-  const LocationRecord({
-    required this.id,
-    required this.title,
-    required this.buildingName,
-    required this.floorLabel,
-    required this.sublocationLabel,
-    required this.summary,
-    required this.statusText,
-    required this.noiseText,
-    required this.occupancyText,
-    required this.updatedAtLabel,
-    required this.position,
-    required this.color,
-    required this.severity,
-    required this.isFavorite,
-  });
-
-  final String id;
-  final String title;
-  final String buildingName;
-  final String floorLabel;
-  final String sublocationLabel;
-  final String summary;
-  final String statusText;
-  final String noiseText;
-  final String occupancyText;
-  final String updatedAtLabel;
-  final LatLng position;
-  final Color color;
-  final Severity severity;
-  final bool isFavorite;
-
-  factory LocationRecord.fromJson(Map<String, dynamic> json) {
-    return LocationRecord(
-      id: (json['id'] as String? ?? '').trim(),
-      title: (json['title'] as String? ?? 'Study Location').trim(),
-      buildingName: (json['buildingName'] as String? ?? 'Unknown Building')
-          .trim(),
-      floorLabel: (json['floorLabel'] as String? ?? 'Floor unknown').trim(),
-      sublocationLabel: (json['sublocationLabel'] as String? ?? 'Unknown spot')
-          .trim(),
-      summary: (json['summary'] as String? ?? 'No summary available.').trim(),
-      statusText: (json['statusText'] as String? ?? 'Status unavailable')
-          .trim(),
-      noiseText: _trimMetric(json['noiseText'] as String?, 'Noise unavailable'),
-      occupancyText: _trimMetric(
-        json['occupancyText'] as String?,
-        'Occupancy unavailable',
-      ),
-      updatedAtLabel:
-          (json['updatedAtLabel'] as String? ?? 'Update time unavailable')
-              .trim(),
-      position: LatLng(
-        (json['lat'] as num?)?.toDouble() ?? 0,
-        (json['lng'] as num?)?.toDouble() ?? 0,
-      ),
-      color: _colorFromHex((json['color'] as String?) ?? '#3A86FF'),
-      severity: _severityFromString(json['severity'] as String?),
-      isFavorite: json['isFavorite'] as bool? ?? false,
-    );
-  }
-}
-
 class MapNode {
   const MapNode({
     required this.id,
@@ -880,9 +716,8 @@ class _MapSearchPageState extends State<MapSearchPage>
       );
     } catch (error) {
       _applyRecords(
-        _fallbackNodes(),
-        status:
-            'API unavailable at $_baseUrl. Using seeded map data for local testing.',
+        const [],
+        status: 'API unavailable at $_baseUrl.',
       );
     } finally {
       client.close(force: true);
@@ -902,111 +737,6 @@ class _MapSearchPageState extends State<MapSearchPage>
       _loading = false;
     });
     _scheduleProjectionRefresh();
-  }
-
-  List<MapNode> _fallbackNodes() {
-    final locationNodes = _seededRecords
-        .map(
-          (record) {
-            final band = _fallbackNoiseBand(record.severity);
-            final animated = record.severity != Severity.low;
-            return MapNode(
-              id: record.id,
-              kind: NodeKind.location,
-              title: record.title,
-              buildingName: record.buildingName,
-              summary: record.summary,
-              statusText: record.statusText,
-              noiseText: record.noiseText,
-              occupancyText: record.occupancyText,
-              updatedAtLabel: record.updatedAtLabel,
-              position: record.position,
-              color: record.color,
-              severity: record.severity,
-              searchTerms:
-                  '${record.buildingName} ${record.floorLabel} ${record.sublocationLabel} ${record.title}'
-                      .toLowerCase(),
-              badge: _badgeForFloor(record.floorLabel, record.title),
-              floorLabel: record.floorLabel,
-              groupId: _groupId(record.buildingName),
-              sublocationLabel: record.sublocationLabel,
-              isFavorite: record.isFavorite,
-              noiseBand: band,
-              hasRecentData: true,
-              isAnimated: animated,
-              updatedAtIso: DateTime.now().toIso8601String(),
-            );
-          },
-        )
-        .toList(growable: false);
-
-    final grouped = <String, List<MapNode>>{};
-    for (final node in locationNodes) {
-      grouped.putIfAbsent(node.buildingName, () => []).add(node);
-    }
-
-    final groupNodes = grouped.entries
-        .map((entry) {
-          final items = entry.value;
-          final lat =
-              items.map((e) => e.position.latitude).reduce((a, b) => a + b) /
-              items.length;
-          final lng =
-              items.map((e) => e.position.longitude).reduce((a, b) => a + b) /
-              items.length;
-          final severityIndex = items
-              .map((e) => e.severity.index)
-              .reduce((a, b) => a > b ? a : b);
-          final quietCount = items
-              .where((e) => e.severity == Severity.low)
-              .length;
-          final groupSeverity = Severity.values[severityIndex];
-          final groupBand = _fallbackNoiseBand(groupSeverity);
-          final groupAnimated = items.any((e) => e.isAnimated);
-          return MapNode(
-            id: _groupId(entry.key),
-            kind: NodeKind.group,
-            title: entry.key,
-            buildingName: entry.key,
-            summary:
-                '${items.length} study areas, $quietCount quiet option${quietCount == 1 ? '' : 's'}.',
-            statusText: 'Building overview',
-            noiseText: _severityLabel(groupSeverity),
-            occupancyText: '${items.length} reported study areas',
-            updatedAtLabel: items.first.updatedAtLabel,
-            position: LatLng(lat, lng),
-            color: items.first.color,
-            severity: groupSeverity,
-            searchTerms: items
-                .expand(
-                  (e) => [
-                    entry.key,
-                    e.floorLabel ?? '',
-                    e.sublocationLabel ?? '',
-                    e.title,
-                  ],
-                )
-                .join(' ')
-                .toLowerCase(),
-            badge: entry.key.substring(0, 1).toUpperCase(),
-            locationCount: items.length,
-            isFavorite: items.any((e) => e.isFavorite),
-            noiseBand: groupBand,
-            hasRecentData: true,
-            isAnimated: groupAnimated,
-            updatedAtIso: DateTime.now().toIso8601String(),
-          );
-        })
-        .toList(growable: false);
-
-    final nodes = <MapNode>[
-      if (_showAllResults || _showBuildings) ...groupNodes,
-      if (_showAllResults || _showSpots) ...locationNodes,
-    ];
-
-    return nodes
-        .where((node) => _query.isEmpty || node.searchTerms.contains(_query))
-        .toList(growable: false);
   }
 
   List<MapNode> _filtered(List<MapNode> nodes) => _filter == null
@@ -2301,8 +2031,6 @@ class _FavoriteSheetEntry {
 
 String _title(MapNode node) =>
     node.isGroup ? node.buildingName : '${node.buildingName} - ${node.title}';
-String _groupId(String building) =>
-    'group-${building.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-')}';
 String _badgeForFloor(String floorLabel, String title) =>
     RegExp(r'(\d+)').firstMatch(floorLabel)?.group(1) ??
     title.substring(0, 1).toUpperCase();
@@ -2365,12 +2093,6 @@ Color _colorFromHex(String hex) {
   );
   return Color(int.parse(buffer.toString(), radix: 16));
 }
-
-int _fallbackNoiseBand(Severity severity) => switch (severity) {
-  Severity.low => 1,
-  Severity.medium => 3,
-  Severity.high => 5,
-};
 
 /// Marker sizing that mirrors the web's `getSize()` in MapMarkerVisual.tsx.
 double _markerSize(double zoom, bool isGroup, bool isSub, bool isSelected) {
