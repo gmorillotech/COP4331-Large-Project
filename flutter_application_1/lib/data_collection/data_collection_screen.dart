@@ -1258,9 +1258,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           );
         }
       });
-    } catch (_) {
-      // Seeded locations remain available as a fallback for local capture flows.
-    }
+    } catch (_) {}
   }
 
   Future<void> _flushQueuedDrafts({bool announceSuccess = false}) async {
