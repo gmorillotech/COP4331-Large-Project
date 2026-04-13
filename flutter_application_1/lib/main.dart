@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:flutter_application_1/auth/login_page.dart';
@@ -1302,10 +1303,16 @@ class _MapSearchPageState extends State<MapSearchPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       backgroundColor: const Color(0xFFF3F7FB),
       appBar: AppBar(
         title: const Text('Study Space Search'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xCC17263C),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 4),
