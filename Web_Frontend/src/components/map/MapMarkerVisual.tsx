@@ -3,10 +3,12 @@
 //
 // Size scales with map zoom level (slower than the map itself).
 
+import { memo } from 'react';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
 import type { AnimationState } from './mapMarkerAnimation.ts';
 import type { ClusterMarker } from './mapClustering.ts';
 import { getAnimatedFrameUrl, getStaticPinUrl } from './mapMarkerAssets.ts';
+import { deriveNoiseBand } from '../../lib/mapUtils.ts';
 
 type Props = {
   location: MapLocation;
@@ -40,68 +42,117 @@ export function getSize(zoom: number, isSub: boolean, isSelected: boolean): numb
   return isSelected ? size + SELECTED_BOOST : size;
 }
 
-function MapMarkerVisual({ location, isSelected, animation, zoom }: Props) {
-  const isSub = Boolean(location.sublocationLabel);
+function MapMarkerVisualImpl({ location, isSelected, zoom }: Props) {
+  // Pin style is driven purely by kind. Groups → LocationPin.svg.
+  // Sub-locations → subLocationPin.svg. Neither ever morphs.
+  const isSub = location.kind !== 'group';
   const size = getSize(zoom, isSub, isSelected);
-
-  // Use animated frames when the API says the marker should animate
-  if (location.isAnimated && location.noiseBand != null) {
-    const currentSrc = getAnimatedFrameUrl(location.noiseBand, animation.currentFrame);
-    const nextSrc = getAnimatedFrameUrl(location.noiseBand, animation.nextFrame);
-
-    return (
-      <div
-        className={`marker-visual ${isSelected ? 'is-selected' : ''}`}
-        style={{ width: size, height: size, position: 'relative' }}
-      >
-        <img
-          src={currentSrc}
-          alt=""
-          width={size}
-          height={size}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            opacity: 1 - animation.progress,
-            pointerEvents: 'none',
-          }}
-        />
-        <img
-          src={nextSrc}
-          alt=""
-          width={size}
-          height={size}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            opacity: animation.progress,
-            pointerEvents: 'none',
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Static fallback — no animation
   const staticSrc = getStaticPinUrl(isSub);
+
+  // Every sub-location gets a noise band (derived when the API omits it),
+  // so the noise SVG renders per-marker, tied directly to that location's
+  // data. Groups never render the noise layer — structural markers only.
+  const noiseBand = isSub ? deriveNoiseBand(location) : null;
+  const showNoiseOverlay = noiseBand != null;
+
+  // Pre-resolve the three animation frames for this location's noise band.
+  // CSS keyframes (see .marker-noise-frame-{0,1,2} in index.css) drive the
+  // cross-fade, so the component never re-renders on animation ticks.
+  const frame0 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 0) : null;
+  const frame1 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 1) : null;
+  const frame2 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 2) : null;
+
+  // Make the noise background slightly larger than the pin so a rim of the
+  // noise-level SVG is visible behind/around the pin.
+  const noiseSize = showNoiseOverlay ? size * 1.25 : size;
+  const noiseInset = (noiseSize - size) / 2; // visible rim
 
   return (
     <div
       className={`marker-visual marker-visual--static ${isSelected ? 'is-selected' : ''}`}
-      style={{ width: size, height: size }}
+      style={{
+        width: noiseSize,
+        height: noiseSize,
+        position: 'relative',
+      }}
     >
+      {/* BACKGROUND layer — the noise-level SVG. Rendered first and with a
+          low z-index so the pin above partially covers it. pointer-events
+          none + aria-hidden keep it purely decorative; it is never a marker. */}
+      {showNoiseOverlay && frame0 && frame1 && frame2 && (
+        <div
+          aria-hidden="true"
+          className="marker-noise-overlay"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: noiseSize,
+            height: noiseSize,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        >
+          <img
+            src={frame0}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--0"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+          <img
+            src={frame1}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--1"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+          <img
+            src={frame2}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--2"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+        </div>
+      )}
+
+      {/* FOREGROUND layer — the actual pin. Sits directly on top of the
+          noise background at a higher z-index so it partially covers it.
+          This is the clickable marker; the AdvancedMarker wrapping this
+          component routes clicks to the pin since every other layer here
+          has pointer-events: none. */}
       <img
         src={staticSrc}
         alt=""
         width={size}
         height={size}
-        style={{ pointerEvents: 'none' }}
+        style={{
+          position: 'absolute',
+          top: noiseInset,
+          left: noiseInset,
+          pointerEvents: 'none',
+          zIndex: 2,
+        }}
       />
     </div>
   );
 }
+
+// Memoize so unrelated parent re-renders (animation clock ticks, zoom-agnostic
+// state updates elsewhere in MapMarkers) don't force every marker to
+// reconcile. A marker only re-renders when its own location, zoom, or
+// selection flips.
+const MapMarkerVisual = memo(MapMarkerVisualImpl, (prev, next) => {
+  return (
+    prev.location === next.location &&
+    prev.isSelected === next.isSelected &&
+    prev.zoom === next.zoom
+  );
+});
 
 // ---- Cluster visual ---------------------------------------------------------
 

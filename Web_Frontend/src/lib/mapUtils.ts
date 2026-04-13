@@ -56,6 +56,23 @@ export function buildBandColor(band: NoiseBand | null | undefined): string {
 }
 
 /**
+ * Returns a NoiseBand (1–5) for any location, falling back to inference
+ * from noiseText/severity when the backend didn't populate `noiseBand`.
+ * Every sub-location reliably gets a band so the noise SVG can always
+ * render — the prior dependency on `isAnimated` + explicit `noiseBand`
+ * was what caused sub-locations to show no noise imagery at all.
+ */
+export function deriveNoiseBand(location: MapLocation): NoiseBand {
+  if (location.noiseBand != null) return location.noiseBand;
+  const v = inferNoiseValue(location);
+  if (v < 0.2) return 1;
+  if (v < 0.4) return 2;
+  if (v < 0.6) return 3;
+  if (v < 0.8) return 4;
+  return 5;
+}
+
+/**
  * Converts a 0–1 noise intensity into an rgb() color string.
  * Low intensity → blue, medium → yellow, high → red.
  * This color is used for pin fill and the heat overlay blobs.
@@ -126,4 +143,28 @@ export function formatLocationHeading(location: MapLocation): string {
     [location.buildingName, location.floorLabel].filter(Boolean).join(' · ') ||
     location.title
   );
+}
+
+/**
+ * Display-only formatter for a location's primary name.
+ * Pure formatter — never mutates or renames the underlying data.
+ *
+ *  - Group        → `buildingName`  (group name only, no level)
+ *  - Sub-location → `sublocationLabel` (+ ` - Level X` when `floorLabel` is set)
+ *
+ * If `floorLabel` already begins with "Level" or "Floor", it's left as-is so
+ * values like "Floor 4" or "Level 2B" render without "Level Level 4".
+ * Otherwise the literal prefix "Level " is added before the floor value so a
+ * raw "6" becomes "Level 6".
+ */
+export function formatDisplayName(location: MapLocation): string {
+  if (location.kind === 'group') {
+    return location.buildingName || location.title || '';
+  }
+  const name =
+    location.sublocationLabel || location.title || location.buildingName || '';
+  const floor = (location.floorLabel || '').trim();
+  if (!floor) return name;
+  const levelText = /^(level|floor)\b/i.test(floor) ? floor : `Level ${floor}`;
+  return name ? `${name} - ${levelText}` : levelText;
 }

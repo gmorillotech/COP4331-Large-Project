@@ -879,6 +879,40 @@ code {
   cursor: pointer;
 }
 
+/* ── Noise-level overlay (sub-location pins only) ──────────────────────────
+   Three frames of the noise animation are rendered as sibling <img>s above
+   each sub-location pin. CSS keyframes cross-fade them on a synchronized
+   3.2s loop (matches the ping-pong sequence [0, 1, 2, 1] × 800ms/step).
+   Using CSS here means the animation never re-renders React components —
+   which was the main cause of map slowness when many sub-locations are
+   visible. */
+@keyframes marker-noise-cycle-0 {
+  0%   { opacity: 1; }
+  25%  { opacity: 0; }
+  75%  { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes marker-noise-cycle-1 {
+  0%   { opacity: 0; }
+  25%  { opacity: 1; }
+  50%  { opacity: 0; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes marker-noise-cycle-2 {
+  0%   { opacity: 0; }
+  50%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.marker-noise-frame {
+  animation-duration: 3.2s;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+.marker-noise-frame--0 { animation-name: marker-noise-cycle-0; }
+.marker-noise-frame--1 { animation-name: marker-noise-cycle-1; }
+.marker-noise-frame--2 { animation-name: marker-noise-cycle-2; }
+
 .cluster-badge {
   user-select: none;
   z-index: 1;

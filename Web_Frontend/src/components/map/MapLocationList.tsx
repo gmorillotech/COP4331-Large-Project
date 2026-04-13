@@ -5,7 +5,7 @@
 // Clicking a card selects that location (which pans the map to it).
 
 import type { MapLocation } from '../../types/mapAnnotations.ts';
-import { inferNoiseValue, buildHeatColor, formatLocationHeading } from '../../lib/mapUtils.ts';
+import { inferNoiseValue, buildHeatColor, formatDisplayName } from '../../lib/mapUtils.ts';
 
 // NoiseChip — a colored dot + label showing the noise level for a location.
 // Uses the same heat color system as the pins and heat overlay so everything
@@ -76,11 +76,19 @@ function LocationCard({
   const intensity = inferNoiseValue(location);
   const color = buildHeatColor(intensity);
 
-  // First letter of building name (or title) — shown in the avatar circle
-  const letter = (location.buildingName ?? location.title).charAt(0).toUpperCase();
+  // Kind is the source of truth: groups always render as groups, sub-locations
+  // always render as sub-locations. Derivation used to key off sublocationLabel,
+  // which caused a group decorated with optional labels to flip into sub mode.
+  const isSub = location.kind !== 'group';
 
-  // Whether this is an individual study spot (vs. a top-level building)
-  const isSub = Boolean(location.sublocationLabel);
+  // Primary name that appears in the bolded line of the card.
+  // Uses the shared display-only formatter so popup / list / favorites all
+  // render identically. Sub-location cards get "<name> - Level X" when a
+  // floor exists, group cards get the group name only. No data is renamed.
+  const primaryName = formatDisplayName(location);
+
+  // First letter of whatever name is actually displayed on this card.
+  const letter = (primaryName || ' ').charAt(0).toUpperCase();
 
   return (
     <button
@@ -103,12 +111,13 @@ function LocationCard({
 
       {/* Middle: text content */}
       <div className="location-card__body">
-        {/* Building name, bold */}
-        <strong className="location-card__name">{formatLocationHeading(location)}</strong>
+        {/* Primary name: group name for groups, sub-location's own name for sub-locations */}
+        <strong className="location-card__name">{primaryName}</strong>
 
-        {/* If this is a study spot inside a building, show which spot */}
-        {location.sublocationLabel && (
-          <span className="location-card__sub">{location.sublocationLabel}</span>
+        {/* For sub-locations, show the parent group as context on a second
+            line. Groups don't have a parent, so nothing renders there. */}
+        {isSub && location.buildingName && location.buildingName !== primaryName && (
+          <span className="location-card__sub">{location.buildingName}</span>
         )}
 
         {/* "Building" or "Study Spot" tag pill */}

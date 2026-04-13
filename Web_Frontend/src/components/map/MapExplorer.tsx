@@ -16,7 +16,7 @@
 //         → sortedLocations (by sortOrder)
 //           → zoom-aware filtering for sidebar vs map
 
-import { useCallback, useEffect, useMemo, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
@@ -46,11 +46,22 @@ const SORT_OPTIONS: Array<{ value: SortOrder; label: string }> = [
 
 // ---- Sort helpers (pure functions — no side effects) ------------------------
 
+// The primary name used for relevance sorting must match what the sidebar
+// actually shows on each card — sublocationLabel for sub-locations,
+// buildingName for groups. Otherwise a sub-location match would rank by the
+// group's name (buildingName) and never bubble to the top on its own query.
+function primaryDisplayName(l: MapLocation): string {
+  if (l.kind !== 'group') {
+    return (l.sublocationLabel || l.title || l.buildingName || '').toLowerCase();
+  }
+  return (l.buildingName || l.title || '').toLowerCase();
+}
+
 function sortByRelevance(locations: MapLocation[], query: string): MapLocation[] {
   if (!query) return locations;
   return [...locations].sort((a, b) => {
-    const aName = (a.buildingName ?? a.title).toLowerCase();
-    const bName = (b.buildingName ?? b.title).toLowerCase();
+    const aName = primaryDisplayName(a);
+    const bName = primaryDisplayName(b);
     const aStarts = aName.startsWith(query) ? 0 : 1;
     const bStarts = bName.startsWith(query) ? 0 : 1;
     return aStarts - bStarts;
@@ -78,6 +89,12 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [_errorMsg, setErrorMsg]   = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Group-in-focus. Controls which sub-location pins are visible on the map
+  // and is updated the SAME way from every entry point (group pin click,
+  // sidebar group card click). It is independent of selectedId (which drives
+  // the popup) — so selecting a group reveals its pins WITHOUT opening any
+  // popup. Cleared on map click and when zoom drops below the threshold.
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<AnnotationSeverity | 'all'>('all');
@@ -92,6 +109,59 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   // Stable callback for MapMarkers to report zoom changes
   const handleZoomChange = useCallback((z: number) => setMapZoom(z), []);
+
+  // ── Shared selection handlers — map pins, sidebar cards, and the group
+  // popup all route through these so behavior stays identical across entry
+  // points.
+
+  // Group focus: sets selectedGroupId so MapCameraController pans/zooms to
+  // that group and visibleLocations in MapMarkers filters to that group's
+  // sub-locations. Also closes any open popup.
+  const handleSelectGroup = useCallback((groupId: string) => {
+    setSelectedGroupId(groupId);
+    setSelectedId(null);
+  }, []);
+
+  // Group popup card click → reveal that group's sub-location pins on the
+  // map. This is the ONLY interaction (besides the sidebar shortcut) that
+  // sets selectedGroupId from the map UI. Map pin click opens the popup
+  // without revealing.
+  const handleRevealGroupLocations = useCallback((groupId: string) => {
+    setSelectedId(null);
+    setSelectedGroupId(groupId);
+  }, []);
+
+  // Unified sidebar click. Branches on kind so group cards reveal pins and
+  // sub-location cards open the location popup.
+  const handleSidebarSelect = useCallback(
+    (id: string) => {
+      const loc = locations.find((l) => l.id === id);
+      if (!loc) return;
+      if (loc.kind === 'group') {
+        handleSelectGroup(loc.id);
+        return;
+      }
+      // Sub-location clicked → open its popup AND keep its parent group
+      // focused so sibling pins remain visible.
+      setSelectedId(loc.id);
+      if (loc.locationGroupId) setSelectedGroupId(loc.locationGroupId);
+    },
+    [locations, handleSelectGroup],
+  );
+
+  // Clear group focus only on a TRUE out-zoom — i.e. the user was zoomed in
+  // past the threshold and then deliberately zoomed back out. Without this
+  // ref-tracked prev value, setSelectedGroupId(groupId) fired while still
+  // below the threshold would be cleared by this effect on the same render
+  // (because isZoomedIn starts false and the camera animation hasn't moved
+  // the map yet), preventing the sidebar from ever filtering.
+  const prevZoomedInRef = useRef(false);
+  useEffect(() => {
+    if (prevZoomedInRef.current && !isZoomedIn && selectedGroupId !== null) {
+      setSelectedGroupId(null);
+    }
+    prevZoomedInRef.current = isZoomedIn;
+  }, [isZoomedIn, selectedGroupId]);
 
   // ---- Reusable fetch -------------------------------------------------------
 
@@ -137,11 +207,24 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   // ---- Derived data ---------------------------------------------------------
 
-  // Zoom-aware base set: when zoomed out show groups, when zoomed in show locations
-  const zoomFiltered = useMemo(() => {
+  // Sidebar filter is driven by selectedGroupId ONLY. A group pin click
+  // doesn't set it (pin click just opens the popup), so the sidebar stays on
+  // the groups list. It flips to a group's sub-locations only when the user
+  // deliberately focuses a group via:
+  //   • group popup card click → handleRevealGroupLocations
+  //   • sidebar group card click → handleSelectGroup
+  // This is why sub-location filtering is never triggered by simply clicking
+  // a group pin.
+  const baseList = useMemo(() => {
+    if (debouncedSearch.trim()) return locations;
+    if (selectedGroupId) {
+      return locations.filter(
+        (l) => l.kind !== 'group' && l.locationGroupId === selectedGroupId,
+      );
+    }
     if (isZoomedIn) return locations.filter((l) => l.kind !== 'group');
     return locations.filter((l) => l.kind === 'group');
-  }, [locations, isZoomedIn]);
+  }, [locations, isZoomedIn, selectedGroupId, debouncedSearch]);
 
   // Heatmap always draws from individual spots so each study area shows its own
   // blob, even when zoomed out and the sidebar/markers show groups.
@@ -151,9 +234,9 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
 
   // Step 1: filter by search text
   const searchFiltered = useMemo(() => {
-    if (!debouncedSearch) return zoomFiltered;
-    return zoomFiltered.filter((loc) => buildSearchableText(loc).includes(debouncedSearch));
-  }, [zoomFiltered, debouncedSearch]);
+    if (!debouncedSearch) return baseList;
+    return baseList.filter((loc) => buildSearchableText(loc).includes(debouncedSearch));
+  }, [baseList, debouncedSearch]);
 
   // Step 2: filter by severity chip
   const severityFiltered = useMemo(() => {
@@ -182,6 +265,12 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   );
 
   const handleClose = useCallback(() => setSelectedId(null), []);
+
+  // Clicking empty map canvas clears both popup selection and group focus.
+  const handleMapClick = useCallback(() => {
+    setSelectedId(null);
+    setSelectedGroupId(null);
+  }, []);
 
   // ---- Render ---------------------------------------------------------------
 
@@ -256,11 +345,12 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
       <div className="map-body-row">
         <div className="map-canvas-wrapper">
           <MapProvider apiKey={GOOGLE_MAPS_API_KEY}>
-            <MapCanvas onMapClick={() => setSelectedId(null)}>
+            <MapCanvas onMapClick={handleMapClick}>
               {/* MapMarkers gets ALL locations — it handles zoom-based visibility internally */}
               <MapMarkers
                 locations={locations}
                 selectedId={selectedId}
+                selectedGroupId={selectedGroupId}
                 onSelect={setSelectedId}
                 onZoomChange={handleZoomChange}
                 animation={animation}
@@ -271,6 +361,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
                 onClose={handleClose}
                 isFavorite={selectedLocation ? isFavorite(selectedLocation.id) : false}
                 onToggleFavorite={toggleFavorite}
+                onRevealGroupLocations={handleRevealGroupLocations}
               />
             </MapCanvas>
           </MapProvider>
@@ -280,7 +371,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
           <MapLocationList
             locations={sortedLocations}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={handleSidebarSelect}
             isFavorite={isFavorite}
             onToggleFavorite={toggleFavorite}
           />
@@ -291,7 +382,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
         locations={locations}
         isFavorite={isFavorite}
         onToggleFavorite={toggleFavorite}
-        onSelectLocation={(id) => { setSelectedId(id); }}
+        onSelectLocation={handleSidebarSelect}
         isOpen={favoritesOpen}
         onClose={onFavoritesClose}
       />

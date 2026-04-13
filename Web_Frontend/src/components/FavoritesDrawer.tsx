@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { MapLocation } from '../types/mapAnnotations';
-import { formatLocationHeading } from '../lib/mapUtils';
+import { formatDisplayName } from '../lib/mapUtils';
 import './FavoritesDrawer.css';
 
 type FavoritesDrawerProps = {
@@ -70,9 +70,18 @@ function FavoritesDrawer({
                       onClose();
                     }}
                   >
-                    <strong>{formatLocationHeading(loc)}</strong>
-                    {loc.sublocationLabel && (
-                      <span className="favorites-drawer__sub">{loc.sublocationLabel}</span>
+                    {/* Display-only name. For sub-locations this renders
+                        "<sub-location name> - Level X" and falls back to just
+                        the sub-location name when there is no floor. Group
+                        entries render the group/building name on its own.
+                        No backend data is read for display beyond the fields
+                        the location already carries. */}
+                    <strong>{formatDisplayName(loc)}</strong>
+                    {/* Second line: only present on sub-location entries, and
+                        shows the parent group name for context. Never mixed
+                        into the primary name. */}
+                    {loc.kind !== 'group' && loc.buildingName && (
+                      <span className="favorites-drawer__sub">{loc.buildingName}</span>
                     )}
                     {loc.noiseText && (
                       <span className="favorites-drawer__noise">{loc.noiseText}</span>
