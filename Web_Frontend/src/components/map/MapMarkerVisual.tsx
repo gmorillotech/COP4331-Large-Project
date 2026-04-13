@@ -3,16 +3,22 @@
 //
 // Size scales with map zoom level (slower than the map itself).
 
+import { memo } from 'react';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
 import type { AnimationState } from './mapMarkerAnimation.ts';
 import type { ClusterMarker } from './mapClustering.ts';
 import { getAnimatedFrameUrl, getStaticPinUrl } from './mapMarkerAssets.ts';
+import { deriveNoiseBand } from '../../lib/mapUtils.ts';
 
 type Props = {
   location: MapLocation;
   isSelected: boolean;
   animation: AnimationState;
   zoom: number;
+  // When true, suppress the noise-level background SVG. Used by the cluster
+  // visual so a cluster pin doesn't carry a halo that would overflow its
+  // container. Standalone group and sub-location pins both default to false.
+  hideNoiseOverlay?: boolean;
 };
 
 // Base sizes at zoom 15 (the default zoom)
@@ -40,68 +46,123 @@ export function getSize(zoom: number, isSub: boolean, isSelected: boolean): numb
   return isSelected ? size + SELECTED_BOOST : size;
 }
 
-function MapMarkerVisual({ location, isSelected, animation, zoom }: Props) {
-  const isSub = Boolean(location.sublocationLabel);
+function MapMarkerVisualImpl({ location, isSelected, zoom, hideNoiseOverlay }: Props) {
+  // Pin style is driven purely by kind. Groups → LocationPin.svg.
+  // Sub-locations → subLocationPin.svg. Neither ever morphs.
+  const isSub = location.kind !== 'group';
   const size = getSize(zoom, isSub, isSelected);
-
-  // Use animated frames when the API says the marker should animate
-  if (location.isAnimated && location.noiseBand != null) {
-    const currentSrc = getAnimatedFrameUrl(location.noiseBand, animation.currentFrame);
-    const nextSrc = getAnimatedFrameUrl(location.noiseBand, animation.nextFrame);
-
-    return (
-      <div
-        className={`marker-visual ${isSelected ? 'is-selected' : ''}`}
-        style={{ width: size, height: size, position: 'relative' }}
-      >
-        <img
-          src={currentSrc}
-          alt=""
-          width={size}
-          height={size}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            opacity: 1 - animation.progress,
-            pointerEvents: 'none',
-          }}
-        />
-        <img
-          src={nextSrc}
-          alt=""
-          width={size}
-          height={size}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            opacity: animation.progress,
-            pointerEvents: 'none',
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Static fallback — no animation
   const staticSrc = getStaticPinUrl(isSub);
+
+  // Noise band is derived per marker — groups AND sub-locations both get a
+  // band so the background SVG appears behind either kind of pin. Groups
+  // pull their band from aggregated data the API provides (or fall back via
+  // inferNoiseValue) so the layering style matches sub-locations visually.
+  const noiseBand = hideNoiseOverlay ? null : deriveNoiseBand(location);
+  const showNoiseOverlay = noiseBand != null;
+
+  // Pre-resolve the three animation frames for this location's noise band.
+  // CSS keyframes (see .marker-noise-frame-{0,1,2} in index.css) drive the
+  // cross-fade, so the component never re-renders on animation ticks.
+  const frame0 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 0) : null;
+  const frame1 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 1) : null;
+  const frame2 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 2) : null;
+
+  // Make the noise background noticeably larger than the pin so it reads as
+  // a clear colored halo behind the marker. Pin itself stays at `size` —
+  // only the noise SVG scales up. 1.6x on each side gives a prominent rim
+  // while still keeping the pin visually dominant.
+  const NOISE_SCALE = 1.6;
+  const noiseSize = showNoiseOverlay ? size * NOISE_SCALE : size;
+  const noiseInset = (noiseSize - size) / 2; // pin offset to stay centered in the halo
 
   return (
     <div
       className={`marker-visual marker-visual--static ${isSelected ? 'is-selected' : ''}`}
-      style={{ width: size, height: size }}
+      style={{
+        width: noiseSize,
+        height: noiseSize,
+        position: 'relative',
+      }}
     >
+      {/* BACKGROUND layer — the noise-level SVG. Rendered first and with a
+          low z-index so the pin above partially covers it. pointer-events
+          none + aria-hidden keep it purely decorative; it is never a marker. */}
+      {showNoiseOverlay && frame0 && frame1 && frame2 && (
+        <div
+          aria-hidden="true"
+          className="marker-noise-overlay"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: noiseSize,
+            height: noiseSize,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        >
+          <img
+            src={frame0}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--0"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+          <img
+            src={frame1}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--1"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+          <img
+            src={frame2}
+            alt=""
+            width={noiseSize}
+            height={noiseSize}
+            className="marker-noise-frame marker-noise-frame--2"
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          />
+        </div>
+      )}
+
+      {/* FOREGROUND layer — the actual pin. Horizontally centered in the
+          halo (left: noiseInset) but pinned to the TOP of the container
+          (top: 0) so the noise SVG underneath is mostly visible BELOW it:
+          the pin covers the upper portion of the noise, and the lower
+          portion sticks out below the pin. Pure visual offset; z-index
+          and click routing are unchanged. */}
       <img
         src={staticSrc}
         alt=""
         width={size}
         height={size}
-        style={{ pointerEvents: 'none' }}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: noiseInset,
+          pointerEvents: 'none',
+          zIndex: 2,
+        }}
       />
     </div>
   );
 }
+
+// Memoize so unrelated parent re-renders (animation clock ticks, zoom-agnostic
+// state updates elsewhere in MapMarkers) don't force every marker to
+// reconcile. A marker only re-renders when its own location, zoom, or
+// selection flips.
+const MapMarkerVisual = memo(MapMarkerVisualImpl, (prev, next) => {
+  return (
+    prev.location === next.location &&
+    prev.isSelected === next.isSelected &&
+    prev.zoom === next.zoom &&
+    prev.hideNoiseOverlay === next.hideNoiseOverlay
+  );
+});
 
 // ---- Cluster visual ---------------------------------------------------------
 
@@ -128,6 +189,7 @@ export function ClusterMarkerVisual({ cluster, isSelected, animation, zoom }: Cl
         isSelected={false}
         animation={animation}
         zoom={zoom}
+        hideNoiseOverlay
       />
       <div
         className="cluster-badge"

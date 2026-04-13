@@ -7,12 +7,14 @@ function DataCollectionPage() {
   return (
     <main>
     <div className="datacollection-page">
-      <button className="datacollection-back-btn" onClick={() => navigate('/home')}>
-        Back to Map
-      </button>
-      <div className="datacollection-content">
+      <header className="datacollection-topbar">
+        <button className="datacollection-back-btn" onClick={() => navigate('/home')}>
+          Back to Map
+        </button>
         <h1 className="datacollection-title">Contribute Data</h1>
-        <p className="datacollection-subtitle">Help other students by reporting noise and occupancy at your study spot.</p>
+        <span className="datacollection-topbar__spacer" aria-hidden="true" />
+      </header>
+      <div className="datacollection-content">
         <SessionManager />
       </div>
     </div>

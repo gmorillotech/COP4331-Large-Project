@@ -11,13 +11,16 @@
 import { memo } from 'react';
 import { InfoWindow } from '@vis.gl/react-google-maps';
 import type { MapLocation } from '../../types/mapAnnotations.ts';
-import { inferNoiseValue, buildHeatColor } from '../../lib/mapUtils.ts';
+import { inferNoiseValue, buildHeatColor, formatDisplayName } from '../../lib/mapUtils.ts';
 
 type MapInfoPopupProps = {
   location: MapLocation | null; // null = no location selected → renders nothing
   onClose: () => void;          // called when the user clicks the × on the popup
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
+  // Fired when a GROUP popup card is clicked. Wired to reveal that group's
+  // sub-location pins on the map. Ignored for sub-location popups.
+  onRevealGroupLocations?: (groupId: string) => void;
 };
 
 // SeverityBadge — a colored pill showing Low / Medium / High
@@ -57,7 +60,13 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapInfoPopupProps) {
+function MapInfoPopup({
+  location,
+  onClose,
+  isFavorite,
+  onToggleFavorite,
+  onRevealGroupLocations,
+}: MapInfoPopupProps) {
   // If no location is selected, render nothing — InfoWindow disappears
   if (!location) return null;
 
@@ -65,10 +74,33 @@ function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapIn
   const intensity = inferNoiseValue(location);
   const accentColor = buildHeatColor(intensity);
 
-  // The name shown as the popup heading
-  const heading = [location.buildingName, location.floorLabel]
-    .filter(Boolean)
-    .join(' · ') || location.title;
+  // Group popups are intentionally stripped of location-level detail
+  // (floor, sublocation label, noise/occupancy readings). Only sub-location
+  // popups render the full location card. This keeps a group pin's popup
+  // stable regardless of what optional fields the backend decorates it with.
+  const isGroup = location.kind === 'group';
+
+  // Heading & subtitle. Both come from display-only formatters — the
+  // underlying location data is never renamed or mutated.
+  //   Group pin       → heading: group/building name.     subtitle: none.
+  //   Sub-location    → heading: "<name> - Level X" (or just "<name>"
+  //                                when no floor).         subtitle: buildingName.
+  const heading = formatDisplayName(location);
+  const subHeading = isGroup
+    ? null
+    : (location.buildingName || null);
+
+  // Group popup card click → reveal that group's sub-location pins. Only
+  // active on group popups, and ignores clicks that originated on the
+  // favorite button (which has its own handler).
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isGroup) return;
+    if (!onRevealGroupLocations) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.map-info-popup__favorite-btn')) return;
+    onRevealGroupLocations(location.id);
+  };
+  const cardIsClickable = isGroup && Boolean(onRevealGroupLocations);
 
   return (
     // InfoWindow anchors itself to this position on the map canvas.
@@ -83,7 +115,14 @@ function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapIn
         Everything inside InfoWindow is rendered as normal React JSX.
         Google Maps injects it into a small floating container on the canvas.
       */}
-      <div className="map-info-popup">
+      <div
+        className="map-info-popup"
+        onClick={cardIsClickable ? handleCardClick : undefined}
+        role={cardIsClickable ? 'button' : undefined}
+        tabIndex={cardIsClickable ? 0 : undefined}
+        style={cardIsClickable ? { cursor: 'pointer' } : undefined}
+        title={cardIsClickable ? 'Show study areas in this building' : undefined}
+      >
 
         {/* Thin colored bar at the top — color matches the noise heat level */}
         <div
@@ -95,9 +134,11 @@ function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapIn
         <div className="map-info-popup__header">
           <div>
             <h3 className="map-info-popup__title">{heading}</h3>
-            {/* Sublocation label (e.g. "North Reading Room") shown below the title */}
-            {location.sublocationLabel && (
-              <p className="map-info-popup__sub">{location.sublocationLabel}</p>
+            {/* Subtitle: "Library · Floor 4" for sub-locations so the group
+                context is visible under the sub-location's own name. Nothing
+                here for group popups — they stay group-level only. */}
+            {subHeading && (
+              <p className="map-info-popup__sub">{subHeading}</p>
             )}
           </div>
           <SeverityBadge severity={location.severity} />
@@ -108,10 +149,11 @@ function MapInfoPopup({ location, onClose, isFavorite, onToggleFavorite }: MapIn
           <p className="map-info-popup__summary">{location.summary}</p>
         )}
 
-        {/* Detail rows — only render a row if the value is a real, non-"unavailable" string */}
+        {/* Detail rows — only render a row if the value is a real, non-"unavailable" string.
+            Noise and occupancy are location-level readings; groups suppress them. */}
         <dl className="popup-meta">
-          {isDisplayable(location.noiseText)      && <MetaRow label="Noise"     value={location.noiseText} />}
-          {isDisplayable(location.occupancyText)  && <MetaRow label="Occupancy" value={location.occupancyText} />}
+          {!isGroup && isDisplayable(location.noiseText)      && <MetaRow label="Noise"     value={location.noiseText} />}
+          {!isGroup && isDisplayable(location.occupancyText)  && <MetaRow label="Occupancy" value={location.occupancyText} />}
           {isDisplayable(location.statusText)     && <MetaRow label="Status"    value={location.statusText} />}
           {isDisplayable(location.updatedAtLabel) && <MetaRow label="Updated"   value={location.updatedAtLabel} />}
           <MetaRow

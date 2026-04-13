@@ -45,6 +45,7 @@ type SessionState = {
   studyLocationId: string | null;
   locationName: string | null;
   buildingName: string | null;
+  floorLabel: string | null;
   noisesamples: number[];
   avgNoise: number | null;
 };
@@ -53,10 +54,53 @@ type StudyLocation = {
   studyLocationId: string;
   name: string;
   buildingName: string;
+  floorLabel: string;
   latitude: number;
   longitude: number;
   locationGroupId: string;
 };
+
+type LocationGroup = {
+  locationGroupId: string;
+  name: string;
+  centerLatitude: number;
+  centerLongitude: number;
+  radiusMeters: number | null;
+  polygon: { lat: number; lng: number }[] | null;
+};
+
+// Fallback radius when backend omits polygon + radius — mirrors Flutter's
+// 60m default hex-group boundary (data_collection_backend.dart:209).
+const DEFAULT_GROUP_RADIUS_M = 60;
+
+// Ray-casting point-in-polygon — mirrors Flutter's _pointInPolygon
+// (data_collection_workflow.dart:531-560).
+function pointInPolygon(lat: number, lng: number, poly: { lat: number; lng: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].lng;
+    const yi = poly[i].lat;
+    const xj = poly[j].lng;
+    const yj = poly[j].lat;
+    const intersect =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-15) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Polygon first, radius fallback — mirrors DataCollectionLocationGroup.contains
+// (data_collection_workflow.dart:78-98).
+function groupContains(group: LocationGroup, lat: number, lng: number): boolean {
+  if (group.polygon && group.polygon.length >= 3) {
+    return pointInPolygon(lat, lng, group.polygon);
+  }
+  const radius = group.radiusMeters ?? DEFAULT_GROUP_RADIUS_M;
+  return (
+    haversineMeters(lat, lng, group.centerLatitude, group.centerLongitude) <= radius
+  );
+}
 
 type CreateGroupForm = {
   groupName: string;
@@ -109,12 +153,17 @@ function SessionManager() {
 
   // All study locations fetched once on mount, exactly as Flutter does it
   const [allLocations, setAllLocations] = useState<StudyLocation[]>([]);
+  const [allGroups, setAllGroups] = useState<LocationGroup[]>([]);
+  // Tracks whether the initial /api/locations/groups fetch has resolved, so we
+  // can distinguish "still loading" from "genuinely empty" for forced setup.
+  const [hasLoadedLocations, setHasLoadedLocations] = useState(false);
 
   const [sessionState, setSessionState] = useState<SessionState>({
     isActive: false,
     studyLocationId: null,
     locationName: null,
     buildingName: null,
+    floorLabel: null,
     noisesamples: [],
     avgNoise: null,
   });
@@ -211,12 +260,40 @@ function SessionManager() {
         const groups: any[] = await groupsRes.json();
 
         const collected: StudyLocation[] = [];
+        const collectedGroups: LocationGroup[] = [];
 
         await Promise.all(
           groups.map(async (group: any) => {
             const groupId = (group.locationGroupId ?? '').trim();
             const groupName = (group.name ?? 'Unknown Building').trim();
             if (!groupId) return;
+
+            // Capture group boundary info for containment checks. The backend
+            // may provide `polygon`, `centerLatitude/Longitude`, `radiusMeters`,
+            // or any subset — we fall back to 60m at evaluation time.
+            const rawPoly: any[] | null = Array.isArray(group.polygon) ? group.polygon : null;
+            const polygon = rawPoly
+              ? rawPoly
+                  .map((p: any) => ({
+                    lat: Number(p.lat ?? p.latitude),
+                    lng: Number(p.lng ?? p.longitude),
+                  }))
+                  .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+              : null;
+            const centerLat = Number(group.centerLatitude);
+            const centerLng = Number(group.centerLongitude);
+            if (Number.isFinite(centerLat) && Number.isFinite(centerLng)) {
+              collectedGroups.push({
+                locationGroupId: groupId,
+                name: groupName,
+                centerLatitude: centerLat,
+                centerLongitude: centerLng,
+                radiusMeters: Number.isFinite(Number(group.radiusMeters))
+                  ? Number(group.radiusMeters)
+                  : null,
+                polygon: polygon && polygon.length >= 3 ? polygon : null,
+              });
+            }
 
             try {
               const locsRes = await fetch(
@@ -228,12 +305,15 @@ function SessionManager() {
               for (const loc of locs) {
                 const id = (loc.studyLocationId ?? '').trim();
                 if (!id) continue;
+                const locName = (loc.name ?? '').trim();
                 const floorLabel = (loc.floorLabel ?? '').trim();
                 collected.push({
                   studyLocationId: id,
-                  // Display name matches sidebar's formatLocationHeading logic
-                  name: [groupName, floorLabel].filter(Boolean).join(' · '),
+                  // The display name is the user-entered location/area name —
+                  // the group name shows separately as buildingName.
+                  name: locName || floorLabel || 'Study Area',
                   buildingName: groupName,
+                  floorLabel,
                   latitude: loc.latitude,
                   longitude: loc.longitude,
                   locationGroupId: groupId,
@@ -248,13 +328,90 @@ function SessionManager() {
         if (collected.length > 0) {
           setAllLocations(collected);
         }
+        if (collectedGroups.length > 0) {
+          setAllGroups(collectedGroups);
+        }
       } catch {
         // silent — fallback to API-based lookup if needed
+      } finally {
+        setHasLoadedLocations(true);
       }
     }
 
     loadAllLocations();
   }, []);
+
+  // ── Continuous location watch — mirrors Flutter's
+  // Geolocator.getPositionStream setup in data_collection_screen.dart:69-81,
+  // 477-495. Emits whenever the device's position changes; the returned
+  // watch-id is cleared on unmount in the existing cleanup effect above.
+  useEffect(() => {
+    if (locationPermission !== 'granted') return;
+    if (!navigator.geolocation) return;
+    if (locationWatchRef.current !== null) return;
+
+    locationWatchRef.current = navigator.geolocation.watchPosition(
+      (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {
+        /* ignore transient stream errors — next fix will recover */
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+    );
+
+    return () => {
+      if (locationWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(locationWatchRef.current);
+        locationWatchRef.current = null;
+      }
+    };
+  }, [locationPermission]);
+
+  // ── Boundary reaction — mirrors Flutter's _handleCoordinatesChanged
+  // (data_collection_screen.dart:556-572). Only cuts off an *active* session
+  // when the user walks out of its group boundary. It does NOT auto-open the
+  // create-group modal on mount or on background coordinate updates — that
+  // flow is user-initiated via the Start Session button only.
+  useEffect(() => {
+    if (!userCoords || !hasLoadedLocations) return;
+    if (!sessionState.isActive || !sessionState.studyLocationId) return;
+
+    const containing =
+      allGroups.find((g) => groupContains(g, userCoords.lat, userCoords.lng)) ?? null;
+    const sessionLoc = allLocations.find(
+      (l) => l.studyLocationId === sessionState.studyLocationId,
+    );
+    const sessionGroupId = sessionLoc?.locationGroupId ?? null;
+
+    if (sessionGroupId && (!containing || containing.locationGroupId !== sessionGroupId)) {
+      cutOffSessionForLeavingGroup(sessionState.buildingName ?? 'this');
+    }
+  }, [
+    userCoords,
+    hasLoadedLocations,
+    allGroups,
+    allLocations,
+    sessionState.isActive,
+    sessionState.studyLocationId,
+    sessionState.buildingName,
+  ]);
+
+  // Stops an in-flight session when the user walks out of its group boundary.
+  // Mirrors _cutOffSessionForLeavingGroup (data_collection_screen.dart:663-681).
+  function cutOffSessionForLeavingGroup(buildingName: string) {
+    isRecordingRef.current = false;
+    samplesRef.current = [];
+    setSessionState({
+      isActive: false,
+      studyLocationId: null,
+      locationName: null,
+      buildingName: null,
+      floorLabel: null,
+      noisesamples: [],
+      avgNoise: null,
+    });
+    setIsError(true);
+    setMessage(`Recording stopped because you left the ${buildingName} location group boundary.`);
+  }
 
   async function requestPermissions() {
     setMicPermission('requesting');
@@ -326,20 +483,6 @@ function SessionManager() {
     }
   }
 
-  // ── Local distance helpers (no API call, no radius limit) ──────────────────
-  // Mirrors Flutter's LocalStudyLocationResolver exactly.
-
-  function findNearbyLocationsLocal(lat: number, lng: number): StudyLocation[] {
-    // Return all locations sorted by distance (no hard radius cut-off —
-    // let the group-picker show the nearest building's spots).
-    if (allLocations.length === 0) return [];
-    return [...allLocations].sort(
-      (a, b) =>
-        haversineMeters(lat, lng, a.latitude, a.longitude) -
-        haversineMeters(lat, lng, b.latitude, b.longitude),
-    );
-  }
-
   async function handleMicClick() {
     if (sessionState.isActive) {
       endSession();
@@ -358,50 +501,52 @@ function SessionManager() {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setUserCoords({ lat: latitude, lng: longitude });
+    // Use the coords already streaming in from watchPosition — requesting a
+    // fresh GPS fix here (the old getCurrentPosition call) delayed the first
+    // click by seconds on some devices, which made the button feel like it
+    // needed multiple taps. watchPosition keeps userCoords fresh continuously.
+    if (!userCoords) {
+      setIsError(true);
+      setMessage('Waiting for your location. Please try again in a moment.');
+      return;
+    }
 
-        // ── Local matching — mirrors Flutter's LocalStudyLocationResolver ──
-        const sorted = findNearbyLocationsLocal(latitude, longitude);
+    const { lat, lng } = userCoords;
 
-        if (sorted.length === 0) {
-          // No locations loaded yet — show a helpful message instead of a fake spot
-          setIsError(true);
-          setMessage('Location data not loaded yet. Please wait a moment and try again.');
-          return;
-        }
+    // ── Containment-based resolution — mirrors Flutter's resolveNearestGroup
+    // (data_collection_workflow.dart:307-331).
+    const containing = allGroups.find((g) => groupContains(g, lat, lng)) ?? null;
 
-        // Group by locationGroupId (real group ID now that we fetch from /groups)
-        const groups = new Map<string, StudyLocation[]>();
-        for (const loc of sorted) {
-          const key = loc.locationGroupId || `_solo_${loc.studyLocationId}`;
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key)!.push(loc);
-        }
-
-        // The nearest location's group is the first key inserted
-        const nearestLoc = sorted[0];
-        const nearestGroupKey = nearestLoc.locationGroupId || `_solo_${nearestLoc.studyLocationId}`;
-        const groupLocations = groups.get(nearestGroupKey)!;
-
-        if (groupLocations.length === 1) {
-          confirmAndBeginSession(groupLocations[0]);
-          return;
-        }
-
-        // Multiple spots in the nearest building — let the user pick
-        setNearbyLocations(groupLocations);
-        setShowLocationPicker(true);
+    if (!containing) {
+      if (hasLoadedLocations) {
         setIsError(false);
         setMessage('');
-      },
-      () => {
+        openCreateGroupModal();
+      } else {
         setIsError(true);
-        setMessage('Could not get your location. Please try again.');
-      },
+        setMessage('Location data is still loading. Please try again in a moment.');
+      }
+      return;
+    }
+
+    const groupLocations = allLocations.filter(
+      (l) => l.locationGroupId === containing.locationGroupId,
     );
+
+    if (groupLocations.length === 0) {
+      openCreateGroupModal();
+      return;
+    }
+
+    if (groupLocations.length === 1) {
+      confirmAndBeginSession(groupLocations[0]);
+      return;
+    }
+
+    setNearbyLocations(groupLocations);
+    setShowLocationPicker(true);
+    setIsError(false);
+    setMessage('');
   }
 
   function confirmAndBeginSession(location: StudyLocation) {
@@ -421,6 +566,7 @@ function SessionManager() {
       studyLocationId: location.studyLocationId,
       locationName: location.name,
       buildingName: location.buildingName,
+      floorLabel: location.floorLabel || null,
       noisesamples: [],
       avgNoise: null,
     });
@@ -430,16 +576,6 @@ function SessionManager() {
 
   function endSession() {
     isRecordingRef.current = false;
-
-    const samples = samplesRef.current;
-    if (samples.length < 10) {
-      setIsError(true);
-      setMessage(
-        `Not enough samples yet (${samples.length}/10 minimum). Keep recording a bit longer.`,
-      );
-      isRecordingRef.current = true; // re-enable recording
-      return;
-    }
 
     if (occupancyLevel === null) {
       setIsError(true);
@@ -452,11 +588,14 @@ function SessionManager() {
 
   async function submitReport(occupancy: number) {
     const samples = samplesRef.current;
-    if (!sessionState.studyLocationId || samples.length < 10) return;
+    if (!sessionState.studyLocationId) return;
 
-    const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
-    const max = Math.max(...samples);
-    const variance = samples.reduce((sum, val) => sum + (val - avg) ** 2, 0) / samples.length;
+    const hasSamples = samples.length > 0;
+    const avg = hasSamples ? samples.reduce((a, b) => a + b, 0) / samples.length : 0;
+    const max = hasSamples ? Math.max(...samples) : 0;
+    const variance = hasSamples
+      ? samples.reduce((sum, val) => sum + (val - avg) ** 2, 0) / samples.length
+      : 0;
 
     setIsSubmitting(true);
 
@@ -489,6 +628,7 @@ function SessionManager() {
         studyLocationId: null,
         locationName: null,
         buildingName: null,
+        floorLabel: null,
         noisesamples: [],
         avgNoise: null,
       });
@@ -515,6 +655,18 @@ function SessionManager() {
     }
     if (!createGroupForm.firstAreaName.trim()) {
       setCreateGroupError('First study area name is required.');
+      return;
+    }
+
+    // Final gate: refuse to create a new group if the user is already inside
+    // an existing one. Groups are boundary containers and must not overlap —
+    // the correct action inside an existing group is "add a location".
+    const containing =
+      allGroups.find((g) => groupContains(g, userCoords.lat, userCoords.lng)) ?? null;
+    if (containing) {
+      setCreateGroupError(
+        `You are already inside "${containing.name}". Add a new location to this group instead of creating a new group.`,
+      );
       return;
     }
 
@@ -565,10 +717,51 @@ function SessionManager() {
         throw new Error(err.error || 'Failed to create study area.');
       }
 
+      // Sync new group + first location into allGroups/allLocations so they
+      // participate in containment checks and Start Session flows immediately.
+      const newLoc = await locRes.json();
+      const groupName = createGroupForm.groupName.trim();
+      const firstAreaName = createGroupForm.firstAreaName.trim();
+      const floorLabel = createGroupForm.floor.trim();
+      const newStudyLocation: StudyLocation = {
+        studyLocationId: newLoc.studyLocationId,
+        // Recording UI shows location name prominently — use the study-area
+        // name the user just entered, not the group/building label.
+        name: firstAreaName || floorLabel || 'Study Area',
+        buildingName: groupName,
+        floorLabel,
+        latitude: userCoords.lat,
+        longitude: userCoords.lng,
+        locationGroupId,
+      };
+      const newGroup: LocationGroup = {
+        locationGroupId,
+        name: groupName,
+        centerLatitude: Number.isFinite(Number(group.centerLatitude))
+          ? Number(group.centerLatitude)
+          : userCoords.lat,
+        centerLongitude: Number.isFinite(Number(group.centerLongitude))
+          ? Number(group.centerLongitude)
+          : userCoords.lng,
+        radiusMeters: Number.isFinite(Number(group.radiusMeters))
+          ? Number(group.radiusMeters)
+          : null,
+        polygon: Array.isArray(group.polygon) && group.polygon.length >= 3
+          ? group.polygon.map((p: any) => ({
+              lat: Number(p.lat ?? p.latitude),
+              lng: Number(p.lng ?? p.longitude),
+            }))
+          : null,
+      };
+      setAllGroups((prev) => [...prev, newGroup]);
+      setAllLocations((prev) => [...prev, newStudyLocation]);
+
       setShowCreateGroupModal(false);
       setCreateGroupForm({ groupName: '', firstAreaName: '', floor: '', description: '' });
       setIsError(false);
-      setMessage(`"${createGroupForm.groupName.trim()}" created successfully!`);
+
+      // Auto-start recording at the just-created location — one continuous flow
+      beginSessionAtLocation(newStudyLocation);
     } catch (error) {
       setCreateGroupError(error instanceof Error ? error.message : 'Something went wrong.');
     } finally {
@@ -616,11 +809,15 @@ function SessionManager() {
       }
 
       const newLoc = await locRes.json();
+      const areaName = createLocationForm.areaName.trim();
       const floorLabel = createLocationForm.floor.trim();
       const newStudyLocation: StudyLocation = {
         studyLocationId: newLoc.studyLocationId,
-        name: [targetGroupName, floorLabel].filter(Boolean).join(' · '),
+        // Show the user-entered area name — group/building label shows
+        // separately below it in the recording banner.
+        name: areaName || floorLabel || 'Study Area',
         buildingName: targetGroupName ?? '',
+        floorLabel,
         latitude: userCoords.lat,
         longitude: userCoords.lng,
         locationGroupId: targetGroupId,
@@ -630,7 +827,9 @@ function SessionManager() {
       setShowCreateLocationModal(false);
       setCreateLocationForm({ areaName: '', floor: '', description: '' });
       setIsError(false);
-      setMessage(`"${createLocationForm.areaName.trim()}" added to ${targetGroupName}!`);
+
+      // Auto-start recording at the just-created location — one continuous flow
+      beginSessionAtLocation(newStudyLocation);
     } catch (error) {
       setCreateLocationError(error instanceof Error ? error.message : 'Something went wrong.');
     } finally {
@@ -646,6 +845,24 @@ function SessionManager() {
         () => {},
       );
     }
+
+    // Group boundaries don't overlap in practice — if the user is already
+    // inside an existing group, creating a new group is disallowed. Route
+    // them to the add-location-in-this-group flow instead so they can add
+    // another study area to the group they're already in. Mirrors Flutter's
+    // "Add Study Area Here" button at data_collection_screen.dart:2062.
+    if (userCoords) {
+      const containing =
+        allGroups.find((g) => groupContains(g, userCoords.lat, userCoords.lng)) ?? null;
+      if (containing) {
+        setTargetGroupId(containing.locationGroupId);
+        setTargetGroupName(containing.name);
+        setCreateLocationError('');
+        setShowCreateLocationModal(true);
+        return;
+      }
+    }
+
     setShowCreateGroupModal(true);
   }
 
@@ -667,8 +884,6 @@ function SessionManager() {
     pickLevelFromBarY(e);
   }
 
-  const sampleCount = sessionState.noisesamples.length;
-  const hasEnoughSamples = sampleCount >= 10;
   const noiseBarPosition = currentDb !== null ? dbToBarPosition(currentDb) : 0;
   const qualitativeLabel = currentDb !== null ? dbToQualitative(currentDb) : '—';
   const tierIndex = currentDb !== null ? dbToTierIndex(currentDb) : 0;
@@ -826,10 +1041,11 @@ function SessionManager() {
               <img src={locationPinSrc} alt="" style={{ width: 40, height: 40 }} />
             </div>
             <h2>Starting session at:</h2>
-            <p className="session-confirm__location-name">{pendingLocation.name}</p>
-            {pendingLocation.buildingName && (
-              <p className="session-confirm__building">Building: {pendingLocation.buildingName}</p>
-            )}
+            <p className="session-confirm__location-name">
+              {[pendingLocation.buildingName, pendingLocation.name, pendingLocation.floorLabel]
+                .filter((s) => !!s && s.trim().length > 0)
+                .join(' - ')}
+            </p>
             <button
               type="button"
               className="session-btn session-btn--primary"
@@ -856,7 +1072,7 @@ function SessionManager() {
                 openCreateGroupModal();
               }}
             >
-              🏛️ Create Group + First Study Area
+                Create New Location In This Group
             </button>
           </div>
         </div>
@@ -866,10 +1082,9 @@ function SessionManager() {
       {showCreateGroupModal && (
         <div className="session-overlay">
           <div className="session-modal session-modal--form">
-            <h2>Create Location Study Group</h2>
+            <h2>Create a group to start your session</h2>
             <p className="session-modal__desc">
-              This creates a new 60 meter hexagonal group and the first study area inside it. You can
-              adjust the group center, but your current position must still be inside the new boundary.
+              You are currently not in a group. Please create a new group and a location within it to start a session.
             </p>
 
             {createGroupError && (
@@ -965,22 +1180,6 @@ function SessionManager() {
       {/* ── Main Data Collection UI ───────────────────────── */}
       <div className="dc-container">
 
-        {/* Active-session location banner */}
-        {sessionState.isActive && (
-          <div className="dc-location-banner">
-            <img src={locationPinSrc} alt="" className="dc-location-banner__pin" style={{ width: 24, height: 24 }} />
-            <div className="dc-location-banner__text">
-              <span className="dc-location-banner__name">{sessionState.locationName}</span>
-              {sessionState.buildingName && (
-                <span className="dc-location-banner__building">{sessionState.buildingName}</span>
-              )}
-            </div>
-            <span className={`dc-location-banner__samples ${hasEnoughSamples ? 'ready' : ''}`}>
-              {sampleCount} / 10 {hasEnoughSamples ? '✓' : ''}
-            </span>
-          </div>
-        )}
-
         {/* ── Three-column layout — all in one shared card ─── */}
         <div className="dc-card dc-card--shared">
           <div className="dc-three-col">
@@ -1011,6 +1210,9 @@ function SessionManager() {
             <div className="dc-col dc-col--center">
               <p className="dc-col__title">
                 {sessionState.isActive ? 'Recording' : 'Start Session'}
+              </p>
+              <p className="dc-card__description">
+                Help other students by reporting noise and occupancy at your study spot.
               </p>
               <button
                 type="button"
@@ -1069,12 +1271,26 @@ function SessionManager() {
             </div>
 
           </div>
+
+          {message && (
+            <p className={`session-bar__message ${isError ? 'error' : 'success'}`}>
+              {message}
+            </p>
+          )}
         </div>
 
-        {message && (
-          <p className={`session-bar__message ${isError ? 'error' : 'success'}`}>
-            {message}
-          </p>
+        {/* Active-session location banner — sits below the main card */}
+        {sessionState.isActive && (
+          <div className="dc-location-banner">
+            <img src={locationPinSrc} alt="" className="dc-location-banner__pin" style={{ width: 24, height: 24 }} />
+            <div className="dc-location-banner__text">
+              <span className="dc-location-banner__name">
+                {[sessionState.buildingName, sessionState.locationName, sessionState.floorLabel]
+                  .filter((s): s is string => !!s && s.trim().length > 0)
+                  .join(' - ')}
+              </span>
+            </div>
+          </div>
         )}
       </div>
     </>
