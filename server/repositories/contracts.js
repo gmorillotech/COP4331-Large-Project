@@ -52,6 +52,7 @@ const canonicalModelShapes = {
     name: "string",
     floorLabel: "string",
     sublocationLabel: "string",
+    description: "string",
     latitude: "number",
     longitude: "number",
     currentNoiseLevel: "number | null",

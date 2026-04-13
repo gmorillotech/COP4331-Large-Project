@@ -101,7 +101,10 @@ function buildLocationNode(location, group, anchor, historicalBaseline = null, n
     buildingName,
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? "",
-    summary: buildSummary(occupancyValue, noiseValue),
+    description: location.description ?? "",
+    summary: location.description?.trim()
+      ? location.description.trim()
+      : buildSummary(occupancyValue, noiseValue),
     statusText: buildLocationStatusText({
       historicalBaseline,
       liveNoise: noiseValue,

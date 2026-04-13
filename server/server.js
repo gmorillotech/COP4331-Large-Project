@@ -72,7 +72,10 @@ function buildMapAnnotation(location, group, historicalBaseline = null, now = ne
     buildingName: group?.name ?? location.name,
     floorLabel: location.floorLabel ?? "",
     sublocationLabel: location.sublocationLabel ?? location.name,
-    summary: `Live study-space reading for ${location.name}.`,
+    description: location.description ?? "",
+    summary: location.description?.trim()
+      ? location.description.trim()
+      : `Live study-space reading for ${location.name}.`,
     statusText: buildLocationStatusText({
       historicalBaseline,
       liveNoise,

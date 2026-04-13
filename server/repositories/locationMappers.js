@@ -5,6 +5,7 @@ function toStudyLocation(document) {
     name: document.name,
     floorLabel: document.floorLabel ?? "",
     sublocationLabel: document.sublocationLabel ?? "",
+    description: document.description ?? "",
     latitude: document.latitude,
     longitude: document.longitude,
     currentNoiseLevel: document.currentNoiseLevel,

@@ -706,7 +706,7 @@ function SessionManager() {
         body: JSON.stringify({
           name: createGroupForm.firstAreaName.trim(),
           floorLabel: createGroupForm.floor.trim(),
-          sublocationLabel: createGroupForm.description.trim(),
+          description: createGroupForm.description.trim(),
           latitude: userCoords.lat,
           longitude: userCoords.lng,
         }),
@@ -796,7 +796,7 @@ function SessionManager() {
           body: JSON.stringify({
             name: createLocationForm.areaName.trim(),
             floorLabel: createLocationForm.floor.trim(),
-            sublocationLabel: createLocationForm.description.trim(),
+            description: createLocationForm.description.trim(),
             latitude: userCoords.lat,
             longitude: userCoords.lng,
           }),

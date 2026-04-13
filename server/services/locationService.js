@@ -95,6 +95,7 @@ class LocationService {
     const name = String(input.name ?? "").trim();
     const floorLabel = String(input.floorLabel ?? "").trim();
     const sublocationLabel = String(input.sublocationLabel ?? "").trim();
+    const description = String(input.description ?? "").trim();
     const latitude = Number(input.latitude);
     const longitude = Number(input.longitude);
 
@@ -137,6 +138,7 @@ class LocationService {
       name,
       floorLabel,
       sublocationLabel,
+      description,
       latitude,
       longitude,
       currentNoiseLevel: null,
