@@ -6,7 +6,7 @@ const sharedLocationTuning = require("../../shared/config/locationTuning.json");
 
 const SERVER_RUNTIME_CONFIG = Object.freeze({
   display: Object.freeze({
-    reportStaleMinutes: Number(process.env.REPORT_STALE_MINUTES) || 1440,
+    reportStaleMinutes: Number(process.env.REPORT_STALE_MINUTES) || 2880,
     statusFallbackFreshnessMinutes:
       Number(process.env.STATUS_FALLBACK_FRESHNESS_MINUTES) || 180,
     noiseThresholds: Object.freeze({

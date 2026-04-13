@@ -103,7 +103,7 @@ Current live sources:
 
 ### Display / recency
 
-- `reportStaleMinutes = 1440`
+- `reportStaleMinutes = 2880`
 - noise thresholds:
   - `quiet = 50`
   - `moderate = 60`
@@ -228,7 +228,7 @@ Current live sources:
   - server JS/service: `150`
   - Flutter workflow: `150`
 - Staleness/freshness currently means different things:
-  - display/admin live recency: `1440` minutes
+  - display/admin live recency: `2880` minutes
   - A1 archive cutoff: `3` hours
   - A1 group recency weighting: `3` minutes
 - A1 defaults exist in both:
