@@ -15,6 +15,10 @@ type Props = {
   isSelected: boolean;
   animation: AnimationState;
   zoom: number;
+  // When true, suppress the noise-level background SVG. Used by the cluster
+  // visual so a cluster pin doesn't carry a halo that would overflow its
+  // container. Standalone group and sub-location pins both default to false.
+  hideNoiseOverlay?: boolean;
 };
 
 // Base sizes at zoom 15 (the default zoom)
@@ -42,17 +46,18 @@ export function getSize(zoom: number, isSub: boolean, isSelected: boolean): numb
   return isSelected ? size + SELECTED_BOOST : size;
 }
 
-function MapMarkerVisualImpl({ location, isSelected, zoom }: Props) {
+function MapMarkerVisualImpl({ location, isSelected, zoom, hideNoiseOverlay }: Props) {
   // Pin style is driven purely by kind. Groups → LocationPin.svg.
   // Sub-locations → subLocationPin.svg. Neither ever morphs.
   const isSub = location.kind !== 'group';
   const size = getSize(zoom, isSub, isSelected);
   const staticSrc = getStaticPinUrl(isSub);
 
-  // Every sub-location gets a noise band (derived when the API omits it),
-  // so the noise SVG renders per-marker, tied directly to that location's
-  // data. Groups never render the noise layer — structural markers only.
-  const noiseBand = isSub ? deriveNoiseBand(location) : null;
+  // Noise band is derived per marker — groups AND sub-locations both get a
+  // band so the background SVG appears behind either kind of pin. Groups
+  // pull their band from aggregated data the API provides (or fall back via
+  // inferNoiseValue) so the layering style matches sub-locations visually.
+  const noiseBand = hideNoiseOverlay ? null : deriveNoiseBand(location);
   const showNoiseOverlay = noiseBand != null;
 
   // Pre-resolve the three animation frames for this location's noise band.
@@ -62,10 +67,13 @@ function MapMarkerVisualImpl({ location, isSelected, zoom }: Props) {
   const frame1 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 1) : null;
   const frame2 = showNoiseOverlay ? getAnimatedFrameUrl(noiseBand, 2) : null;
 
-  // Make the noise background slightly larger than the pin so a rim of the
-  // noise-level SVG is visible behind/around the pin.
-  const noiseSize = showNoiseOverlay ? size * 1.25 : size;
-  const noiseInset = (noiseSize - size) / 2; // visible rim
+  // Make the noise background noticeably larger than the pin so it reads as
+  // a clear colored halo behind the marker. Pin itself stays at `size` —
+  // only the noise SVG scales up. 1.6x on each side gives a prominent rim
+  // while still keeping the pin visually dominant.
+  const NOISE_SCALE = 1.6;
+  const noiseSize = showNoiseOverlay ? size * NOISE_SCALE : size;
+  const noiseInset = (noiseSize - size) / 2; // pin offset to stay centered in the halo
 
   return (
     <div
@@ -120,11 +128,12 @@ function MapMarkerVisualImpl({ location, isSelected, zoom }: Props) {
         </div>
       )}
 
-      {/* FOREGROUND layer — the actual pin. Sits directly on top of the
-          noise background at a higher z-index so it partially covers it.
-          This is the clickable marker; the AdvancedMarker wrapping this
-          component routes clicks to the pin since every other layer here
-          has pointer-events: none. */}
+      {/* FOREGROUND layer — the actual pin. Horizontally centered in the
+          halo (left: noiseInset) but pinned to the TOP of the container
+          (top: 0) so the noise SVG underneath is mostly visible BELOW it:
+          the pin covers the upper portion of the noise, and the lower
+          portion sticks out below the pin. Pure visual offset; z-index
+          and click routing are unchanged. */}
       <img
         src={staticSrc}
         alt=""
@@ -132,7 +141,7 @@ function MapMarkerVisualImpl({ location, isSelected, zoom }: Props) {
         height={size}
         style={{
           position: 'absolute',
-          top: noiseInset,
+          top: 0,
           left: noiseInset,
           pointerEvents: 'none',
           zIndex: 2,
@@ -150,7 +159,8 @@ const MapMarkerVisual = memo(MapMarkerVisualImpl, (prev, next) => {
   return (
     prev.location === next.location &&
     prev.isSelected === next.isSelected &&
-    prev.zoom === next.zoom
+    prev.zoom === next.zoom &&
+    prev.hideNoiseOverlay === next.hideNoiseOverlay
   );
 });
 
@@ -179,6 +189,7 @@ export function ClusterMarkerVisual({ cluster, isSelected, animation, zoom }: Cl
         isSelected={false}
         animation={animation}
         zoom={zoom}
+        hideNoiseOverlay
       />
       <div
         className="cluster-badge"
