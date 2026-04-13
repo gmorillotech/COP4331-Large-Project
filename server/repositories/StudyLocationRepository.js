@@ -34,7 +34,7 @@ class StudyLocationRepository {
           updatedAt: location.updatedAt ?? null,
         },
       },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     ));
     return created ? toStudyLocation(created) : null;
   }

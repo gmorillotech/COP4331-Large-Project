@@ -17,7 +17,7 @@
 //           → sortedLocations (by sortOrder)
 //             → zoom-aware filtering for sidebar vs map
 
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AnnotationSeverity, MapAnnotationsResponse, MapLocation } from '../../types/mapAnnotations.ts';
 import { buildSearchableText, inferNoiseValue } from '../../lib/mapUtils.ts';
 import MapProvider from './MapProvider.tsx';
@@ -103,7 +103,7 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
   const [sortOrder, setSortOrder] = useState<SortOrder>('relevance');
 
   // Range filters — stored as strings so inputs stay controlled while typing
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, _setFiltersOpen] = useState(false);
   const [minNoiseStr, setMinNoiseStr] = useState('');
   const [maxNoiseStr, setMaxNoiseStr] = useState('');
   const [maxOccupancyStr, setMaxOccupancyStr] = useState('');

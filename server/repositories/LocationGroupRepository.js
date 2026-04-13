@@ -35,7 +35,7 @@ class LocationGroupRepository {
           updatedAt: group.updatedAt ?? null,
         },
       },
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true },
     ));
     return created ? toLocationGroup(created) : null;
   }
