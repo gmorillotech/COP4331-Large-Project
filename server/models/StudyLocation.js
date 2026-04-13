@@ -33,6 +33,11 @@ const studyLocationSchema = new Schema(
       trim: true,
       default: "",
     },
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     latitude: {
       type: Number,
       required: true,
