@@ -1,7 +1,7 @@
 :root {
   --text: #6b6375;
   --text-h: #08060d;
-  --bg: #fff;
+  --bg: #0C1A49;
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
   --accent: #aa3bff;
@@ -694,7 +694,7 @@ code {
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 32px;
+  margin: clamp(8px, 2.5vw, 32px);
   border: 1px solid var(--border);
   border-radius: 24px;
   overflow: hidden;           /* clips the map canvas corners */
