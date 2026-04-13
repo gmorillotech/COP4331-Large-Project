@@ -10,10 +10,82 @@ import 'package:flutter_application_1/data_collection/data_collection_screen.dar
 import 'package:flutter_application_1/data_collection/data_collection_workflow.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+const _libraryPolygon = <DataCollectionGroupVertex>[
+  DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20208),
+  DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20208),
+  DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20136),
+  DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20136),
+];
+
+const _studentUnionPolygon = <DataCollectionGroupVertex>[
+  DataCollectionGroupVertex(latitude: 28.60174, longitude: -81.20018),
+  DataCollectionGroupVertex(latitude: 28.60210, longitude: -81.20018),
+  DataCollectionGroupVertex(latitude: 28.60210, longitude: -81.19970),
+  DataCollectionGroupVertex(latitude: 28.60174, longitude: -81.19970),
+];
+
+const _fixtureLocations = <DataCollectionStudyLocation>[
+  DataCollectionStudyLocation(
+    studyLocationId: 'library-floor-1-quiet',
+    locationGroupId: 'group-john-c-hitt-library',
+    locationName: 'Quiet Study',
+    buildingName: 'John C. Hitt Library',
+    floorLabel: 'Floor 1',
+    sublocationLabel: 'North Reading Room',
+    latitude: 28.60024,
+    longitude: -81.20182,
+    groupPolygon: _libraryPolygon,
+  ),
+  DataCollectionStudyLocation(
+    studyLocationId: 'library-floor-2-moderate',
+    locationGroupId: 'group-john-c-hitt-library',
+    locationName: 'Collaboration Tables',
+    buildingName: 'John C. Hitt Library',
+    floorLabel: 'Floor 2',
+    sublocationLabel: 'West Commons',
+    latitude: 28.60036,
+    longitude: -81.20168,
+    groupPolygon: _libraryPolygon,
+  ),
+  DataCollectionStudyLocation(
+    studyLocationId: 'library-floor-3-busy',
+    locationGroupId: 'group-john-c-hitt-library',
+    locationName: 'Open Computer Lab',
+    buildingName: 'John C. Hitt Library',
+    floorLabel: 'Floor 3',
+    sublocationLabel: 'Digital Media Area',
+    latitude: 28.60048,
+    longitude: -81.20155,
+    groupPolygon: _libraryPolygon,
+  ),
+  DataCollectionStudyLocation(
+    studyLocationId: 'library-floor-4-empty',
+    locationGroupId: 'group-john-c-hitt-library',
+    locationName: 'Silent Study Cubicles',
+    buildingName: 'John C. Hitt Library',
+    floorLabel: 'Floor 4',
+    sublocationLabel: 'East Quiet Wing',
+    latitude: 28.60018,
+    longitude: -81.20198,
+    groupPolygon: _libraryPolygon,
+  ),
+  DataCollectionStudyLocation(
+    studyLocationId: 'student-union-food-court',
+    locationGroupId: 'group-student-union',
+    locationName: 'Food Court Seating',
+    buildingName: 'Student Union',
+    floorLabel: 'Level 1',
+    sublocationLabel: 'South Dining Hall',
+    latitude: 28.60192,
+    longitude: -81.19994,
+    groupPolygon: _studentUnionPolygon,
+  ),
+];
+
 class FakeBackendClient implements DataCollectionBackendClient {
   FakeBackendClient({
     this.failSubmission = false,
-    List<DataCollectionStudyLocation> locations = seededStudyLocations,
+    List<DataCollectionStudyLocation> locations = _fixtureLocations,
   }) : locations = List<DataCollectionStudyLocation>.from(locations);
 
   final bool failSubmission;

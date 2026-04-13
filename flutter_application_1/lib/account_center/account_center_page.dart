@@ -13,7 +13,7 @@ class AccountCenterPage extends StatefulWidget {
   const AccountCenterPage({
     super.key,
     this.backendClient,
-    this.favoriteSuggestions = seededStudyLocations,
+    this.favoriteSuggestions = const <DataCollectionStudyLocation>[],
   });
 
   final AccountCenterBackendClient? backendClient;
@@ -46,7 +46,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
       TextEditingController();
 
   AccountProfile? _profile;
-  AccountSyncMode _syncMode = AccountSyncMode.localFallback;
   bool _loading = true;
   bool _savingProfile = false;
   bool _changingPassword = false;
@@ -96,11 +95,9 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
 
   AccountCenterBackendClient _buildAuthAwareClient() {
     final authService = Provider.of<AuthService>(context, listen: false);
-    return HybridAccountCenterBackendClient(
-      remoteClient: HttpAccountCenterBackendClient(
-        authTokenProvider: () => authService.token ?? '',
-        onUnauthorized: () => authService.handleUnauthorized(),
-      ),
+    return HttpAccountCenterBackendClient(
+      authTokenProvider: () => authService.token ?? '',
+      onUnauthorized: () => authService.handleUnauthorized(),
     );
   }
 
@@ -118,7 +115,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
 
       _applyProfile(
         result.profile,
-        mode: result.mode,
         message: statusMessage ?? result.message,
         isError: false,
       );
@@ -137,7 +133,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
 
   void _applyProfile(
     AccountProfile profile, {
-    required AccountSyncMode mode,
     required String message,
     required bool isError,
   }) {
@@ -147,7 +142,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
 
     setState(() {
       _profile = profile;
-      _syncMode = mode;
       _favorites = List<String>.from(profile.favorites);
       _pinColor = profile.pinColor.toUpperCase();
       _loading = false;
@@ -190,7 +184,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
 
       _applyProfile(
         result.profile,
-        mode: result.mode,
         message: result.message,
         isError: false,
       );
@@ -738,9 +731,7 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
   }
 
   Widget _heroCard(AccountProfile profile) {
-    final syncLabel = _syncMode == AccountSyncMode.remote
-        ? 'Live backend sync'
-        : 'Local preview mode';
+    const syncLabel = 'Live backend sync';
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1071,11 +1062,9 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            _syncMode == AccountSyncMode.remote
-                ? 'Changes here are sent to the backend immediately.'
-                : 'You are editing the local preview profile for this app session.',
-            style: const TextStyle(
+          const Text(
+            'Changes here are sent to the backend immediately.',
+            style: TextStyle(
               color: Color(0xFF78716C),
             ),
           ),

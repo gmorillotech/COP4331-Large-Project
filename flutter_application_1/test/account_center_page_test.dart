@@ -205,8 +205,7 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
   Future<AccountProfileResult> loadProfile() async {
     return AccountProfileResult(
       profile: _profile,
-      mode: AccountSyncMode.remote,
-      message: 'Loaded from the fake backend.',
+      message:'Loaded from the fake backend.',
     );
   }
 
@@ -216,8 +215,7 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
     savedProfiles.add(profile);
     return AccountProfileResult(
       profile: _profile,
-      mode: AccountSyncMode.remote,
-      message: 'Profile changes saved to the fake backend.',
+      message:'Profile changes saved to the fake backend.',
     );
   }
 
@@ -238,8 +236,7 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
     );
     _profile = _profile.copyWith(passwordChangedAt: DateTime(2026, 4, 3, 12));
     return const AccountActionResult(
-      mode: AccountSyncMode.remote,
-      message: 'Password updated on the fake backend.',
+      message:'Password updated on the fake backend.',
     );
   }
 }

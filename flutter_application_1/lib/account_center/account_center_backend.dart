@@ -34,183 +34,6 @@ abstract class AccountCenterBackendClient {
   });
 }
 
-class HybridAccountCenterBackendClient implements AccountCenterBackendClient {
-  HybridAccountCenterBackendClient({
-    HttpAccountCenterBackendClient? remoteClient,
-    InMemoryAccountCenterBackendClient? localClient,
-  })  : _remoteClient = remoteClient ?? HttpAccountCenterBackendClient(),
-        _localClient =
-            localClient ?? InMemoryAccountCenterBackendClient.instance;
-
-  final HttpAccountCenterBackendClient _remoteClient;
-  final InMemoryAccountCenterBackendClient _localClient;
-
-  bool get _canUseRemote => _remoteClient.authToken.trim().isNotEmpty;
-
-  @override
-  Future<AccountProfileResult> loadProfile() async {
-    if (!_canUseRemote) {
-      return _localClient.loadProfileWithNotice(
-        notice:
-            'Account Center is running in local preview mode. Add ACCOUNT_CENTER_AUTH_TOKEN or DATA_COLLECTION_AUTH_TOKEN to sync with the backend.',
-      );
-    }
-
-    try {
-      return await _remoteClient.loadProfile();
-    } catch (_) {
-      return _localClient.loadProfileWithNotice(
-        notice:
-            'Backend profile sync is unavailable right now, so edits are staying local for this run.',
-      );
-    }
-  }
-
-  @override
-  Future<AccountProfileResult> updateProfile(AccountProfile profile) async {
-    if (!_canUseRemote) {
-      return _localClient.updateProfileWithNotice(
-        profile,
-        notice:
-            'Saved locally for preview mode. Configure an auth token to persist these changes to the backend.',
-      );
-    }
-
-    try {
-      return await _remoteClient.updateProfile(profile);
-    } catch (_) {
-      return _localClient.updateProfileWithNotice(
-        profile,
-        notice:
-            'Saved locally because the backend could not be reached just now.',
-      );
-    }
-  }
-
-  @override
-  Future<AccountActionResult> changePassword({
-    required String currentPassword,
-    required String newPassword,
-  }) async {
-    if (!_canUseRemote) {
-      return _localClient.changePasswordWithNotice(
-        currentPassword: currentPassword,
-        newPassword: newPassword,
-        notice:
-            'Password updated for local preview mode only. Configure an auth token to change it on the backend.',
-      );
-    }
-
-    try {
-      return await _remoteClient.changePassword(
-        currentPassword: currentPassword,
-        newPassword: newPassword,
-      );
-    } catch (_) {
-      return _localClient.changePasswordWithNotice(
-        currentPassword: currentPassword,
-        newPassword: newPassword,
-        notice:
-            'Backend password change failed, so a local preview password was updated instead.',
-      );
-    }
-  }
-}
-
-class InMemoryAccountCenterBackendClient implements AccountCenterBackendClient {
-  InMemoryAccountCenterBackendClient._();
-
-  static final InMemoryAccountCenterBackendClient instance =
-      InMemoryAccountCenterBackendClient._();
-
-  AccountProfile _profile = buildDemoAccountProfile();
-  String _password = 'preview-password';
-
-  @override
-  Future<AccountProfileResult> loadProfile() {
-    return Future<AccountProfileResult>.value(
-      AccountProfileResult(
-        profile: _profile,
-        mode: AccountSyncMode.localFallback,
-        message: 'Loaded local preview profile.',
-      ),
-    );
-  }
-
-  Future<AccountProfileResult> loadProfileWithNotice({required String notice}) {
-    return Future<AccountProfileResult>.value(
-      AccountProfileResult(
-        profile: _profile,
-        mode: AccountSyncMode.localFallback,
-        message: notice,
-      ),
-    );
-  }
-
-  @override
-  Future<AccountProfileResult> updateProfile(AccountProfile profile) {
-    _profile = profile;
-    return Future<AccountProfileResult>.value(
-      AccountProfileResult(
-        profile: _profile,
-        mode: AccountSyncMode.localFallback,
-        message: 'Saved local preview profile.',
-      ),
-    );
-  }
-
-  Future<AccountProfileResult> updateProfileWithNotice(
-    AccountProfile profile, {
-    required String notice,
-  }) {
-    _profile = profile;
-    return Future<AccountProfileResult>.value(
-      AccountProfileResult(
-        profile: _profile,
-        mode: AccountSyncMode.localFallback,
-        message: notice,
-      ),
-    );
-  }
-
-  @override
-  Future<AccountActionResult> changePassword({
-    required String currentPassword,
-    required String newPassword,
-  }) async {
-    if (currentPassword.trim().isEmpty) {
-      throw StateError('Enter your current password before saving a new one.');
-    }
-
-    if (currentPassword != _password) {
-      throw StateError('Current password is incorrect for the local preview profile.');
-    }
-
-    if (newPassword.trim().length < 8) {
-      throw StateError('New password must be at least 8 characters long.');
-    }
-
-    _password = newPassword;
-    _profile = _profile.copyWith(passwordChangedAt: DateTime.now());
-    return const AccountActionResult(
-      mode: AccountSyncMode.localFallback,
-      message: 'Local preview password updated.',
-    );
-  }
-
-  Future<AccountActionResult> changePasswordWithNotice({
-    required String currentPassword,
-    required String newPassword,
-    required String notice,
-  }) async {
-    final result = await changePassword(
-      currentPassword: currentPassword,
-      newPassword: newPassword,
-    );
-    return AccountActionResult(mode: result.mode, message: notice);
-  }
-}
-
 class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
   HttpAccountCenterBackendClient({
     String? baseUrl,
@@ -243,7 +66,6 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
 
     return AccountProfileResult(
       profile: _profileFromJson(payload),
-      mode: AccountSyncMode.remote,
       message: 'Profile synced from the backend.',
     );
   }
@@ -272,7 +94,6 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
 
     return AccountProfileResult(
       profile: _profileFromJson(payload),
-      mode: AccountSyncMode.remote,
       message: 'Profile changes saved to the backend.',
     );
   }
@@ -300,7 +121,6 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
     );
 
     return AccountActionResult(
-      mode: AccountSyncMode.remote,
       message:
           (payload['message'] as String? ?? 'Password updated successfully.')
               .trim(),

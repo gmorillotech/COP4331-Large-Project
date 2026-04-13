@@ -1,10 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-enum AccountSyncMode {
-  remote,
-  localFallback,
-}
-
 @immutable
 class AccountProfile {
   const AccountProfile({
@@ -98,41 +93,18 @@ class AccountProfile {
 class AccountProfileResult {
   const AccountProfileResult({
     required this.profile,
-    required this.mode,
     required this.message,
   });
 
   final AccountProfile profile;
-  final AccountSyncMode mode;
   final String message;
 }
 
 @immutable
 class AccountActionResult {
   const AccountActionResult({
-    required this.mode,
     required this.message,
   });
 
-  final AccountSyncMode mode;
   final String message;
-}
-
-AccountProfile buildDemoAccountProfile() {
-  return AccountProfile(
-    userId: 'local-user',
-    login: 'local-user',
-    email: 'local-user@example.com',
-    firstName: 'Local',
-    lastName: 'User',
-    displayName: 'Study Explorer',
-    pinColor: '#0F766E',
-    favorites: const <String>[
-      'library-floor-1-quiet',
-      'library-floor-4-empty',
-    ],
-    userNoiseWF: 1.0,
-    userOccupancyWF: 1.0,
-    passwordChangedAt: DateTime.now().subtract(const Duration(days: 14)),
-  );
 }

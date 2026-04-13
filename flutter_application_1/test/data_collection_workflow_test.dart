@@ -2,12 +2,78 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/data_collection/data_collection_model.dart';
 import 'package:flutter_application_1/data_collection/data_collection_workflow.dart';
 
+const _libraryFloor1 = DataCollectionStudyLocation(
+  studyLocationId: 'library-floor-1-quiet',
+  locationGroupId: 'group-john-c-hitt-library',
+  locationName: 'Quiet Study',
+  buildingName: 'John C. Hitt Library',
+  floorLabel: 'Floor 1',
+  sublocationLabel: 'North Reading Room',
+  latitude: 28.60024,
+  longitude: -81.20182,
+  groupPolygon: _libraryPolygon,
+);
+
+const _libraryFloor2 = DataCollectionStudyLocation(
+  studyLocationId: 'library-floor-2-moderate',
+  locationGroupId: 'group-john-c-hitt-library',
+  locationName: 'Collaboration Tables',
+  buildingName: 'John C. Hitt Library',
+  floorLabel: 'Floor 2',
+  sublocationLabel: 'West Commons',
+  latitude: 28.60036,
+  longitude: -81.20168,
+  groupPolygon: _libraryPolygon,
+);
+
+const _libraryFloor3 = DataCollectionStudyLocation(
+  studyLocationId: 'library-floor-3-busy',
+  locationGroupId: 'group-john-c-hitt-library',
+  locationName: 'Open Computer Lab',
+  buildingName: 'John C. Hitt Library',
+  floorLabel: 'Floor 3',
+  sublocationLabel: 'Digital Media Area',
+  latitude: 28.60048,
+  longitude: -81.20155,
+  groupPolygon: _libraryPolygon,
+);
+
+const _libraryFloor4 = DataCollectionStudyLocation(
+  studyLocationId: 'library-floor-4-empty',
+  locationGroupId: 'group-john-c-hitt-library',
+  locationName: 'Silent Study Cubicles',
+  buildingName: 'John C. Hitt Library',
+  floorLabel: 'Floor 4',
+  sublocationLabel: 'East Quiet Wing',
+  latitude: 28.60018,
+  longitude: -81.20198,
+  groupPolygon: _libraryPolygon,
+);
+
+const _libraryPolygon = <DataCollectionGroupVertex>[
+  DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20208),
+  DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20208),
+  DataCollectionGroupVertex(latitude: 28.60056, longitude: -81.20136),
+  DataCollectionGroupVertex(latitude: 28.60008, longitude: -81.20136),
+];
+
+const _fixtureLocations = <DataCollectionStudyLocation>[
+  _libraryFloor1,
+  _libraryFloor2,
+  _libraryFloor3,
+  _libraryFloor4,
+];
+
+const _fixtureResolver =
+    LocalStudyLocationResolver(studyLocations: _fixtureLocations);
+
 void main() {
   group('data collection workflow', () {
     test(
       'session service initializes a local session from coordinates',
       () async {
         final service = SessionService(
+          locationResolver: _fixtureResolver,
           userRepository: const InMemorySessionUserRepository(
             users: <SessionUser>[
               SessionUser(userId: 'local-user', displayName: 'Local User'),
@@ -36,7 +102,7 @@ void main() {
     test(
       'session service builds a report from the active session window',
       () async {
-        final service = SessionService();
+        final service = SessionService(locationResolver: _fixtureResolver);
         await service.initializeSession(
           'local-user',
           const SessionCoordinates(latitude: 28.6002, longitude: -81.2018),
@@ -75,7 +141,7 @@ void main() {
     );
 
     test('session service advance window clears only noise samples', () async {
-      final service = SessionService();
+      final service = SessionService(locationResolver: _fixtureResolver);
       await service.initializeSession(
         'local-user',
         const SessionCoordinates(latitude: 28.6002, longitude: -81.2018),
@@ -97,7 +163,7 @@ void main() {
 
       final sessionState = SessionState.start(
         userId: 'local-user',
-        studyLocationId: seededStudyLocations.first.studyLocationId,
+        studyLocationId: _libraryFloor1.studyLocationId,
         deviceId: 'pixel-1',
         startedAt: startedAt,
       );
@@ -109,7 +175,7 @@ void main() {
       expect(updatedSession.userId, 'local-user');
       expect(
         updatedSession.studyLocationId,
-        seededStudyLocations.first.studyLocationId,
+        _libraryFloor1.studyLocationId,
       );
       expect(updatedSession.deviceId, 'pixel-1');
       expect(updatedSession.startedAt, startedAt);
@@ -125,7 +191,7 @@ void main() {
       final sessionState =
           SessionState.start(
                 userId: 'local-user',
-                studyLocationId: seededStudyLocations.first.studyLocationId,
+                studyLocationId: _libraryFloor1.studyLocationId,
                 startedAt: DateTime.utc(2026, 4, 3, 18, 0),
               )
               .addNoiseReading(45)
@@ -145,14 +211,14 @@ void main() {
       final createdAt = DateTime.utc(2026, 3, 28, 16, 15);
 
       final draft = builder.build(
-        location: seededStudyLocations.first,
+        location: _libraryFloor1,
         occupancy: OccupancyLevel.busy,
         rawSamples: const [45, 46, 47, 50, 49, 48, 47, 46, 45, 44, 43, 90],
         createdAt: createdAt,
       );
 
-      expect(draft.studyLocationId, seededStudyLocations.first.studyLocationId);
-      expect(draft.locationGroupId, seededStudyLocations.first.locationGroupId);
+      expect(draft.studyLocationId, _libraryFloor1.studyLocationId);
+      expect(draft.locationGroupId, _libraryFloor1.locationGroupId);
       expect(draft.userId, 'local-user');
       expect(draft.occupancy, 4);
       expect(draft.sampleCount, 12);
@@ -162,8 +228,8 @@ void main() {
       expect(draft.createdAt, createdAt);
     });
 
-    test('location resolver returns nearest seeded location', () {
-      const resolver = LocalStudyLocationResolver();
+    test('location resolver returns nearest location from its inputs', () {
+      const resolver = _fixtureResolver;
 
       final location = resolver.resolveNearest(
         latitude: 28.6002,
@@ -175,7 +241,7 @@ void main() {
     });
 
     test('location resolver uses polygon-backed location group boundaries', () {
-      const resolver = LocalStudyLocationResolver();
+      const resolver = _fixtureResolver;
 
       final group = resolver.findGroupById('group-john-c-hitt-library');
 
@@ -290,7 +356,7 @@ void main() {
       const builder = CapturedReportDraftBuilder();
 
       final draft = builder.build(
-        location: seededStudyLocations.first,
+        location: _libraryFloor1,
         occupancy: OccupancyLevel.busy,
         rawSamples: const [45, 46, 47, 48, 49, 50, 51, 52, 53, 54],
         createdAt: DateTime.utc(2026, 3, 28, 16, 15),
