@@ -297,9 +297,17 @@ export const defaultSessionServiceConfig: SessionServiceConfig = {
 // session-correction fields. Edit values here, not in any other file.
 export const defaultA1Config: A1Config = {
   initialDecayWF: 1.0,
-  reportHalfLifeMs: 5 * 60 * 1000,
+  // 48h half-life: at 48h the decay factor is 0.5 — well above the 0.05
+  // threshold — so reports contribute to map aggregation for the full
+  // retention window. Pairs with archiveThresholdMs below so reports
+  // stay visible right up to the moment they're archived.
+  reportHalfLifeMs: 48 * 60 * 60 * 1000,
   minWeightThreshold: 0.05,
-  archiveThresholdMs: 3 * 60 * 60 * 1000,
+  // 48h archive threshold: raw reports are not compressed into archive
+  // summaries (and their source rows deleted) until they're older than
+  // 48 hours. Below this age every report row persists in the Report
+  // collection untouched.
+  archiveThresholdMs: 48 * 60 * 60 * 1000,
   archiveBucketMinutes: 30,
   groupFreshnessWindowMs: 3 * 60 * 1000,
   varianceSoftCap: 25,

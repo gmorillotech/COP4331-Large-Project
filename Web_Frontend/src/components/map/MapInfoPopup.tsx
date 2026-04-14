@@ -150,11 +150,18 @@ function MapInfoPopup({
         )}
 
         {/* Detail rows — only render a row if the value is a real, non-"unavailable" string.
-            Noise and occupancy are location-level readings; groups suppress them. */}
+            Noise and occupancy are location-level readings; groups suppress them.
+            Groups get a dedicated Status row that surfaces the averaged noise
+            rolled up from their sublocations — same source the sidebar list's
+            NoiseChip reads, same "Quiet (58.2 dB)" formatting, just strip the
+            "Noise: " prefix so the label "Status" leads instead. */}
         <dl className="popup-meta">
           {!isGroup && isDisplayable(location.noiseText)      && <MetaRow label="Noise"     value={location.noiseText} />}
           {!isGroup && isDisplayable(location.occupancyText)  && <MetaRow label="Occupancy" value={location.occupancyText} />}
-          {isDisplayable(location.statusText)     && <MetaRow label="Status"    value={location.statusText} />}
+          {isGroup && isDisplayable(location.noiseText) && (
+            <MetaRow label="Status" value={location.noiseText.replace(/^noise:\s*/i, '')} />
+          )}
+          {!isGroup && isDisplayable(location.statusText)     && <MetaRow label="Status"    value={location.statusText} />}
           {isDisplayable(location.updatedAtLabel) && <MetaRow label="Updated"   value={location.updatedAtLabel} />}
           <MetaRow
             label="Coordinates"
