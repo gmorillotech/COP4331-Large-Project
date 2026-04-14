@@ -658,7 +658,7 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
                           ),
                           const SizedBox(height: 16),
                           _sectionCard(
-                            title: 'Danger Zone',
+                            title: 'Delete Account',
                             subtitle:
                                 'Permanently delete your account. This action cannot be undone.',
                             child: Column(

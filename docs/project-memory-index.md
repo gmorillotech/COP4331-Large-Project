@@ -196,9 +196,12 @@ Observed app behavior:
 - documents local fallback queue behavior for data collection when backend is down
 - includes Android foreground-service support for background collection
 - already contains dynamic marker asset/animation plumbing for app/web parity work
-- account center already supports live profile load/save, favorite edits, password
-  change, manual refresh, and logout, but does not yet expose self-service account
-  deletion in the Flutter UI/client
+- account center now supports live profile load/save, favorite edits, password
+  change, manual refresh, logout, and self-service account deletion with a
+  destructive confirmation flow
+- mobile map search now includes query-triggered first-result autofocus,
+  programmatic-camera idle-search suppression, and a dedicated search/filter
+  sheet with a vertical browseable result list
 
 ### `shared/`
 
@@ -243,7 +246,12 @@ Note:
     dynamic data-collection mic into the Flutter app
 - `docs/app-account-deletion-port-plan.md`
   - 2026-04-14 implementation plan for porting the existing web account-deletion
-    flow into the Flutter app account center without changing backend semantics
+    flow into the Flutter app account center without changing backend semantics;
+    current repo state shows the Flutter-side port is now implemented
+- `docs/map-search-bug-findings-2026-04-14.md`
+  - 2026-04-14 investigation notes for Flutter map-search autofocus, selection,
+    and result-list UX issues; current repo state reflects the autofocus and
+    selection-preservation fixes plus the dedicated vertical results sheet
 
 ### Supporting design/material docs
 
@@ -338,8 +346,8 @@ Observed in `unit_tests/`:
   fields
 - auth is more than login/register: email verification, password reset, and
   profile maintenance are part of the active surface
-- account deletion is already part of the backend/web auth surface, but app parity
-  is still missing in Flutter
+- account deletion is implemented across backend, web, and Flutter surfaces,
+  with the Flutter app reusing `AuthService.logout()` after successful deletion
 - admin functionality is web-first and split across search/report, geometry, and
   user-management flows
 - map-based search and map annotations are a central product concept
@@ -347,6 +355,10 @@ Observed in `unit_tests/`:
 - data collection exists as both a web-facing page and a richer Flutter workflow
 - app/web parity work is active around dynamic marker visuals and the collection
   mic interaction model
+- the current Flutter map-search flow preserves selected results across routine
+  search refreshes and auto-centers the map for typed queries, but zoom-threshold
+  selection syncing still remaps a selected group to its first child location
+  when crossing from group view into spot view
 
 ## Repo-Specific Quirks Worth Remembering
 
