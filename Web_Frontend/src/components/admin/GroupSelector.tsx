@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './RedrawMerge.css';
 
@@ -15,11 +14,11 @@ type GroupSelectorProps = {
   onToggle: (id: string) => void;
   onDelete?: (group: LocationGroup) => void;
   deletingGroupId?: string | null;
+  filter?: string;
 };
 
-function GroupSelector({ groups, selectedIds, onToggle, onDelete, deletingGroupId }: GroupSelectorProps) {
+function GroupSelector({ groups, selectedIds, onToggle, onDelete, deletingGroupId, filter = '' }: GroupSelectorProps) {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState('');
 
   const filtered = groups.filter((g) =>
     g.name.toLowerCase().includes(filter.toLowerCase()),
@@ -27,16 +26,6 @@ function GroupSelector({ groups, selectedIds, onToggle, onDelete, deletingGroupI
 
   return (
     <div className="group-selector">
-      <div className="group-selector__search">
-        <input
-          type="text"
-          className="group-selector__search-input"
-          placeholder="Filter groups..."
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          aria-label="Filter groups"
-        />
-      </div>
       <ul className="group-selector__list">
         {filtered.map((group) => {
           const isSelected = selectedIds.includes(group.locationGroupId);

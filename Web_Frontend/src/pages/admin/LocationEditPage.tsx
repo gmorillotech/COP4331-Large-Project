@@ -45,6 +45,7 @@ function LocationEditPage() {
   const [reloadCounter, setReloadCounter] = useState(0);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<LocationGroup | null>(null);
   const [deleteNameInput, setDeleteNameInput] = useState('');
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     let isActive = true;
@@ -159,22 +160,33 @@ function LocationEditPage() {
     .filter((g): g is LocationGroup => g != null);
 
   return (
-    <div className="location-edit-page">
-      <div className="location-edit-sidebar">
-        <div className="location-edit-sidebar__header">
-          <p className="location-edit-sidebar__eyebrow">Admin</p>
+    <section className="location-edit-page">
+      <div className="location-edit-topbar">
+        <div className="location-edit-topbar__title">
+          <p className="location-edit-topbar__eyebrow">Admin</p>
           <h2>Location Groups</h2>
-          <span className="location-edit-sidebar__selection-count">
-            {selectedIds.length}/2 selected for merge
-          </span>
         </div>
+        <input
+          type="text"
+          className="location-edit-topbar__search"
+          placeholder="Filter groups..."
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label="Filter groups"
+        />
+        <span className="location-edit-sidebar__selection-count">
+          {selectedIds.length}/2 selected for merge
+        </span>
+      </div>
 
+      <div className="location-edit-body">
+      <div className="location-edit-sidebar">
         <div className="location-edit-sidebar__body">
           {isLoading && (
-            <p style={{ padding: '20px', color: '#666' }}>Loading groups...</p>
+            <p style={{ padding: '20px', color: '#94a3b8' }}>Loading groups...</p>
           )}
           {error && (
-            <p style={{ padding: '20px', color: '#c62828' }}>{error}</p>
+            <p style={{ padding: '20px', color: '#f87171' }}>{error}</p>
           )}
           {!isLoading && !error && (
             <GroupSelector
@@ -183,6 +195,7 @@ function LocationEditPage() {
               onToggle={handleToggle}
               onDelete={handleDeleteGroup}
               deletingGroupId={deletingGroupId}
+              filter={filter}
             />
           )}
         </div>
@@ -248,6 +261,7 @@ function LocationEditPage() {
               })}
           </Map>
         </APIProvider>
+      </div>
       </div>
 
       {showMerge && selectedGroups.length === 2 && (
@@ -317,7 +331,7 @@ function LocationEditPage() {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

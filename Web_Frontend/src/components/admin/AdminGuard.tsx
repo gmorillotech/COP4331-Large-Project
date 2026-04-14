@@ -39,7 +39,19 @@ function AdminGuard() {
 
   if (status === 'loading') {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#94a3b8', fontSize: '0.95rem' }}>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0B0F17',
+          color: '#94a3b8',
+          fontSize: '0.95rem',
+          zIndex: 1,
+        }}
+      >
         Verifying access...
       </div>
     );
