@@ -309,7 +309,17 @@ export const defaultA1Config: A1Config = {
   // collection untouched.
   archiveThresholdMs: 48 * 60 * 60 * 1000,
   archiveBucketMinutes: 30,
-  groupFreshnessWindowMs: 3 * 60 * 1000,
+  // Window in which a child StudyLocation's most-recent update still counts
+  // toward its parent LocationGroup's aggregate noise/occupancy. Previously 3
+  // minutes, which caused group cards to blank out shortly after the last
+  // submitted report even though the underlying StudyLocations were still
+  // populated. Defaults to 180 minutes to align with
+  // STATUS_FALLBACK_FRESHNESS_MINUTES; override via GROUP_FRESHNESS_WINDOW_MS
+  // (milliseconds) when a tighter window is desired.
+  groupFreshnessWindowMs:
+    Number(
+      typeof process !== "undefined" ? process.env?.GROUP_FRESHNESS_WINDOW_MS : undefined,
+    ) || 180 * 60 * 1000,
   varianceSoftCap: 25,
   minReportsForTrustUpdate: 3,
   noiseTrustRangeDb: 12,
@@ -1028,10 +1038,14 @@ export class A1Service {
 
       const activeWeightedChildren = weightedChildren.filter((entry) => entry.recencyWeight > 0);
       if (activeWeightedChildren.length === 0) {
+        // No child is fresh enough to influence the rolling aggregate, but the
+        // underlying StudyLocations still hold their last-known noise and
+        // occupancy values. Preserve the previously-published group aggregates
+        // (rather than nulling them) so the UI card does not flash blank
+        // between report submissions. Frontend can use updatedAt to badge
+        // staleness if desired.
         return {
           ...group,
-          currentNoiseLevel: null,
-          currentOccupancyLevel: null,
           updatedAt: group.updatedAt,
         };
       }

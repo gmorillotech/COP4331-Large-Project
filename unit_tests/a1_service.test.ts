@@ -488,6 +488,9 @@ describe("A1Service location and group status updates", () => {
   it("updates a group using location recency weighting", async () => {
     const now = new Date();
     const harness = createA1Harness({
+      // Pin the freshness window to the legacy 3-minute value so the
+      // hand-computed weights below stay meaningful.
+      config: { groupFreshnessWindowMs: 3 * 60 * 1000 },
       locations: [
         makeLocation("loc-a", "group-1", 28.6024, -81.2001, {
           currentNoiseLevel: 40,
@@ -514,6 +517,64 @@ describe("A1Service location and group status updates", () => {
     assert.ok(Math.abs((updatedGroup.currentNoiseLevel ?? 0) - expectedNoise) < 0.5);
     assert.ok(Math.abs((updatedGroup.currentOccupancyLevel ?? 0) - expectedOccupancy) < 0.5);
     assert.ok(updatedGroup.updatedAt instanceof Date);
+  });
+
+  it("preserves the last-known group aggregate when every child falls outside the freshness window", async () => {
+    // Regression: with the old 3-minute hard-coded window, child StudyLocations
+    // older than 3 minutes caused recalculateAllLocationGroups() to null out
+    // the parent group's currentNoiseLevel / currentOccupancyLevel — making
+    // the UI card flash blank between submissions even though the underlying
+    // location values were intact. The fix preserves the previously-published
+    // group aggregates instead of nulling them.
+    const now = new Date();
+    const harness = createA1Harness({
+      config: { groupFreshnessWindowMs: 3 * 60 * 1000 },
+      locations: [
+        makeLocation("loc-a", "group-1", 28.6024, -81.2001, {
+          currentNoiseLevel: 45,
+          currentOccupancyLevel: 3,
+          // Older than the 3-minute window — recencyWeight will be 0.
+          updatedAt: secondsBefore(now, 20 * 60),
+        }),
+      ],
+      groups: [
+        makeGroup("group-1", {
+          currentNoiseLevel: 45,
+          currentOccupancyLevel: 3,
+          updatedAt: secondsBefore(now, 20 * 60),
+        }),
+      ],
+    });
+
+    await harness.service.updateGroupStatus("group-1");
+
+    const updatedGroup = harness.locationGroupRepository.snapshot()[0];
+    assert.equal(updatedGroup.currentNoiseLevel, 45);
+    assert.equal(updatedGroup.currentOccupancyLevel, 3);
+  });
+
+  it("uses a 180-minute group freshness window by default", async () => {
+    // Sanity check on the new default. A child updated 20 minutes ago would
+    // have been excluded under the old 3-minute window, but should now still
+    // contribute to the rolling group aggregate.
+    const now = new Date();
+    const harness = createA1Harness({
+      locations: [
+        makeLocation("loc-a", "group-1", 28.6024, -81.2001, {
+          currentNoiseLevel: 50,
+          currentOccupancyLevel: 3,
+          updatedAt: secondsBefore(now, 20 * 60),
+        }),
+      ],
+    });
+
+    assert.equal(harness.config.groupFreshnessWindowMs, 180 * 60 * 1000);
+
+    await harness.service.updateGroupStatus("group-1");
+
+    const updatedGroup = harness.locationGroupRepository.snapshot()[0];
+    assert.ok(Math.abs((updatedGroup.currentNoiseLevel ?? 0) - 50) < 0.001);
+    assert.ok(Math.abs((updatedGroup.currentOccupancyLevel ?? 0) - 3) < 0.001);
   });
 });
 

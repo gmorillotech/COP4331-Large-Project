@@ -10,6 +10,10 @@ import { inferNoiseValue, buildHeatColor, formatDisplayName } from '../../lib/ma
 // NoiseChip — a colored dot + label showing the noise level for a location.
 // Uses the same heat color system as the pins and heat overlay so everything
 // is visually consistent (blue = quiet, yellow = moderate, red = loud).
+//
+// When the backend reports the live reading is stale (hasRecentData === false)
+// we still render the chip — greyed out with a "stale" tag — so users see the
+// last-known reading instead of the chip vanishing between report submissions.
 function NoiseChip({ location }: { location: MapLocation }) {
   const intensity = inferNoiseValue(location);  // 0–1 noise value
   const color = buildHeatColor(intensity);       // rgb() color string
@@ -18,18 +22,26 @@ function NoiseChip({ location }: { location: MapLocation }) {
   const rawText = location.noiseText ?? '';
   const label = rawText.replace(/^noise:\s*/i, '');
 
-  // If there's no useful label, don't render anything
+  // No live data has ever been recorded for this location — nothing useful to show.
   if (!label || label.toLowerCase().includes('unavailable')) return null;
 
+  // hasRecentData is set by the backend based on its freshness window. Treat an
+  // explicit `false` as stale; missing field means "trust it."
+  const isStale = location.hasRecentData === false;
+
   return (
-    <span className="location-card__noise-chip">
-      {/* Colored dot matching the heat color for this noise level */}
+    <span className={`location-card__noise-chip${isStale ? ' is-stale' : ''}`}>
+      {/* Colored dot matching the heat color for this noise level. The .is-stale
+          modifier in CSS overrides this background to a muted grey. */}
       <span
         className="location-card__noise-dot"
         style={{ background: color }}
         aria-hidden="true"
       />
       {label}
+      {isStale && (
+        <span className="location-card__noise-chip__stale-tag">stale</span>
+      )}
     </span>
   );
 }
