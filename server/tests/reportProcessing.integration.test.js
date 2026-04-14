@@ -325,9 +325,10 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
   const harness = installInMemoryModelPatches();
   // Initial state already seeds "library-floor-1-quiet" and "group-john-c-hitt-library"
   const service = new ReportProcessingService();
+  service.triggerPollNow = async () => null;
 
   try {
-    const createdAt = new Date("2026-03-30T18:00:00.000Z");
+    const createdAt = new Date(Date.now() - 2 * 60 * 1000);
     const first = await service.submitCanonicalReport({
       studyLocationId: "library-floor-1-quiet",
       userId: "collector-1",
@@ -341,7 +342,7 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
     const second = await service.submitCanonicalReport({
       userId: "collector-2",
       studyLocationId: "library-floor-1-quiet",
-      createdAt: new Date("2026-03-30T18:01:00.000Z"),
+      createdAt: new Date(Date.now() - 60 * 1000),
       avgNoise: 60,
       maxNoise: 66,
       variance: 6,
@@ -377,6 +378,7 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
 it("runPollingCycle deletes stale reports and their metadata when retention threshold is exceeded", async () => {
   const harness = installInMemoryModelPatches();
   const service = new ReportProcessingService();
+  service.triggerPollNow = async () => null;
 
   try {
     const createdAt = new Date("2026-03-20T12:00:00.000Z");
