@@ -229,12 +229,33 @@ class ReportProcessingService {
     this.locationGroupRepository = new LocationGroupRepository();
     // Bind A1's groupFreshnessWindowMs to the single server-wide freshness
     // value so the A1 cycle and the /api/map-annotations / locationSearch
-    // "is live data fresh" checks can never drift apart. Any A1 env override
-    // (e.g., REPORT_HALF_LIFE_MS in an a1Tuning profile) is layered on top of
-    // defaultA1Config by shared code; here we only pin the freshness window.
+    // "is live data fresh" checks can never drift apart.
+    //
+    // Env overrides (honored if set to a positive finite number):
+    //   REPORT_HALF_LIFE_MS       — shrinks decay half-life; useful for
+    //                                 reproducing the "no active records"
+    //                                 codepath in < 1 minute instead of
+    //                                 waiting hours.
+    //   REPORT_ARCHIVE_THRESHOLD_MS — when source rows get bucketed into
+    //                                 archive_summary. Keep >= half-life so
+    //                                 we don't mutate reports mid-test.
+    //   REPORT_MIN_WEIGHT_THRESHOLD — decay cutoff below which a report is
+    //                                 dropped from the active set.
+    const envNum = (name) => {
+      const v = Number(process.env[name]);
+      return Number.isFinite(v) && v > 0 ? v : null;
+    };
+    const halfLifeOverride = envNum("REPORT_HALF_LIFE_MS");
+    const archiveOverride = envNum("REPORT_ARCHIVE_THRESHOLD_MS");
+    const minWeightOverride = Number(process.env.REPORT_MIN_WEIGHT_THRESHOLD);
     this.a1Config = {
       ...defaultA1Config,
       groupFreshnessWindowMs: SERVER_RUNTIME_CONFIG.freshness.freshnessMs,
+      ...(halfLifeOverride != null ? { reportHalfLifeMs: halfLifeOverride } : {}),
+      ...(archiveOverride != null ? { archiveThresholdMs: archiveOverride } : {}),
+      ...(Number.isFinite(minWeightOverride) && minWeightOverride > 0
+        ? { minWeightThreshold: minWeightOverride }
+        : {}),
     };
     this.a1Service = new A1Service(
       this.reportRepository,
