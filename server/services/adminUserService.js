@@ -227,8 +227,13 @@ async function deleteUser(userId, adminUserId) {
 
   const beforeSnap = snapshotUser(user);
 
-  const liveReports = await Report.find({ userId, reportKind: "live" }).select("reportId").lean();
-  const reportIds = liveReports.map((r) => r.reportId);
+  // Archive policy: on user deletion, remove ALL reports by the user
+  // (both live and archived) to avoid orphaned records referencing a
+  // non-existent userId. Aggregates (location/group averages) were
+  // derived from these reports historically, but preserving the user's
+  // row solely to keep FK-like references is not desired here.
+  const userReports = await Report.find({ userId }).select("reportId").lean();
+  const reportIds = userReports.map((r) => r.reportId);
   await Promise.all([
     Report.deleteMany({ reportId: { $in: reportIds } }),
     ReportTagMetadata.deleteMany({ reportId: { $in: reportIds } }),

@@ -4,6 +4,14 @@ const { searchLocations } = require("../services/locationSearchService");
 
 const reportProcessingService = new ReportProcessingService();
 
+function errorBody(message, error) {
+  const body = { error: message };
+  if (process.env.NODE_ENV !== "production" && error && error.message) {
+    body.details = error.message;
+  }
+  return body;
+}
+
 function createAdminSearchController({
   locationSearchService = {
     searchLocations(query) {
@@ -20,7 +28,7 @@ function createAdminSearchController({
         const results = await locationSearchService.searchLocations(req.query);
         return res.status(200).json(results);
       } catch (error) {
-        return res.status(500).json({ error: "Server error during search.", details: error.message });
+        return res.status(500).json(errorBody("Server error during search.", error));
       }
     },
 
@@ -36,7 +44,7 @@ function createAdminSearchController({
         });
         return res.status(200).json(results);
       } catch (error) {
-        return res.status(500).json({ error: "Server error fetching reports.", details: error.message });
+        return res.status(500).json(errorBody("Server error fetching reports.", error));
       }
     },
 
@@ -51,7 +59,7 @@ function createAdminSearchController({
 
         return res.status(200).json(result);
       } catch (error) {
-        return res.status(500).json({ error: "Server error deleting report.", details: error.message });
+        return res.status(500).json(errorBody("Server error deleting report.", error));
       }
     },
   };
