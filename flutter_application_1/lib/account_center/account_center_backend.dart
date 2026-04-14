@@ -32,6 +32,8 @@ abstract class AccountCenterBackendClient {
     required String currentPassword,
     required String newPassword,
   });
+
+  Future<AccountActionResult> deleteAccount();
 }
 
 class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
@@ -123,6 +125,25 @@ class HttpAccountCenterBackendClient implements AccountCenterBackendClient {
     return AccountActionResult(
       message:
           (payload['message'] as String? ?? 'Password updated successfully.')
+              .trim(),
+    );
+  }
+
+  @override
+  Future<AccountActionResult> deleteAccount() async {
+    _requireAuthToken();
+
+    final response = await _send(path: '/api/auth/account', method: 'DELETE');
+    final payload = await _decodeJsonMap(response);
+    _ensureSuccess(
+      response,
+      payload,
+      fallbackMessage: 'Unable to delete account.',
+    );
+
+    return AccountActionResult(
+      message:
+          (payload['message'] as String? ?? 'Account deleted successfully.')
               .trim(),
     );
   }

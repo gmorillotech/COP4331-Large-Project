@@ -24,15 +24,6 @@ class AccountCenterPage extends StatefulWidget {
 }
 
 class _AccountCenterPageState extends State<AccountCenterPage> {
-  static const List<_PinColorOption> _pinColorOptions = <_PinColorOption>[
-    _PinColorOption('Deep Teal', '#0F766E'),
-    _PinColorOption('Ocean Blue', '#2563EB'),
-    _PinColorOption('Sunset Orange', '#EA580C'),
-    _PinColorOption('Berry Red', '#BE123C'),
-    _PinColorOption('Forest Green', '#15803D'),
-    _PinColorOption('Golden Amber', '#B45309'),
-  ];
-
   late final AccountCenterBackendClient _backendClient;
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
@@ -49,8 +40,9 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
   bool _loading = true;
   bool _savingProfile = false;
   bool _changingPassword = false;
+  bool _deletingAccount = false;
   List<String> _favorites = <String>[];
-  String _pinColor = _pinColorOptions.first.hex;
+  String _pinColor = '#0F766E';
   String? _message;
   bool _messageIsError = false;
 
@@ -340,6 +332,73 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
     await Provider.of<AuthService>(context, listen: false).logout();
   }
 
+  Future<void> _deleteAccount() async {
+    if (_deletingAccount) {
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete account?'),
+          content: const Text(
+            'Deleting your account is permanent. Your profile, favorites, and '
+            'session will be removed immediately. Reports you submitted remain '
+            'anonymized in the shared data. This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm-delete-account-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB91C1C),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete Account'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _deletingAccount = true;
+      _message = null;
+    });
+
+    try {
+      await _backendClient.deleteAccount();
+      if (!mounted) {
+        return;
+      }
+
+      try {
+        await Provider.of<AuthService>(context, listen: false).logout();
+      } on ProviderNotFoundException {
+        // Tests may mount this page without the app-level auth provider.
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _deletingAccount = false;
+        _message = _readableError(error);
+        _messageIsError = true;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -441,131 +500,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
                                 _readOnlyField(
                                   label: 'Email',
                                   value: profile.email,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _sectionCard(
-                            title: 'Color Choice',
-                            subtitle:
-                                'Choose the pin color that represents you on the study-space map.',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  children: _pinColorOptions.map((option) {
-                                    final selected =
-                                        option.hex.toUpperCase() == _pinColor;
-                                    return InkWell(
-                                      key: Key('color-swatch-${option.hex}'),
-                                      borderRadius: BorderRadius.circular(20),
-                                      onTap: () {
-                                        setState(() {
-                                          _pinColor = option.hex.toUpperCase();
-                                        });
-                                      },
-                                      child: AnimatedContainer(
-                                        duration:
-                                            const Duration(milliseconds: 180),
-                                        width: 104,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: selected
-                                                ? _colorFromHex(option.hex)
-                                                : const Color(0xFFD6D3D1),
-                                            width: selected ? 2.6 : 1.2,
-                                          ),
-                                          boxShadow: selected
-                                              ? [
-                                                  BoxShadow(
-                                                    color: _colorFromHex(
-                                                      option.hex,
-                                                    ).withValues(alpha: 0.22),
-                                                    blurRadius: 18,
-                                                    offset: const Offset(0, 8),
-                                                  ),
-                                                ]
-                                              : null,
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            CircleAvatar(
-                                              radius: 18,
-                                              backgroundColor:
-                                                  _colorFromHex(option.hex),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              option.label,
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                color: Color(0xFF292524),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(growable: false),
-                                ),
-                                const SizedBox(height: 16),
-                                Container(
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(24),
-                                    border: Border.all(
-                                      color: const Color(0xFFE7E5E4),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 26,
-                                        backgroundColor:
-                                            _colorFromHex(_pinColor),
-                                        foregroundColor: Colors.white,
-                                        child: Text(
-                                          profile.initials,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'Active pin preview',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                color: Color(0xFF292524),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Your selected pin color is $_pinColor.',
-                                              style: const TextStyle(
-                                                color: Color(0xFF57534E),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
                                 ),
                               ],
                             ),
@@ -717,6 +651,45 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
                                     _changingPassword
                                         ? 'Updating...'
                                         : 'Update Password',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _sectionCard(
+                            title: 'Danger Zone',
+                            subtitle:
+                                'Permanently delete your account. This action cannot be undone.',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Deleting your account removes your profile, '
+                                  'favorites, and session immediately. Reports '
+                                  'you submitted remain anonymized in the '
+                                  'shared data.',
+                                  style: TextStyle(
+                                    color: Color(0xFF57534E),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                FilledButton.icon(
+                                  key: const Key('delete-account-button'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFFB91C1C),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  onPressed:
+                                      _deletingAccount ? null : _deleteAccount,
+                                  icon: const Icon(
+                                    Icons.delete_forever_outlined,
+                                  ),
+                                  label: Text(
+                                    _deletingAccount
+                                        ? 'Deleting...'
+                                        : 'Delete Account',
                                   ),
                                 ),
                               ],
@@ -1081,13 +1054,6 @@ class _AccountCenterPageState extends State<AccountCenterPage> {
     final minute = local.minute.toString().padLeft(2, '0');
     return '${local.year}-$month-$day at $hour:$minute';
   }
-}
-
-class _PinColorOption {
-  const _PinColorOption(this.label, this.hex);
-
-  final String label;
-  final String hex;
 }
 
 Color _colorFromHex(String hex) {

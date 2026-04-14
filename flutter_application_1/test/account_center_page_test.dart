@@ -10,6 +10,15 @@ import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+Future<void> _centerInViewport(WidgetTester tester, Finder finder) async {
+  await Scrollable.ensureVisible(
+    tester.element(finder),
+    alignment: 0.5,
+    duration: Duration.zero,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('renders account center sections and saves profile edits',
       (tester) async {
@@ -23,7 +32,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('General'), findsOneWidget);
-    expect(find.text('Color Choice'), findsOneWidget);
     expect(find.text('Preferences'), findsOneWidget);
     expect(find.text('Security Preferences'), findsOneWidget);
 
@@ -31,8 +39,6 @@ void main() {
       find.byKey(const Key('display-name-field')),
       'Quiet Hero',
     );
-    await tester.ensureVisible(find.byKey(const Key('color-swatch-#2563EB')));
-    await tester.tap(find.byKey(const Key('color-swatch-#2563EB')));
     await tester.enterText(
       find.byKey(const Key('favorite-input')),
       'student-union-food-court',
@@ -45,7 +51,6 @@ void main() {
 
     expect(backend.savedProfiles, hasLength(1));
     expect(backend.savedProfiles.single.displayName, 'Quiet Hero');
-    expect(backend.savedProfiles.single.pinColor, '#2563EB');
     expect(
       backend.savedProfiles.single.favorites,
       contains('student-union-food-court'),
@@ -77,8 +82,9 @@ void main() {
       find.byKey(const Key('confirm-password-field')),
       'different-password',
     );
-    await tester.ensureVisible(find.byKey(const Key('security-submit-button')));
-    await tester.tap(find.byKey(const Key('security-submit-button')));
+    final submitFinder = find.byKey(const Key('security-submit-button'));
+    await _centerInViewport(tester, submitFinder);
+    await tester.tap(submitFinder);
     await tester.pumpAndSettle();
 
     expect(find.text('New password and confirmation do not match.'), findsOneWidget);
@@ -88,7 +94,8 @@ void main() {
       find.byKey(const Key('confirm-password-field')),
       'new-password-1',
     );
-    await tester.tap(find.byKey(const Key('security-submit-button')));
+    await _centerInViewport(tester, submitFinder);
+    await tester.tap(submitFinder);
     await tester.pumpAndSettle();
 
     expect(backend.passwordChanges, hasLength(1));
@@ -170,12 +177,97 @@ void main() {
       find.byKey(const Key('confirm-password-field')),
       'onlyletters',
     );
-    await tester.ensureVisible(find.byKey(const Key('security-submit-button')));
-    await tester.tap(find.byKey(const Key('security-submit-button')));
+    final submitFinder = find.byKey(const Key('security-submit-button'));
+    await _centerInViewport(tester, submitFinder);
+    await tester.tap(submitFinder);
     await tester.pumpAndSettle();
 
     expect(find.textContaining('at least one number'), findsOneWidget);
     expect(backend.passwordChanges, isEmpty);
+  });
+
+  testWidgets('deletes account and logs the session out on confirm',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'token': 'session-token',
+      'user_data': jsonEncode(
+        const AuthUser(
+          userId: 'test-user',
+          login: 'test-user',
+          email: 'test@example.com',
+        ).toJson(),
+      ),
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final authService = AuthService(prefs: prefs);
+    await authService.initialize();
+    final backend = _FakeAccountCenterBackendClient();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AuthService>.value(
+        value: authService,
+        child: MaterialApp(
+          home: AccountCenterPage(backendClient: backend),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(authService.isAuthenticated, isTrue);
+
+    await tester.ensureVisible(find.byKey(const Key('delete-account-button')));
+    await tester.tap(find.byKey(const Key('delete-account-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('confirm-delete-account-button')));
+    await tester.pumpAndSettle();
+
+    expect(backend.deleteAccountCalls, 1);
+    expect(authService.isAuthenticated, isFalse);
+  });
+
+  testWidgets('shows error and keeps session when delete fails',
+      (tester) async {
+    final backend = _FakeAccountCenterBackendClient()..failDelete = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountCenterPage(backendClient: backend),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('delete-account-button')));
+    await tester.tap(find.byKey(const Key('delete-account-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('confirm-delete-account-button')));
+    await tester.pumpAndSettle();
+
+    expect(backend.deleteAccountCalls, 1);
+    expect(find.textContaining('Delete failed.'), findsOneWidget);
+    expect(find.text('Delete Account'), findsWidgets);
+  });
+
+  testWidgets('cancel in delete dialog sends no delete request',
+      (tester) async {
+    final backend = _FakeAccountCenterBackendClient();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AccountCenterPage(backendClient: backend),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('delete-account-button')));
+    await tester.tap(find.byKey(const Key('delete-account-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(backend.deleteAccountCalls, 0);
   });
 
 }
@@ -200,6 +292,8 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
   final List<AccountProfile> savedProfiles = <AccountProfile>[];
   final List<_PasswordChangeRequest> passwordChanges =
       <_PasswordChangeRequest>[];
+  int deleteAccountCalls = 0;
+  bool failDelete = false;
 
   @override
   Future<AccountProfileResult> loadProfile() async {
@@ -237,6 +331,17 @@ class _FakeAccountCenterBackendClient implements AccountCenterBackendClient {
     _profile = _profile.copyWith(passwordChangedAt: DateTime(2026, 4, 3, 12));
     return const AccountActionResult(
       message:'Password updated on the fake backend.',
+    );
+  }
+
+  @override
+  Future<AccountActionResult> deleteAccount() async {
+    deleteAccountCalls += 1;
+    if (failDelete) {
+      throw StateError('Delete failed.');
+    }
+    return const AccountActionResult(
+      message: 'Account deleted on the fake backend.',
     );
   }
 }

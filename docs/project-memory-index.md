@@ -1,6 +1,6 @@
 # Persistent Project Memory Index
 
-Last updated: 2026-04-13
+Last updated: 2026-04-14
 
 This file is an explicit, human-readable stand-in for the kind of "project memory"
 people often assume a coding agent keeps automatically. It captures the repository's
@@ -70,7 +70,7 @@ Main backend route groups:
   - register/login
   - email verification + resend flow
   - forgot/reset password flow
-  - authenticated profile fetch/update + password change
+  - authenticated profile fetch/update + password change + self-service account deletion
 - `routes/locationRoutes.js`
   - location-group listing/creation
   - create/list locations within a group
@@ -120,6 +120,14 @@ Other notable backend files:
 - `createJWT.js`: JWT support
 - `repositories/`: location and query helper abstraction layer
 - `tests/`: integration coverage plus geometry/search/admin unit tests
+
+Important auth deletion behavior:
+- `DELETE /api/auth/account` is already implemented on the backend
+- the controller identifies the caller from the JWT (`req.user.userId`) instead of
+  trusting request payload ids
+- before deleting the user document, it rewrites matching `Report.userId` values to
+  the sentinel `"deleted_user"` so shared live/archive report data remains available
+  for aggregation instead of being removed with the user
 
 ### `Web_Frontend/`
 
@@ -188,6 +196,9 @@ Observed app behavior:
 - documents local fallback queue behavior for data collection when backend is down
 - includes Android foreground-service support for background collection
 - already contains dynamic marker asset/animation plumbing for app/web parity work
+- account center already supports live profile load/save, favorite edits, password
+  change, manual refresh, and logout, but does not yet expose self-service account
+  deletion in the Flutter UI/client
 
 ### `shared/`
 
@@ -230,6 +241,9 @@ Note:
 - `docs/port-feasibility-report.md`
   - 2026-04-13 feasibility review of reviving dynamic map icons and porting the
     dynamic data-collection mic into the Flutter app
+- `docs/app-account-deletion-port-plan.md`
+  - 2026-04-14 implementation plan for porting the existing web account-deletion
+    flow into the Flutter app account center without changing backend semantics
 
 ### Supporting design/material docs
 
@@ -324,6 +338,8 @@ Observed in `unit_tests/`:
   fields
 - auth is more than login/register: email verification, password reset, and
   profile maintenance are part of the active surface
+- account deletion is already part of the backend/web auth surface, but app parity
+  is still missing in Flutter
 - admin functionality is web-first and split across search/report, geometry, and
   user-management flows
 - map-based search and map annotations are a central product concept
