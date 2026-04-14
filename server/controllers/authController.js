@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const sgMail = require("@sendgrid/mail");
 
 const User = require("../models/User");
+const Report = require("../models/Report");
 const tokenService = require("../createJWT");
 const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
@@ -484,6 +485,39 @@ const changePassword = async (req, res) => {
   }
 };
 
+const deleteAccount = async (req, res) => {
+  // Identify the caller from the verified JWT only. Never trust userId
+  // from body/params — that would allow deleting other accounts.
+  const userId = req.user?.userId;
+  if (!userId) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+
+  try {
+    // Detach — don't delete — the user's live/shared Report documents.
+    // These feed building-level noise/occupancy aggregation; removing them
+    // would silently invalidate shared readings. Report.userId is required
+    // on live reports, so we replace with a sentinel rather than nulling.
+    // Reports-first ordering: if the subsequent user delete fails, a retry
+    // still authenticates and finishes the cleanup idempotently.
+    await Report.updateMany(
+      { userId },
+      { $set: { userId: "deleted_user" } },
+    );
+
+    // Delete the user record. Favorites and all user-specific fields live
+    // on this document and go with it.
+    const deleted = await User.findOneAndDelete({ userId });
+    if (!deleted) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    return res.status(200).json({ message: "Account deleted." });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error while deleting account." });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -494,4 +528,5 @@ module.exports = {
   getProfile,
   updateProfile,
   changePassword,
+  deleteAccount,
 };

@@ -236,6 +236,34 @@ function ProfilePanel({ externalOpen, onExternalClose }: ProfilePanelProps = {})
     }
   }
 
+  // ── DELETE ACCOUNT ────────────────────────────────────
+  async function doDeleteAccount() {
+    if (!window.confirm('Are you sure you want to delete your account? This cannot be undone.')) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(apiUrl('/api/auth/account'), {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const res: GenericResponse = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        window.alert(res.error || 'Failed to delete account.');
+        return;
+      }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user_data');
+      window.dispatchEvent(new Event('storage'));
+      window.location.href = '/';
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to contact the server');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function doSubmitResetCode() {
     if (!resetCode.trim()) { showError('Please enter the code.'); return; }
     setResetStep('newpass');
@@ -375,6 +403,16 @@ function ProfilePanel({ externalOpen, onExternalClose }: ProfilePanelProps = {})
                   Reset
                 </button>
               </div>
+            </div>
+
+            <div className="profile-section">
+              <button
+                className="profile-delete-btn"
+                onClick={doDeleteAccount}
+                disabled={loading}
+              >
+                Delete Account
+              </button>
             </div>
           </div>
         )}
