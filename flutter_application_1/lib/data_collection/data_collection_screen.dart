@@ -818,14 +818,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       return;
     }
 
-    if (candidateLocations.length == 1) {
-      setState(() {
-        _selectedLocation = candidateLocations.first;
-      });
-      await _confirmAndStartSession(candidateLocations.first);
-      return;
-    }
-
     final chosen = await _showStudyLocationPicker(candidateLocations);
     if (chosen == null || !mounted) return;
     setState(() {
