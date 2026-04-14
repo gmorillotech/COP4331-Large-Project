@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -86,19 +85,12 @@ enum _MicrophonePermissionState { requesting, granted, denied, unavailable }
 
 enum _LocationPermissionState { requesting, granted, denied, unavailable }
 
-enum _BackgroundLocationPermissionState {
-  checking,
-  granted,
-  denied,
-  unavailable,
-}
-
 class DataCollectionScreen extends StatefulWidget {
   const DataCollectionScreen({
     super.key,
     this.signalSampler = demoSignalLevel,
     this.config = const SurfaceConfig(),
-    this.initialOccupancy = OccupancyLevel.busy,
+    this.initialOccupancy,
     this.initialStudyLocationId,
     this.locationResolver = const LocalStudyLocationResolver(),
     this.draftBuilder = const CapturedReportDraftBuilder(),
@@ -120,7 +112,7 @@ class DataCollectionScreen extends StatefulWidget {
 
   final SignalSampler signalSampler;
   final SurfaceConfig config;
-  final OccupancyLevel initialOccupancy;
+  final OccupancyLevel? initialOccupancy;
   final String? initialStudyLocationId;
   final LocalStudyLocationResolver locationResolver;
   final CapturedReportDraftBuilder draftBuilder;
@@ -152,7 +144,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   late final BackgroundCollectionController _backgroundCollectionController;
   late final ReportDraftRepository _draftRepository;
   late final DataCollectionBackendClient _backendClient;
-  late OccupancyLevel _occupancy;
+  OccupancyLevel? _occupancy;
   late SurfaceFrameState _frame;
   late DataCollectionStudyLocation? _selectedLocation;
   late List<DataCollectionStudyLocation> _studyLocations;
@@ -160,17 +152,12 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   Duration _captureElapsed = Duration.zero;
 
   bool _isCapturing = false;
-  bool _isBackgroundCollectionActive = false;
   bool _isSyncingQueue = false;
   bool _isCreatingLocation = false;
   bool _isCreatingGroup = false;
-  int _lastRecordedSampleMs = -1;
   int? _windowStartedMs;
   Timer? _captureTimer;
   Timer? _queueRetryTimer;
-  CapturedReportDraft? _lastProcessedDraft;
-  String? _lastSubmissionSummary;
-  bool _lastSubmissionQueued = false;
   ProceduralSurfaceEngine? _captureEngine;
 
   // Microphone state
@@ -184,21 +171,10 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   bool _microphonePermanentlyDenied = false;
   _LocationPermissionState _locationPermissionState =
       _LocationPermissionState.requesting;
-  bool _locationPermanentlyDenied = false;
-  _BackgroundLocationPermissionState _backgroundLocationPermissionState =
-      _BackgroundLocationPermissionState.checking;
-  bool _backgroundLocationPermanentlyDenied = false;
   SessionCoordinates? _lastKnownCoordinates;
   String? _availableLocationGroupId;
   String? _sessionLockedLocationGroupId;
   String? _locationStatusMessage;
-
-  int get _minimumSamplesRequired =>
-      widget.draftBuilder.summaryService.config.minimumSampleCount;
-
-  Duration get _capturedDuration => Duration(
-    milliseconds: _capturedSamples.length * _sampleInterval.inMilliseconds,
-  );
 
   bool get _isDataCollectionEnabled =>
       _microphonePermissionState == _MicrophonePermissionState.granted;
@@ -207,10 +183,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
   bool get _isAndroidBackgroundModeEnabled =>
       _backgroundCollectionController.isSupported;
-
-  bool get _isBackgroundLocationGranted =>
-      _backgroundLocationPermissionState ==
-      _BackgroundLocationPermissionState.granted;
 
   LocalStudyLocationResolver get _activeLocationResolver =>
       LocalStudyLocationResolver(
@@ -222,22 +194,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         minimumLocationGroupRadiusMeters:
             widget.locationResolver.minimumLocationGroupRadiusMeters,
       );
-
-  List<DataCollectionStudyLocation> get _availableLocations {
-    final groupId = _sessionLockedLocationGroupId ?? _availableLocationGroupId;
-    if (groupId == null || groupId.isEmpty) {
-      return const <DataCollectionStudyLocation>[];
-    }
-
-    final filteredLocations = _studyLocations
-        .where((location) => location.locationGroupId == groupId)
-        .toList(growable: false);
-    if (filteredLocations.isEmpty && !_hasLockedSession) {
-      return _studyLocations;
-    }
-
-    return filteredLocations;
-  }
 
   DataCollectionLocationGroup? get _currentLocationGroup {
     final groupId = _sessionLockedLocationGroupId ?? _availableLocationGroupId;
@@ -260,86 +216,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     return 0.0;
   }
 
-  String get _captureAvailabilityLabel {
-    switch (_microphonePermissionState) {
-      case _MicrophonePermissionState.requesting:
-        return 'Awaiting microphone access';
-      case _MicrophonePermissionState.granted:
-        return _isCapturing ? 'Collecting live samples' : 'Ready to capture';
-      case _MicrophonePermissionState.denied:
-        return 'Microphone access required';
-      case _MicrophonePermissionState.unavailable:
-        return 'Microphone unavailable';
-    }
-  }
-
-  Color get _captureAvailabilityColor {
-    switch (_microphonePermissionState) {
-      case _MicrophonePermissionState.requesting:
-        return const Color(0xFF38BDF8);
-      case _MicrophonePermissionState.granted:
-        return _isCapturing ? const Color(0xFF34D399) : const Color(0xFFF59E0B);
-      case _MicrophonePermissionState.denied:
-      case _MicrophonePermissionState.unavailable:
-        return const Color(0xFFFB7185);
-    }
-  }
-
-  Future<void> _syncBackgroundCollectionState() async {
-    if (!_backgroundCollectionController.isSupported || !mounted) {
-      return;
-    }
-
-    try {
-      final isActive = await _backgroundCollectionController.isSessionActive();
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isBackgroundCollectionActive = isActive;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isBackgroundCollectionActive = false;
-      });
-    }
-  }
-
-  Future<void> _refreshBackgroundLocationPermissionStatus() async {
-    if (!_backgroundCollectionController.isSupported || !mounted) {
-      return;
-    }
-
-    try {
-      final status = await widget.backgroundLocationPermissionStatusProvider();
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _backgroundLocationPermissionState =
-            _mapBackgroundLocationPermissionState(status);
-        _backgroundLocationPermanentlyDenied =
-            status.isPermanentlyDenied || status.isRestricted;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _backgroundLocationPermissionState =
-            _BackgroundLocationPermissionState.unavailable;
-        _backgroundLocationPermanentlyDenied = false;
-      });
-    }
-  }
-
   Future<bool> _ensureBackgroundLocationAccess() async {
     if (!_backgroundCollectionController.isSupported) {
       return true;
@@ -350,44 +226,10 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       if (!mounted) {
         return false;
       }
-
-      setState(() {
-        _backgroundLocationPermissionState =
-            _mapBackgroundLocationPermissionState(status);
-        _backgroundLocationPermanentlyDenied =
-            status.isPermanentlyDenied || status.isRestricted;
-      });
-
       return status.isGranted;
     } catch (_) {
-      if (!mounted) {
-        return false;
-      }
-
-      setState(() {
-        _backgroundLocationPermissionState =
-            _BackgroundLocationPermissionState.unavailable;
-        _backgroundLocationPermanentlyDenied = false;
-      });
       return false;
     }
-  }
-
-  _BackgroundLocationPermissionState _mapBackgroundLocationPermissionState(
-    PermissionStatus status,
-  ) {
-    if (status.isGranted) {
-      return _BackgroundLocationPermissionState.granted;
-    }
-
-    if (status.isDenied ||
-        status.isPermanentlyDenied ||
-        status.isRestricted ||
-        status.isLimited) {
-      return _BackgroundLocationPermissionState.denied;
-    }
-
-    return _BackgroundLocationPermissionState.unavailable;
   }
 
   String _backgroundCollectionNotificationText() {
@@ -418,18 +260,12 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         return false;
       }
 
-      setState(() {
-        _isBackgroundCollectionActive = true;
-      });
       return true;
     } on StateError catch (error) {
       if (!mounted) {
         return false;
       }
 
-      setState(() {
-        _isBackgroundCollectionActive = false;
-      });
       _showMessage(error.message);
       return false;
     }
@@ -445,14 +281,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     } catch (_) {
       // Capture shutdown remains best effort during teardown.
     }
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isBackgroundCollectionActive = false;
-    });
   }
 
   Future<void> _initLocationAccess() async {
@@ -462,7 +290,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     if (mounted) {
       setState(() {
         _locationPermissionState = _LocationPermissionState.requesting;
-        _locationPermanentlyDenied = false;
         _locationStatusMessage =
             'Checking location permission for session locking.';
       });
@@ -495,15 +322,12 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
           _locationPermissionState = _LocationPermissionState.granted;
         });
 
-        unawaited(_refreshBackgroundLocationPermissionStatus());
         await _refreshCurrentCoordinates();
         return;
       }
 
       setState(() {
         _locationPermissionState = _LocationPermissionState.denied;
-        _locationPermanentlyDenied =
-            status.isPermanentlyDenied || status.isRestricted;
         _locationStatusMessage =
             'Location access is required to lock a recording session to the correct study location group.';
       });
@@ -664,13 +488,8 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   void _cutOffSessionForLeavingGroup(DataCollectionLocationGroup lockedGroup) {
     setState(() {
       _isCapturing = false;
-      _isBackgroundCollectionActive = false;
       _capturedSamples.clear();
-      _lastRecordedSampleMs = -1;
       _windowStartedMs = null;
-      _lastProcessedDraft = null;
-      _lastSubmissionSummary = null;
-      _lastSubmissionQueued = false;
       _releaseSessionLock();
     });
     _stopCaptureLoop();
@@ -707,14 +526,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _ticker = createTicker(_handleTick)..start();
     _initMicrophone();
     unawaited(_initLocationAccess());
-    unawaited(_refreshBackgroundLocationPermissionStatus());
-    unawaited(_syncBackgroundCollectionState());
     unawaited(_hydrateStudyLocations());
-    if (_draftRepository.drafts.isNotEmpty) {
-      _lastSubmissionQueued = true;
-      _lastSubmissionSummary =
-          'Resuming with ${_draftRepository.drafts.length} queued report(s).';
-    }
     unawaited(_flushQueuedDrafts());
   }
 
@@ -733,12 +545,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      unawaited(_syncBackgroundCollectionState());
-      unawaited(_refreshBackgroundLocationPermissionStatus());
-    }
-  }
+  void didChangeAppLifecycleState(AppLifecycleState state) {}
 
   Future<void> _initMicrophone() async {
     await _noiseSubscription?.cancel();
@@ -779,7 +586,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
             setState(() {
               _micActive = false;
               _isCapturing = false;
-              _isBackgroundCollectionActive = false;
               _microphonePermissionState =
                   _MicrophonePermissionState.unavailable;
             });
@@ -796,7 +602,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _isCapturing = false;
-        _isBackgroundCollectionActive = false;
         _microphonePermissionState = _MicrophonePermissionState.denied;
         _microphonePermanentlyDenied =
             status.isPermanentlyDenied || status.isRestricted;
@@ -809,7 +614,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _isCapturing = false;
-        _isBackgroundCollectionActive = false;
         _micActive = false;
         _microphonePermissionState = _MicrophonePermissionState.unavailable;
       });
@@ -843,7 +647,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     _capturedSamples
       ..clear()
       ..add(initialFrame.signal.decibels);
-    _lastRecordedSampleMs = initialFrame.signal.elapsed.inMilliseconds;
     _windowStartedMs = initialFrame.signal.elapsed.inMilliseconds;
 
     _captureTimer = Timer.periodic(_sampleInterval, (_) {
@@ -862,11 +665,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
       if (mounted) {
         setState(() {
           _capturedSamples.add(frame.signal.decibels);
-          _lastRecordedSampleMs = frame.signal.elapsed.inMilliseconds;
         });
       } else {
         _capturedSamples.add(frame.signal.decibels);
-        _lastRecordedSampleMs = frame.signal.elapsed.inMilliseconds;
       }
 
       unawaited(_queueCompletedWindowIfReady(frame));
@@ -958,15 +759,187 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
     setState(() {
       _isCapturing = true;
-      _lastProcessedDraft = null;
-      _lastSubmissionSummary = _draftRepository.drafts.isEmpty
-          ? null
-          : 'Pending queued uploads will retry in the background.';
-      _lastSubmissionQueued = _draftRepository.drafts.isNotEmpty;
     });
     _startCaptureLoop();
 
+    if (_isAndroidBackgroundModeEnabled) {
+      _showMessage(
+        'You can use your phone, and StudySpot will run in the background.',
+      );
+    }
+
     unawaited(_flushQueuedDrafts());
+  }
+
+  Future<void> _handleSessionStartRequested() async {
+    if (_occupancy == null) {
+      _showMessage('Cannot start session without selecting occupancy level.');
+      return;
+    }
+
+    if (!_isDataCollectionEnabled) {
+      _showMessage(
+        'Microphone access is required before data collection can begin.',
+      );
+      return;
+    }
+
+    if (_locationPermissionState != _LocationPermissionState.granted) {
+      _showMessage(
+        'Location access is required before recording can be locked to a study location group.',
+      );
+      return;
+    }
+
+    final coords = await _refreshCurrentCoordinates();
+    if (!mounted) return;
+    if (coords == null) {
+      await _promptToCreateGroupAndLocation();
+      return;
+    }
+
+    final nearestGroup = _activeLocationResolver.resolveNearestGroup(
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    );
+    if (nearestGroup == null) {
+      await _promptToCreateGroupAndLocation();
+      return;
+    }
+
+    final candidateLocations = _studyLocations
+        .where(
+          (location) => location.locationGroupId == nearestGroup.locationGroupId,
+        )
+        .toList(growable: false);
+
+    if (candidateLocations.isEmpty) {
+      await _promptToAddStudyLocation();
+      return;
+    }
+
+    if (candidateLocations.length == 1) {
+      setState(() {
+        _selectedLocation = candidateLocations.first;
+      });
+      await _confirmAndStartSession(candidateLocations.first);
+      return;
+    }
+
+    final chosen = await _showStudyLocationPicker(candidateLocations);
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _selectedLocation = chosen;
+    });
+    await _confirmAndStartSession(chosen);
+  }
+
+  Future<void> _confirmAndStartSession(
+    DataCollectionStudyLocation location,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F2333),
+          title: const Text(
+            'Confirm location',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            'Start recording at "${location.displayLabel}"?',
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.86)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm-start-session-button'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Start'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    await _startCapture();
+  }
+
+  Future<DataCollectionStudyLocation?> _showStudyLocationPicker(
+    List<DataCollectionStudyLocation> locations,
+  ) {
+    return showModalBottomSheet<DataCollectionStudyLocation>(
+      context: context,
+      backgroundColor: const Color(0xFF0F2333),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Pick a study location',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    key: const Key('study-location-picker-list'),
+                    shrinkWrap: true,
+                    itemCount: locations.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final location = locations[index];
+                      return ListTile(
+                        tileColor: Colors.white.withValues(alpha: 0.06),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        title: Text(
+                          location.displayLabel,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          location.detailLabel,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                          ),
+                        ),
+                        onTap: () => Navigator.of(sheetContext).pop(location),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(_promptToAddStudyLocation());
+                  },
+                  icon: const Icon(Icons.add_location_alt_rounded),
+                  label: const Text('Add a new study location'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _stopCapture() {
@@ -981,7 +954,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
   void _clearCaptureBuffers() {
     _capturedSamples.clear();
-    _lastRecordedSampleMs = -1;
     _windowStartedMs = null;
   }
 
@@ -996,7 +968,7 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
     return widget.draftBuilder.build(
       location: location,
-      occupancy: _occupancy,
+      occupancy: _occupancy!,
       rawSamples: rawSamples,
       createdAt: createdAt,
     );
@@ -1021,20 +993,14 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _capturedSamples.clear();
-        _lastRecordedSampleMs = elapsedMs;
         _windowStartedMs = elapsedMs;
       });
 
-      final queuedDraft = await _draftRepository.saveDraft(draft);
+      await _draftRepository.saveDraft(draft);
       if (!mounted) {
         return;
       }
 
-      setState(() {
-        _lastProcessedDraft = queuedDraft;
-        _lastSubmissionSummary = 'Queued a 15-second report window for upload.';
-        _lastSubmissionQueued = true;
-      });
       unawaited(_flushQueuedDrafts());
     } on StateError catch (error) {
       if (!mounted) {
@@ -1043,11 +1009,9 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
 
       setState(() {
         _capturedSamples.clear();
-        _lastRecordedSampleMs = elapsedMs;
         _windowStartedMs = elapsedMs;
-        _lastSubmissionSummary = error.message;
-        _lastSubmissionQueued = false;
       });
+      _showMessage(error.message);
     }
   }
 
@@ -1101,8 +1065,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
               (left, right) => left.displayLabel.compareTo(right.displayLabel),
             );
         _selectedLocation = createdLocation;
-        _lastProcessedDraft = null;
-        _lastSubmissionSummary = null;
       });
       _showMessage(
         'Added ${createdLocation.locationName} to ${currentGroup.buildingName}.',
@@ -1182,8 +1144,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
             );
         _availableLocationGroupId = createdGroup.locationGroupId;
         _selectedLocation = createdLocation;
-        _lastProcessedDraft = null;
-        _lastSubmissionSummary = null;
         _locationStatusMessage =
             'Currently inside ${createdGroup.buildingName}. Choose one of 1 study areas before recording.';
       });
@@ -1280,16 +1240,6 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         await _draftRepository.removeDraft(draft.reportId);
         syncedCount += 1;
 
-        if (mounted) {
-          setState(() {
-            _lastProcessedDraft = draft.copyWith(
-              deliveryStatus: ReportDeliveryStatus.submittedToApi,
-              deliveryDetail: 'Synced from the local retry queue.',
-            );
-            _lastSubmissionSummary = 'Uploaded queued report to backend';
-            _lastSubmissionQueued = false;
-          });
-        }
       }
     } catch (_) {
       _queueRetryTimer = Timer(_queueRetryDelay, () {
@@ -1354,9 +1304,13 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     final showPermissionGate = !_isDataCollectionEnabled;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF04121F),
+      backgroundColor: const Color(0xFF0C1A49),
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
         foregroundColor: Colors.white,
         title: const Text('Data Collection'),
         actions: [
@@ -1388,132 +1342,90 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
         key: const Key('data-collection-screen'),
         children: [
           Positioned.fill(
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: ProceduralSurfacePainter(
-                  frame: _frame,
-                  config: widget.config,
-                ),
-              ),
+            child: Image.asset(
+              'assets/data_collection/spiral.png',
+              fit: BoxFit.cover,
             ),
           ),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.04),
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.18),
-                  ],
-                ),
+                color: Colors.white.withValues(alpha: 0.07),
               ),
             ),
           ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Stack(
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _GlassCard(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: _captureAvailabilityColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _captureAvailabilityLabel,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _DecibelReadoutCard(decibels: signal.decibels),
-                  const SizedBox(height: 12),
-                  _NoiseBarCard(descriptor: signal.descriptor),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        IgnorePointer(
-                          ignoring: showPermissionGate,
-                          child: Opacity(
-                            opacity: showPermissionGate ? 0.42 : 1.0,
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final isWide = constraints.maxWidth >= 920;
+                  IgnorePointer(
+                    ignoring: showPermissionGate,
+                    child: Opacity(
+                      opacity: showPermissionGate ? 0.42 : 1.0,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth >= 920;
 
-                                if (isWide) {
-                                  return Row(
+                          if (isWide) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
-                                      Expanded(child: _leftColumn(signal)),
+                                      Expanded(
+                                        child: _noiseColumn(signal),
+                                      ),
                                       const SizedBox(width: 16),
-                                      SizedBox(
-                                        width: 340,
-                                        child: _rightColumn(compact: false),
+                                      Expanded(
+                                        flex: 2,
+                                        child: _micColumn(
+                                          signal,
+                                          compact: false,
+                                        ),
                                       ),
                                     ],
-                                  );
-                                }
-
-                                return SingleChildScrollView(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      _leftColumn(signal, compact: true),
-                                      const SizedBox(height: 16),
-                                      _rightColumn(compact: true),
-                                    ],
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        if (showPermissionGate)
-                          Positioned.fill(
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 420,
                                 ),
-                                child: _MicrophonePermissionGateCard(
-                                  permissionState: _microphonePermissionState,
-                                  permanentlyDenied:
-                                      _microphonePermanentlyDenied,
-                                  onRetry: _initMicrophone,
-                                ),
-                              ),
+                                const SizedBox(height: 12),
+                                _belowGridExtras(),
+                              ],
+                            );
+                          }
+
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _micColumn(signal, compact: true),
+                                const SizedBox(height: 12),
+                                _noiseColumn(signal),
+                                const SizedBox(height: 12),
+                                _belowGridExtras(),
+                              ],
                             ),
-                          ),
-                      ],
+                          );
+                        },
+                      ),
                     ),
                   ),
+                  if (showPermissionGate)
+                    Positioned.fill(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 420),
+                          child: _MicrophonePermissionGateCard(
+                            permissionState: _microphonePermissionState,
+                            permanentlyDenied: _microphonePermanentlyDenied,
+                            onRetry: _initMicrophone,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1523,220 +1435,115 @@ class _DataCollectionScreenState extends State<DataCollectionScreen>
     );
   }
 
-  Widget _leftColumn(AudioSignalSnapshot signal, {bool compact = false}) {
-    final micOrb = SizedBox(
-      height: compact ? 220 : null,
-      child: Center(
-        child: _StableMicOrb(
-          intensity: signal.smoothedLevel,
-          ripples: _frame.ripples.length,
-          compact: compact,
-        ),
+  Widget _micColumn(AudioSignalSnapshot signal, {required bool compact}) {
+    final markerSize = compact ? 168.0 : 220.0;
+    final micCta = Transform.translate(
+      offset: Offset(-markerSize * 0.150, markerSize * -0.45),
+      child: _SessionMicCta(
+        decibels: signal.decibels,
+        isCapturing: _isCapturing,
+        enabled: _isDataCollectionEnabled,
+        compact: compact,
+        onTap: () {
+          if (_isCapturing) {
+            _stopCapture();
+          } else {
+            unawaited(_handleSessionStartRequested());
+          }
+        },
       ),
     );
 
-    if (compact) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          micOrb,
-          const SizedBox(height: 14),
-          _CaptureStatusCard(
-            sampleCount: _capturedSamples.length,
-            queueCount: _draftRepository.drafts.length,
-            captureStateLabel: _isCapturing ? 'Capturing' : 'Stopped',
-            lastReadingDb: signal.decibels,
-            minSamples: _minimumSamplesRequired,
-            capturedDuration: _capturedDuration,
-          ),
-          const SizedBox(height: 12),
-          _SignalHistoryCard(
-            samples: _capturedSamples,
-            minSamples: _minimumSamplesRequired,
-          ),
-        ],
-      );
-    }
+    const micTopPadding = 150.0;
 
     return Column(
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Expanded(child: micOrb),
-        const SizedBox(height: 14),
-        _CaptureStatusCard(
-          sampleCount: _capturedSamples.length,
-          queueCount: _draftRepository.drafts.length,
-          captureStateLabel: _isCapturing ? 'Capturing' : 'Stopped',
-          lastReadingDb: signal.decibels,
-          minSamples: _minimumSamplesRequired,
-          capturedDuration: _capturedDuration,
+        Text(
+          _isCapturing ? 'Recording' : 'Start Session',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: compact ? 24 : 28,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-        const SizedBox(height: 12),
-        _SignalHistoryCard(
-          samples: _capturedSamples,
-          minSamples: _minimumSamplesRequired,
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'Help other students by reporting noise and occupancy at your study spot.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ),
+        const SizedBox(height: 18),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: _OccupancyCard(
+            occupancy: _occupancy,
+            onChanged: (value) => setState(() => _occupancy = value),
+          ),
+        ),
+        SizedBox(height: micTopPadding),
+        if (compact) micCta else Expanded(child: Center(child: micCta)),
       ],
     );
   }
 
-  Widget _rightColumn({required bool compact}) {
+  Widget _noiseColumn(AudioSignalSnapshot signal) {
+    final showMicNeeded =
+        _microphonePermissionState != _MicrophonePermissionState.granted;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _LocationCard(
-          locations: _availableLocations,
-          selectedLocation: _selectedLocation,
-          currentCoordinates: _lastKnownCoordinates,
-          isLocked: _hasLockedSession,
-          isCreatingLocation: _isCreatingLocation,
-          isCreatingGroup: _isCreatingGroup,
-          canAddLocation:
-              !_hasLockedSession &&
-              !_isCapturing &&
-              _locationPermissionState == _LocationPermissionState.granted &&
-              _currentLocationGroup != null,
-          canCreateGroup:
-              !_hasLockedSession &&
-              !_isCapturing &&
-              !_isCreatingLocation &&
-              _locationPermissionState == _LocationPermissionState.granted &&
-              _currentLocationGroup == null &&
-              _lastKnownCoordinates != null,
-          locationPermissionState: _locationPermissionState,
-          locationPermanentlyDenied: _locationPermanentlyDenied,
-          statusMessage: _locationStatusMessage,
-          locationGroup: _currentLocationGroup,
-          onRetryLocationAccess: _initLocationAccess,
-          onAddLocation: () {
-            unawaited(_promptToAddStudyLocation());
-          },
-          onCreateGroup: () {
-            unawaited(_promptToCreateGroupAndLocation());
-          },
-          onChanged: (location) {
-            setState(() {
-              _selectedLocation = location;
-              _lastProcessedDraft = null;
-              _lastSubmissionSummary = null;
-            });
-          },
+        _NoiseLevelCard(
+          decibels: signal.decibels,
+          descriptor: signal.descriptor,
         ),
-        const SizedBox(height: 12),
-        _OccupancyCard(
-          occupancy: _occupancy,
-          compact: compact,
-          onChanged: (value) {
-            setState(() => _occupancy = value);
-          },
-        ),
-        const SizedBox(height: 12),
-        _CaptureControlsCard(
-          enabled: _isDataCollectionEnabled,
-          isCapturing: _isCapturing,
-          onStart: () {
-            unawaited(_startCapture());
-          },
-          onStop: _stopCapture,
-        ),
-        if (_isAndroidBackgroundModeEnabled) ...[
-          const SizedBox(height: 12),
-          _AndroidBackgroundModeCard(
-            permissionState: _backgroundLocationPermissionState,
-            isCapturing: _isCapturing,
-            backgroundCollectionActive: _isBackgroundCollectionActive,
-            permanentlyDenied: _backgroundLocationPermanentlyDenied,
-            onRetryPermission: _refreshBackgroundLocationPermissionStatus,
-          ),
-        ],
-        const SizedBox(height: 12),
-        const _PrivacyStatementsCard(),
-        if (_lastProcessedDraft != null) ...[
-          const SizedBox(height: 12),
-          _DraftReviewCard(
-            draft: _lastProcessedDraft!,
-            submissionSummary: _lastSubmissionSummary ?? 'Prepared on device',
-            wasQueued: _lastSubmissionQueued,
+        if (showMicNeeded) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Mic needed',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ],
     );
   }
-}
 
-class _DecibelReadoutCard extends StatelessWidget {
-  const _DecibelReadoutCard({required this.decibels});
-
-  final double decibels;
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'DECIBEL READOUT',
-                  style: TextStyle(
-                    color: const Color(0xFFBDEBFF),
-                    fontSize: 12,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                RichText(
-                  key: const Key('decibel-readout'),
-                  text: TextSpan(
-                    text: decibels.toStringAsFixed(1),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 42,
-                      fontWeight: FontWeight.w800,
-                    ),
-                    children: const [
-                      TextSpan(
-                        text: ' dB',
-                        style: TextStyle(
-                          color: Color(0xFFB9D2E7),
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            ),
-            child: Text(
-              'Live microphone input',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.84),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
+  Widget _belowGridExtras() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SessionLocationBanner(
+          isCapturing: _isCapturing,
+          selectedLocation: _selectedLocation,
+          locationGroup: _currentLocationGroup,
+          locationPermissionState: _locationPermissionState,
+          statusMessage: _locationStatusMessage,
+        ),
+        const SizedBox(height: 12),
+        const _PrivacyStatementsCard(),
+      ],
     );
   }
 }
 
-class _NoiseBarCard extends StatelessWidget {
-  const _NoiseBarCard({required this.descriptor});
+class _NoiseLevelCard extends StatelessWidget {
+  const _NoiseLevelCard({required this.decibels, required this.descriptor});
 
+  final double decibels;
   final NoiseDescriptor descriptor;
 
   @override
@@ -1746,7 +1553,7 @@ class _NoiseBarCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'QUALITATIVE NOISE',
+            'NOISE LEVEL',
             style: TextStyle(
               color: const Color(0xFFBDEBFF),
               fontSize: 12,
@@ -1755,12 +1562,34 @@ class _NoiseBarCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          RichText(
+            key: const Key('decibel-readout'),
+            text: TextSpan(
+              text: decibels.toStringAsFixed(1),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 42,
+                fontWeight: FontWeight.w800,
+              ),
+              children: const [
+                TextSpan(
+                  text: ' dB',
+                  style: TextStyle(
+                    color: Color(0xFFB9D2E7),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
             descriptor.label,
             key: const Key('noise-label'),
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 26,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1771,430 +1600,6 @@ class _NoiseBarCard extends StatelessWidget {
             child: CustomPaint(
               painter: NoiseBarPainter(descriptor: descriptor),
               child: const SizedBox.expand(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                'Quiet',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                'Loud',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CaptureStatusCard extends StatelessWidget {
-  const _CaptureStatusCard({
-    required this.sampleCount,
-    required this.queueCount,
-    required this.captureStateLabel,
-    required this.lastReadingDb,
-    required this.minSamples,
-    required this.capturedDuration,
-  });
-
-  final int sampleCount;
-  final int queueCount;
-  final String captureStateLabel;
-  final double lastReadingDb;
-  final int minSamples;
-  final Duration capturedDuration;
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = sampleCount == 0
-        ? 0.0
-        : (sampleCount / minSamples).clamp(0.0, 1.0);
-
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'CAPTURE STATUS',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetricChip(
-                label: 'Samples',
-                value: '$sampleCount / $minSamples',
-              ),
-              _MetricChip(label: 'State', value: captureStateLabel),
-              _MetricChip(
-                label: 'Elapsed',
-                value: _formatDuration(capturedDuration),
-              ),
-              _MetricChip(
-                label: 'Last dB',
-                value: lastReadingDb.toStringAsFixed(1),
-              ),
-              _MetricChip(label: 'Offline queue', value: '$queueCount'),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            sampleCount >= minSamples
-                ? 'Current 15-second window is ready for automatic upload.'
-                : 'Collect ${minSamples - sampleCount} more samples to complete the current upload window.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.76),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            key: const Key('capture-progress-bar'),
-            height: 12,
-            child: CustomPaint(
-              painter: _ProgressBarPainter(progress: progress),
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.68),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LocationCard extends StatelessWidget {
-  const _LocationCard({
-    required this.locations,
-    required this.selectedLocation,
-    required this.currentCoordinates,
-    required this.isLocked,
-    required this.isCreatingLocation,
-    required this.isCreatingGroup,
-    required this.canAddLocation,
-    required this.canCreateGroup,
-    required this.locationPermissionState,
-    required this.locationPermanentlyDenied,
-    required this.statusMessage,
-    required this.locationGroup,
-    required this.onRetryLocationAccess,
-    required this.onAddLocation,
-    required this.onCreateGroup,
-    required this.onChanged,
-  });
-
-  final List<DataCollectionStudyLocation> locations;
-  final DataCollectionStudyLocation? selectedLocation;
-  final SessionCoordinates? currentCoordinates;
-  final bool isLocked;
-  final bool isCreatingLocation;
-  final bool isCreatingGroup;
-  final bool canAddLocation;
-  final bool canCreateGroup;
-  final _LocationPermissionState locationPermissionState;
-  final bool locationPermanentlyDenied;
-  final String? statusMessage;
-  final DataCollectionLocationGroup? locationGroup;
-  final Future<void> Function() onRetryLocationAccess;
-  final VoidCallback onAddLocation;
-  final VoidCallback onCreateGroup;
-  final ValueChanged<DataCollectionStudyLocation?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final canChangeLocation =
-        !isLocked &&
-        locationPermissionState == _LocationPermissionState.granted &&
-        locations.isNotEmpty;
-    final effectiveSelectedLocation =
-        locations.any(
-          (location) =>
-              location.studyLocationId == selectedLocation?.studyLocationId,
-        )
-        ? selectedLocation
-        : null;
-
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'STUDY LOCATION',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<DataCollectionStudyLocation>(
-            key: const Key('location-dropdown'),
-            isExpanded: true,
-            initialValue: effectiveSelectedLocation,
-            dropdownColor: const Color(0xFF102235),
-            hint: Text(
-              locations.isEmpty
-                  ? 'Waiting for a nearby location group'
-                  : 'Choose a study location',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
-            ),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.08),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: BorderSide.none,
-              ),
-            ),
-            items: locations
-                .map(
-                  (location) => DropdownMenuItem<DataCollectionStudyLocation>(
-                    value: location,
-                    child: Text(
-                      location.displayLabel,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-            onChanged: canChangeLocation ? onChanged : null,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            statusMessage ??
-                'Location access is required before the app can lock a recording session to a study location group.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.78),
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-            ),
-          ),
-          if (locationGroup != null) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _MetricChip(
-                  label: isLocked ? 'Locked group' : 'Detected group',
-                  value: locationGroup!.buildingName,
-                ),
-                _MetricChip(
-                  label: 'Selectable spots',
-                  value: locationGroup!.studyLocations.length.toString(),
-                ),
-                _MetricChip(
-                  label: 'Boundary radius',
-                  value: '${locationGroup!.radiusMeters.round()} m',
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 12),
-          FilledButton.tonalIcon(
-            key: const Key('add-study-location-button'),
-            onPressed: canAddLocation && !isCreatingLocation
-                ? onAddLocation
-                : null,
-            icon: const Icon(Icons.add_location_alt_outlined),
-            label: Text(
-              isCreatingLocation ? 'Adding...' : 'Add Study Area Here',
-            ),
-          ),
-          if (canCreateGroup || isCreatingGroup) ...[
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              key: const Key('create-location-group-button'),
-              onPressed: canCreateGroup && !isCreatingGroup
-                  ? onCreateGroup
-                  : null,
-              icon: const Icon(Icons.add_home_work_outlined),
-              label: Text(
-                isCreatingGroup
-                    ? 'Creating Group...'
-                    : 'Create Group + First Study Area',
-              ),
-            ),
-          ],
-          if (locationPermissionState != _LocationPermissionState.granted) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonalIcon(
-                  key: const Key('retry-location-permission-button'),
-                  onPressed:
-                      locationPermissionState ==
-                          _LocationPermissionState.requesting
-                      ? null
-                      : () {
-                          unawaited(onRetryLocationAccess());
-                        },
-                  icon: const Icon(Icons.my_location_rounded),
-                  label: Text(
-                    locationPermissionState ==
-                            _LocationPermissionState.requesting
-                        ? 'Checking...'
-                        : 'Retry location',
-                  ),
-                ),
-                if (locationPermanentlyDenied)
-                  FilledButton.icon(
-                    key: const Key('open-location-settings-button'),
-                    onPressed: () {
-                      unawaited(openAppSettings());
-                    },
-                    icon: const Icon(Icons.settings_outlined),
-                    label: const Text('Open Settings'),
-                  ),
-              ],
-            ),
-          ],
-          if (effectiveSelectedLocation != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              effectiveSelectedLocation.detailLabel,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.92),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'This studyLocationId is sent directly with each backend report submission.',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                if (currentCoordinates != null)
-                  _MetricChip(
-                    label: 'App coordinates',
-                    value:
-                        '${currentCoordinates!.latitude.toStringAsFixed(4)}, ${currentCoordinates!.longitude.toStringAsFixed(4)}',
-                  ),
-                _MetricChip(
-                  label: 'Study location ID',
-                  value: effectiveSelectedLocation.studyLocationId,
-                ),
-                _MetricChip(
-                  label: 'Study area coordinates',
-                  value:
-                      '${effectiveSelectedLocation.latitude.toStringAsFixed(4)}, ${effectiveSelectedLocation.longitude.toStringAsFixed(4)}',
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalHistoryCard extends StatelessWidget {
-  const _SignalHistoryCard({required this.samples, required this.minSamples});
-
-  final List<double> samples;
-  final int minSamples;
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'CAPTURE HISTORY',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            key: const Key('signal-history-chart'),
-            height: 96,
-            child: CustomPaint(
-              painter: _SignalHistoryPainter(samples: samples),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            samples.isEmpty
-                ? 'No samples recorded yet. Start capture to build the current 15-second report window.'
-                : 'Showing the most recent ${samples.length.clamp(0, minSamples * 2)} captured decibel samples.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -2550,409 +1955,251 @@ class _DialogTextField extends StatelessWidget {
   }
 }
 
-class _StableMicOrb extends StatelessWidget {
-  const _StableMicOrb({
-    required this.intensity,
-    required this.ripples,
+const List<List<String>> _noiseTierMarkerAssets = <List<String>>[
+  <String>[
+    'assets/map_markers/animated/1-1.svg',
+    'assets/map_markers/animated/1-2.svg',
+    'assets/map_markers/animated/1-3.svg',
+  ],
+  <String>[
+    'assets/map_markers/animated/2-1.svg',
+    'assets/map_markers/animated/2-2.svg',
+    'assets/map_markers/animated/2-3.svg',
+  ],
+  <String>[
+    'assets/map_markers/animated/3-1.svg',
+    'assets/map_markers/animated/3-2.svg',
+    'assets/map_markers/animated/3-3.svg',
+  ],
+  <String>[
+    'assets/map_markers/animated/4-1.svg',
+    'assets/map_markers/animated/4-2.svg',
+    'assets/map_markers/animated/4-3.svg',
+  ],
+  <String>[
+    'assets/map_markers/animated/5-1.svg',
+    'assets/map_markers/animated/5-2.svg',
+    'assets/map_markers/animated/5-3.svg',
+  ],
+];
+
+int _dbToTierIndex(double db) {
+  if (db < 40) return 0;
+  if (db < 55) return 1;
+  if (db < 65) return 2;
+  if (db < 75) return 3;
+  return 4;
+}
+
+class _SessionMicCta extends StatefulWidget {
+  const _SessionMicCta({
+    required this.decibels,
+    required this.isCapturing,
+    required this.enabled,
+    required this.onTap,
     required this.compact,
   });
 
-  final double intensity;
-  final int ripples;
+  final double decibels;
+  final bool isCapturing;
+  final bool enabled;
+  final VoidCallback onTap;
   final bool compact;
 
   @override
-  Widget build(BuildContext context) {
-    final haloOpacity = lerpDouble(0.2, 0.38, intensity) ?? 0.24;
-    final minSize = compact ? 164.0 : 218.0;
-    final maxSize = compact ? 184.0 : 242.0;
-    final orbSize = lerpDouble(minSize, maxSize, intensity) ?? minSize;
-    final iconSize = compact ? 76.0 : 102.0;
+  State<_SessionMicCta> createState() => _SessionMicCtaState();
+}
 
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: orbSize + 44,
-          height: orbSize + 44,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                const Color(0xFF69D8FF).withValues(alpha: haloOpacity),
-                Colors.transparent,
+class _SessionMicCtaState extends State<_SessionMicCta>
+    with SingleTickerProviderStateMixin {
+  Timer? _variantTimer;
+  int _variant = 0;
+  late final AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    _variantTimer = Timer.periodic(const Duration(milliseconds: 750), (_) {
+      if (!mounted) return;
+      setState(() => _variant = (_variant + 1) % 3);
+    });
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    if (widget.isCapturing) {
+      _pulseController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _SessionMicCta oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isCapturing && !_pulseController.isAnimating) {
+      _pulseController.repeat(reverse: true);
+    } else if (!widget.isCapturing && _pulseController.isAnimating) {
+      _pulseController.stop();
+      _pulseController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _variantTimer?.cancel();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tier = _dbToTierIndex(widget.decibels);
+    final markerAsset = _noiseTierMarkerAssets[tier][_variant];
+    final markerSize = widget.compact ? 168.0 : 220.0;
+    final micSize = markerSize * 0.45;
+
+    return Semantics(
+      label: widget.isCapturing ? 'End Session' : 'Start Session',
+      button: true,
+      enabled: widget.enabled,
+      child: GestureDetector(
+        key: const Key('session-mic-cta'),
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.enabled ? widget.onTap : null,
+        child: Opacity(
+          opacity: widget.enabled ? 1.0 : 0.55,
+          child: SizedBox(
+            width: markerSize + 48,
+            height: markerSize + 48,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (widget.isCapturing)
+                  AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, _) {
+                      final t = _pulseController.value;
+                      return Container(
+                        width: markerSize + 48 * t + 12,
+                        height: markerSize + 48 * t + 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(
+                            0xFF69D8FF,
+                          ).withValues(alpha: 0.32 * (1 - t)),
+                        ),
+                      );
+                    },
+                  ),
+                SizedBox(
+                  width: markerSize,
+                  height: markerSize,
+                  child: SvgPicture.asset(
+                    markerAsset,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                SvgPicture.asset(
+                  'assets/data_collection/microphone.svg',
+                  width: micSize,
+                  height: micSize,
+                ),
               ],
             ),
           ),
         ),
-        Container(
-          key: const Key('stable-mic'),
-          width: orbSize,
-          height: orbSize,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF8CCBEE), Color(0xFF6D9AC8)],
-            ),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.mic_rounded,
-                size: iconSize,
-                color: const Color(0xFF04121F),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$ripples active ripples',
-                style: TextStyle(
-                  color: const Color(0xFF04121F).withValues(alpha: 0.72),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
 class _OccupancyCard extends StatelessWidget {
-  const _OccupancyCard({
-    required this.occupancy,
-    required this.onChanged,
-    required this.compact,
-  });
+  const _OccupancyCard({required this.occupancy, required this.onChanged});
 
-  final OccupancyLevel occupancy;
+  final OccupancyLevel? occupancy;
   final ValueChanged<OccupancyLevel> onChanged;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final sliderValue = occupancy.sliderValue;
-
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'OCCUPANCY',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
+    final levels = OccupancyLevel.values;
+    final hasSelection = occupancy != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          hasSelection ? occupancy!.label : 'Select occupancy',
+          key: const Key('occupancy-label'),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: hasSelection
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.55),
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
           ),
-          const SizedBox(height: 10),
-          Text(
-            occupancy.label,
-            key: const Key('occupancy-label'),
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: compact ? 24 : 28,
-              fontWeight: FontWeight.w800,
+        ),
+        const SizedBox(height: 6),
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              height: 10,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF34D399),
+                    Color(0xFFF59E0B),
+                    Color(0xFFDC2626),
+                  ],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Stored as a 1-5 A1/report value',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: compact ? 176 : 220,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: compact ? 46 : 54,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          gradient: const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Color(0xFFDC2626),
-                              Color(0xFFF59E0B),
-                              Color(0xFF34D399),
-                            ],
-                          ),
-                        ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: List.generate(
+                  levels.length,
+                  (index) => Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(
+                        alpha: 0.85 - (index * 0.06),
                       ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: List.generate(
-                          OccupancyLevel.values.length,
-                          (index) => Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(
-                                alpha: 0.9 - (index * 0.06),
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      ),
-                      RotatedBox(
-                        quarterTurns: 3,
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: compact ? 48 : 56,
-                            activeTrackColor: Colors.transparent,
-                            inactiveTrackColor: Colors.transparent,
-                            thumbColor: const Color(0xFFFFF7DA),
-                            overlayColor: const Color(
-                              0xFFFACC15,
-                            ).withValues(alpha: 0.16),
-                            thumbShape: RoundSliderThumbShape(
-                              enabledThumbRadius: compact ? 14 : 16,
-                            ),
-                            overlayShape: RoundSliderOverlayShape(
-                              overlayRadius: compact ? 18 : 22,
-                            ),
-                          ),
-                          child: Slider(
-                            key: const Key('occupancy-slider'),
-                            min: 0,
-                            max: 4,
-                            divisions: 4,
-                            value: sliderValue,
-                            onChanged: (value) {
-                              onChanged(OccupancyLevelX.fromSliderValue(value));
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 18),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: OccupancyLevel.values.reversed
-                    .map(
-                      (level) => Padding(
-                        padding: EdgeInsets.only(bottom: compact ? 11 : 20),
-                        child: Text(
-                          level.label,
-                          style: TextStyle(
-                            color: level == occupancy
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.64),
-                            fontWeight: level == occupancy
-                                ? FontWeight.w800
-                                : FontWeight.w600,
-                            fontSize: compact ? 13 : 14,
-                          ),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-            ],
-          ),
-          Text(
-            'Current selection: ${occupancy.label}',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.86),
-              fontSize: compact ? 15 : 16,
-              fontWeight: FontWeight.w700,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CaptureControlsCard extends StatelessWidget {
-  const _CaptureControlsCard({
-    required this.enabled,
-    required this.isCapturing,
-    required this.onStart,
-    required this.onStop,
-  });
-
-  final bool enabled;
-  final bool isCapturing;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'CAPTURE CONTROLS',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Collect samples in 15-second windows. Android background mode keeps active capture alive with the screen off, and failed uploads stay queued in memory while this app session remains open.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              FilledButton.icon(
-                key: const Key('start-capture-button'),
-                onPressed: enabled && !isCapturing ? onStart : null,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Start'),
-              ),
-              FilledButton.tonalIcon(
-                key: const Key('stop-capture-button'),
-                onPressed: enabled && isCapturing ? onStop : null,
-                icon: const Icon(Icons.stop_rounded),
-                label: const Text('Stop'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AndroidBackgroundModeCard extends StatelessWidget {
-  const _AndroidBackgroundModeCard({
-    required this.permissionState,
-    required this.isCapturing,
-    required this.backgroundCollectionActive,
-    required this.permanentlyDenied,
-    required this.onRetryPermission,
-  });
-
-  final _BackgroundLocationPermissionState permissionState;
-  final bool isCapturing;
-  final bool backgroundCollectionActive;
-  final bool permanentlyDenied;
-  final Future<void> Function() onRetryPermission;
-
-  String get _headline {
-    if (isCapturing && backgroundCollectionActive) {
-      return 'ANDROID BACKGROUND MODE: ACTIVE';
-    }
-
-    switch (permissionState) {
-      case _BackgroundLocationPermissionState.checking:
-        return 'ANDROID BACKGROUND MODE: CHECKING';
-      case _BackgroundLocationPermissionState.granted:
-        return 'ANDROID BACKGROUND MODE: READY';
-      case _BackgroundLocationPermissionState.denied:
-        return 'ANDROID BACKGROUND MODE: NEEDS ACCESS';
-      case _BackgroundLocationPermissionState.unavailable:
-        return 'ANDROID BACKGROUND MODE: UNAVAILABLE';
-    }
-  }
-
-  String get _body {
-    if (isCapturing && backgroundCollectionActive) {
-      return 'Screen-off collection is live. A persistent Android notification stays visible while microphone and location tracking remain active.';
-    }
-
-    switch (permissionState) {
-      case _BackgroundLocationPermissionState.checking:
-        return 'Checking whether Android background location is ready for screen-off collection.';
-      case _BackgroundLocationPermissionState.granted:
-        return 'Background location is ready. Starting capture will also start an Android foreground service so collection can continue when the screen turns off.';
-      case _BackgroundLocationPermissionState.denied:
-        return 'Allow Android location access all the time so the app can keep collecting with the screen off and stop automatically if you leave the study area.';
-      case _BackgroundLocationPermissionState.unavailable:
-        return 'Android background mode could not be verified on this device yet. Retry after confirming location services are enabled.';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      key: const Key('android-background-mode-card'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _headline,
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            _body,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.78),
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-            ),
-          ),
-          if (permissionState != _BackgroundLocationPermissionState.granted ||
-              permanentlyDenied) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonalIcon(
-                  key: const Key('retry-background-location-button'),
-                  onPressed: () {
-                    unawaited(onRetryPermission());
-                  },
-                  icon: const Icon(Icons.my_location_rounded),
-                  label: const Text('Refresh Access'),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 14,
+                activeTrackColor: Colors.transparent,
+                inactiveTrackColor: Colors.transparent,
+                thumbColor: const Color(0xFFFFF7DA),
+                overlayColor: const Color(0xFFFACC15).withValues(alpha: 0.16),
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: hasSelection ? 14 : 0,
                 ),
-                if (permanentlyDenied)
-                  FilledButton.icon(
-                    key: const Key('open-background-location-settings-button'),
-                    onPressed: () {
-                      unawaited(openAppSettings());
-                    },
-                    icon: const Icon(Icons.settings_outlined),
-                    label: const Text('Open Settings'),
-                  ),
-              ],
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
+              ),
+              child: Slider(
+                key: const Key('occupancy-slider'),
+                min: 0,
+                max: 4,
+                divisions: 4,
+                value: occupancy?.sliderValue ?? 0,
+                onChanged: (value) {
+                  onChanged(OccupancyLevelX.fromSliderValue(value));
+                },
+              ),
             ),
           ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3042,85 +2289,6 @@ class _PrivacyStatementRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _DraftReviewCard extends StatelessWidget {
-  const _DraftReviewCard({
-    required this.draft,
-    required this.submissionSummary,
-    required this.wasQueued,
-  });
-
-  final CapturedReportDraft draft;
-  final String submissionSummary;
-  final bool wasQueued;
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassCard(
-      child: Column(
-        key: const Key('draft-review-card'),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'LAST REPORT SNAPSHOT',
-            style: TextStyle(
-              color: const Color(0xFFBDEBFF),
-              fontSize: 12,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            draft.studyLocationName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetricChip(
-                label: 'Avg noise',
-                value: draft.avgNoise.toStringAsFixed(1),
-              ),
-              _MetricChip(
-                label: 'Max noise',
-                value: draft.maxNoise.toStringAsFixed(1),
-              ),
-              _MetricChip(
-                label: 'Variance',
-                value: draft.variance.toStringAsFixed(2),
-              ),
-              _MetricChip(
-                label: 'Occupancy',
-                value: draft.occupancy.toString(),
-              ),
-              _MetricChip(
-                label: 'Samples',
-                value: draft.sampleCount.toString(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            wasQueued
-                ? '$submissionSummary. This report will retry while the app stays open.'
-                : '$submissionSummary. Backend accepted this capture.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.78),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -3227,111 +2395,68 @@ class _MicrophonePermissionGateCard extends StatelessWidget {
   }
 }
 
-class _SignalHistoryPainter extends CustomPainter {
-  _SignalHistoryPainter({required this.samples});
+class _SessionLocationBanner extends StatelessWidget {
+  const _SessionLocationBanner({
+    required this.isCapturing,
+    required this.selectedLocation,
+    required this.locationGroup,
+    required this.locationPermissionState,
+    required this.statusMessage,
+  });
 
-  final List<double> samples;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final backgroundPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.04);
-    final background = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(18),
-    );
-    canvas.drawRRect(background, backgroundPaint);
-
-    final gridPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
-      ..strokeWidth = 1;
-    for (var line = 1; line <= 3; line += 1) {
-      final y = size.height * (line / 4);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    if (samples.isEmpty) {
-      return;
-    }
-
-    final visibleSamples = samples.length > 24
-        ? samples.sublist(samples.length - 24)
-        : samples;
-    final minSample = visibleSamples.reduce((a, b) => a < b ? a : b);
-    final maxSample = visibleSamples.reduce((a, b) => a > b ? a : b);
-    final range = (maxSample - minSample).abs() < 0.01
-        ? 1.0
-        : maxSample - minSample;
-
-    final path = Path();
-    for (var index = 0; index < visibleSamples.length; index += 1) {
-      final x = visibleSamples.length == 1
-          ? size.width / 2
-          : size.width * (index / (visibleSamples.length - 1));
-      final normalizedY = (visibleSamples[index] - minSample) / range;
-      final y = size.height - (normalizedY * (size.height - 10)) - 5;
-
-      if (index == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-
-    final linePaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF7CE8FF), Color(0xFFFF91DD), Color(0xFFFFD564)],
-      ).createShader(Offset.zero & size)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, linePaint);
-  }
+  final bool isCapturing;
+  final DataCollectionStudyLocation? selectedLocation;
+  final DataCollectionLocationGroup? locationGroup;
+  final _LocationPermissionState locationPermissionState;
+  final String? statusMessage;
 
   @override
-  bool shouldRepaint(covariant _SignalHistoryPainter oldDelegate) {
-    return oldDelegate.samples.length != samples.length ||
-        !listEquals(oldDelegate.samples, samples);
-  }
-}
+  Widget build(BuildContext context) {
+    final String label;
+    final IconData icon;
+    final Color accent;
 
-class _ProgressBarPainter extends CustomPainter {
-  const _ProgressBarPainter({required this.progress});
+    if (isCapturing && selectedLocation != null) {
+      label = 'Recording at ${selectedLocation!.displayLabel}';
+      icon = Icons.fiber_manual_record_rounded;
+      accent = const Color(0xFFFB7185);
+    } else if (locationPermissionState != _LocationPermissionState.granted) {
+      label = statusMessage ?? 'Location access needed to start a session.';
+      icon = Icons.location_off_rounded;
+      accent = const Color(0xFFFB923C);
+    } else if (locationGroup == null) {
+      label =
+          statusMessage ??
+          'Move into a supported study area, or create one when you tap the mic.';
+      icon = Icons.explore_off_rounded;
+      accent = const Color(0xFFFFD564);
+    } else {
+      label =
+          'Ready in ${locationGroup!.buildingName}. Tap the mic to choose a study location.';
+      icon = Icons.place_rounded;
+      accent = const Color(0xFF6EE7B7);
+    }
 
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final background = Paint()..color = const Color(0xFF17324A);
-    final fill = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF2563EB), Color(0xFF06B6D4), Color(0xFF34D399)],
-      ).createShader(Offset.zero & size);
-    final rrect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(999),
-    );
-    canvas.drawRRect(rrect, background);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 0, size.width * progress.clamp(0.0, 1.0), size.height),
-        const Radius.circular(999),
+    return _GlassCard(
+      key: const Key('session-location-banner'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: accent, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
-      fill,
     );
   }
-
-  @override
-  bool shouldRepaint(covariant _ProgressBarPainter oldDelegate) {
-    return oldDelegate.progress != progress;
-  }
-}
-
-String _formatDuration(Duration duration) {
-  final minutes = duration.inMinutes;
-  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-  return '$minutes:$seconds';
 }
 
 class _GlassCard extends StatelessWidget {
@@ -3413,82 +2538,3 @@ class NoiseBarPainter extends CustomPainter {
   }
 }
 
-class ProceduralSurfacePainter extends CustomPainter {
-  ProceduralSurfacePainter({required this.frame, required this.config});
-
-  final SurfaceFrameState frame;
-  final SurfaceConfig config;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final model = buildSurfaceRenderModel(
-      size: size,
-      frame: frame,
-      config: config,
-    );
-
-    final backgroundPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          model.quietColor,
-          Color.lerp(model.quietColor, model.activeTint, 0.36)!,
-          const Color(0xFF103744),
-        ],
-      ).createShader(rect);
-    canvas.drawRect(rect, backgroundPaint);
-
-    final glowPaint = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              model.activeTint.withValues(alpha: 0.24),
-              const Color(0xFF6DDCFF).withValues(alpha: 0.08),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(center: model.glowCenter, radius: model.glowRadius),
-          );
-    canvas.drawCircle(model.glowCenter, model.glowRadius, glowPaint);
-
-    for (final ripple in model.ripples) {
-      final ripplePaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = ripple.strokeWidth
-        ..color = ripple.color;
-      canvas.drawOval(ripple.bounds, ripplePaint);
-    }
-
-    for (final line in model.lines) {
-      final path = Path();
-      for (var pointIndex = 0; pointIndex < line.points.length; pointIndex++) {
-        final point = line.points[pointIndex];
-        if (pointIndex == 0) {
-          path.moveTo(point.dx, point.dy);
-        } else {
-          path.lineTo(point.dx, point.dy);
-        }
-      }
-
-      final linePaint = Paint()
-        ..color = line.color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = line.strokeWidth
-        ..strokeCap = StrokeCap.round;
-      canvas.drawPath(path, linePaint);
-    }
-
-    final particlePaint = Paint();
-    for (final particle in model.particles) {
-      particlePaint.color = particle.color;
-      canvas.drawCircle(particle.center, particle.radius, particlePaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant ProceduralSurfacePainter oldDelegate) {
-    return oldDelegate.frame != frame || oldDelegate.config != config;
-  }
-}
