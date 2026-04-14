@@ -27,10 +27,27 @@ const {
 } = require("./services/locationStatusText");
 const { SERVER_RUNTIME_CONFIG } = require("./config/runtimeConfig");
 const { loadSearchSource } = require("./services/locationSearchSource");
+const { defaultA1Config } = require("../shared/src/uml_service_layout");
 
 const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
 const STATUS_FALLBACK_FRESHNESS_MINUTES =
   SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
+
+// Startup diagnostic: echoes the A1 retention config the running process
+// actually captured from defaultA1Config. If the numbers don't match the
+// values in shared/src/uml_service_layout.js, the process is running a
+// stale module (likely a still-running old node process, a cached require,
+// or a dist build frozen at an earlier version).
+//   halfLifeMs        = 172800000  → 48 h  (2 day half-life)
+//   archiveThresholdMs= 172800000  → 48 h  (source rows deleted after this)
+//   minWeightThreshold= 0.05
+// Any other values mean the config on disk isn't what's loaded.
+console.log(
+  "[startup] A1 retention: " +
+    `halfLifeMs=${defaultA1Config.reportHalfLifeMs}, ` +
+    `archiveThresholdMs=${defaultA1Config.archiveThresholdMs}, ` +
+    `minWeightThreshold=${defaultA1Config.minWeightThreshold}`,
+);
 
 const app = express();
 const reportProcessingService = new ReportProcessingService();
@@ -133,9 +150,44 @@ function buildGroupAnnotation(group, childLocations) {
     return null; // no way to place this group on the map
   }
 
+  // Prefer the group's own rolled-up values (written by A1 polling). When
+  // those aren't yet populated — brand-new group, A1 hasn't cycled, or all
+  // children's currentNoiseLevel went null from decay — fall back to the
+  // mean of child sublocations. Mirrors the fallback in
+  // locationSearchService.buildGroupNode so the map and search endpoints
+  // expose the same group-level aggregates.
+  const childNoiseValues = childLocations
+    .map((l) => l.currentNoiseLevel)
+    .filter((v) => Number.isFinite(v));
+  const childOccupancyValues = childLocations
+    .map((l) => l.currentOccupancyLevel)
+    .filter((v) => Number.isFinite(v));
+  const groupNoise = Number.isFinite(group.currentNoiseLevel)
+    ? group.currentNoiseLevel
+    : (childNoiseValues.length > 0
+      ? childNoiseValues.reduce((sum, v) => sum + v, 0) / childNoiseValues.length
+      : null);
+  const groupOccupancy = Number.isFinite(group.currentOccupancyLevel)
+    ? group.currentOccupancyLevel
+    : (childOccupancyValues.length > 0
+      ? childOccupancyValues.reduce((sum, v) => sum + v, 0) / childOccupancyValues.length
+      : null);
+
+  // Use the group's own updatedAt, or fall back to the most recent child
+  // sublocation timestamp so the freshness window aligns with the
+  // synthesized aggregate. Otherwise a fresh child reading would label the
+  // group "Awaiting live reports" even though we just derived a real
+  // noise value from it.
+  const childUpdatedMs = childLocations
+    .map((l) => (l.updatedAt ? new Date(l.updatedAt).getTime() : NaN))
+    .filter((t) => Number.isFinite(t));
+  const effectiveUpdatedAt = group.updatedAt
+    ? new Date(group.updatedAt)
+    : (childUpdatedMs.length > 0 ? new Date(Math.max(...childUpdatedMs)) : null);
+
   const markerState = buildMapMarkerState(
-    group.updatedAt,
-    group.currentNoiseLevel,
+    effectiveUpdatedAt,
+    groupNoise,
     REPORT_STALE_MINUTES,
   );
 
@@ -145,14 +197,15 @@ function buildGroupAnnotation(group, childLocations) {
     lng,
     title: group.name,
     buildingName: group.name,
-    noiseText: toNoiseText(group.currentNoiseLevel),
-    noiseValue: group.currentNoiseLevel ?? null,
-    occupancyText: toOccupancyText(group.currentOccupancyLevel),
-    severity: Number.isFinite(group.currentNoiseLevel)
-      ? toSeverity(group.currentNoiseLevel)
+    noiseText: toNoiseText(groupNoise),
+    noiseValue: groupNoise,
+    occupancyText: toOccupancyText(groupOccupancy),
+    occupancyValue: groupOccupancy,
+    severity: Number.isFinite(groupNoise)
+      ? toSeverity(groupNoise)
       : "low",
-    updatedAtLabel: group.updatedAt
-      ? formatUpdatedAtLabel(group.updatedAt)
+    updatedAtLabel: effectiveUpdatedAt
+      ? formatUpdatedAtLabel(effectiveUpdatedAt)
       : "Awaiting live reports",
     kind: "group",
     locationGroupId: group.locationGroupId,

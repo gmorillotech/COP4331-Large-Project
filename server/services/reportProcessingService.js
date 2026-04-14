@@ -288,6 +288,15 @@ class ReportProcessingService {
       ? await this.locationGroupRepository.getLocationGroupById(studyLocation.locationGroupId)
       : null;
 
+    // Fire-and-forget: kick A1 so the submitter sees the new aggregation on
+    // the next frontend refresh rather than waiting up to the full scheduled
+    // polling interval. The pollInFlight guard inside triggerPollNow
+    // coalesces concurrent submissions. Not awaited — HTTP response returns
+    // on the same timing it does today; the cycle runs in the background.
+    // If this cycle fails for any reason, the scheduled interval cycle will
+    // still pick up the freshly-saved Report row on its own cadence.
+    void this.triggerPollNow();
+
     return {
       report,
       metadata: createdRecord?.metadata ?? null,
@@ -298,7 +307,58 @@ class ReportProcessingService {
   }
 
   async runPollingCycle(now = new Date()) {
-    return this.a1Service.runPollingCycle(now);
+    // Diagnostic log around every A1 cycle. If report visibility ever
+    // regresses again, `active` / `locations` / `groups` counts per cycle
+    // reveal whether reports are being dropped from aggregation or the
+    // cycle is silently erroring. Stdout-only; cheap to run.
+    const started = Date.now();
+    try {
+      const result = await this.a1Service.runPollingCycle(now);
+      // Log only fields that exist on the running runPollingCycle return
+      // shape. archivedSummaries / compressedReportIds are defined on the
+      // .ts source but the compiled .js we actually execute does not
+      // return them — referencing them throws "Cannot read properties of
+      // undefined (reading 'length')" which previously poisoned every
+      // cycle and made it look like A1 was failing.
+      console.log(
+        `[A1] cycle ok (${Date.now() - started} ms): ` +
+          `active=${result.activeReportCount}, ` +
+          `locations=${result.updatedStudyLocations.length}, ` +
+          `groups=${result.updatedLocationGroups.length}, ` +
+          `deleted=${result.staleReportIds.length}`,
+      );
+      return result;
+    } catch (error) {
+      console.error(
+        `[A1] cycle FAILED after ${Date.now() - started} ms: ${error.message}`,
+      );
+      // Stack trace so we can see which function inside the A1 pipeline
+      // triggered the failure. Without this the caller only logs the
+      // message and swallows the frame info.
+      console.error(error.stack);
+      throw error;
+    }
+  }
+
+  // On-demand A1 trigger. Safe to call from anywhere (submission hot path,
+  // manual admin actions, tests). Coalesces concurrent calls via
+  // pollInFlight so bursts of submissions collapse to at most one extra
+  // cycle queued behind the currently-running one. Never rejects — any
+  // failure is logged and swallowed so callers can use `void` without
+  // needing try/catch.
+  async triggerPollNow() {
+    if (this.pollInFlight) {
+      return this.pollInFlight;
+    }
+    this.pollInFlight = this.runPollingCycle()
+      .catch((error) => {
+        console.error("On-demand A1 cycle failed:", error.message);
+        return null;
+      })
+      .finally(() => {
+        this.pollInFlight = null;
+      });
+    return this.pollInFlight;
   }
 
   async listArchivedSummariesByLocation(

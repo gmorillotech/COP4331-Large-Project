@@ -220,6 +220,21 @@ function MapExplorer({ favoritesOpen, onFavoritesClose }: MapExplorerProps) {
     return () => controller.abort();
   }, [fetchLocations]);
 
+  // Live-data refresh. /api/map-annotations is the single source of truth
+  // for every consumer on this page (map pins, popup, sidebar list,
+  // favorites drawer). Re-fetching on an interval is how backend A1
+  // aggregation updates reach the UI without a page reload. 30 s is half
+  // the backend's 60 s A1 polling cadence, so a new aggregation cycle is
+  // visible within one refresh. Each tick uses its own AbortController so
+  // a slow in-flight request is cancelled if a newer one starts.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const controller = new AbortController();
+      void fetchLocations(controller.signal);
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [fetchLocations]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(searchInput.trim().toLowerCase());

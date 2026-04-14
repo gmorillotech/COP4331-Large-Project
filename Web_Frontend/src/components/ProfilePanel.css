@@ -450,3 +450,26 @@
 .rule-pending {
   color: rgba(109, 214, 255, 0.5);
 }
+
+.profile-delete-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+  border-radius: 8px;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.profile-delete-btn:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #991b1b;
+}
+
+.profile-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
