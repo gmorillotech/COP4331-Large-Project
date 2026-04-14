@@ -758,12 +758,18 @@ export class A1Service {
     const reportRecords = await this.reportRepository.getReportsByLocation(locationId);
     const staleReportIds = reportRecords
       .map((record) => {
+        const now = new Date();
+        const ageMs = Math.max(0, now.getTime() - record.report.createdAt.getTime());
         const decayFactor = computeReportDecayFactor(
           record.report.createdAt,
-          new Date(),
+          now,
           this.config.initialDecayWF,
           this.config.reportHalfLifeMs,
         );
+
+        if (ageMs < this.config.archiveThresholdMs) {
+          return null;
+        }
 
         return decayFactor <= this.config.minWeightThreshold ? record.report.reportId : null;
       })

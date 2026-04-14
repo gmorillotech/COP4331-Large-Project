@@ -13,6 +13,7 @@ import 'package:flutter_application_1/map_search/map_marker_animation.dart';
 import 'package:flutter_application_1/map_search/map_marker_types.dart';
 import 'package:flutter_application_1/map_search/map_marker_widget.dart';
 import 'package:flutter_application_1/map_search/map_search_viewport.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -288,8 +289,10 @@ class _MapSearchPageState extends State<MapSearchPage>
   bool _showAllResults = true;
   bool _showBuildings = true;
   bool _showSpots = true;
-  bool _showUsers = false;
   bool _savingFavorites = false;
+  bool _pendingQueryFocus = false;
+  bool _suppressNextCameraIdleSearch = false;
+  bool _recenteringLocation = false;
 
   String get _baseUrl => apiBaseUrl();
 
@@ -319,8 +322,11 @@ class _MapSearchPageState extends State<MapSearchPage>
   }
 
   MapNode? get _selected {
-    for (final node in [..._results, ..._groups, ..._locations]) {
-      if (node.id == _selectedId) return node;
+    if (_selectedId != null) {
+      for (final node in [..._results, ..._groups, ..._locations]) {
+        if (node.id == _selectedId) return node;
+      }
+      return null;
     }
     return _results.isNotEmpty ? _results.first : null;
   }
@@ -735,6 +741,25 @@ class _MapSearchPageState extends State<MapSearchPage>
         status:
             '${_buildGroups(results).length} buildings and ${results.length} study areas loaded',
       );
+
+      if (_pendingQueryFocus && _query.isNotEmpty && results.isNotEmpty) {
+        _pendingQueryFocus = false;
+        final target = results.first;
+        setState(() {
+          _selectedId = target.id;
+          _detailsExpanded = false;
+          _screenPoints = const {};
+        });
+        _suppressNextCameraIdleSearch = true;
+        unawaited(
+          _mapController?.animateCamera(
+            CameraUpdate.newLatLng(target.position),
+          ) ??
+              Future<void>.value(),
+        );
+      } else if (_query.isEmpty) {
+        _pendingQueryFocus = false;
+      }
     } catch (error) {
       _applyRecords(
         const [],
@@ -753,7 +778,13 @@ class _MapSearchPageState extends State<MapSearchPage>
     setState(() {
       _records = records;
       _groups = groups;
-      _selectedId = groups.isNotEmpty ? groups.first.id : null;
+      final stillValid =
+          _selectedId != null && records.any((n) => n.id == _selectedId);
+      if (!stillValid && _selectedId == null) {
+        _selectedId = groups.isNotEmpty ? groups.first.id : null;
+      } else if (!stillValid) {
+        _selectedId = null;
+      }
       _status = status;
       _loading = false;
     });
@@ -776,9 +807,124 @@ class _MapSearchPageState extends State<MapSearchPage>
     _debounce?.cancel();
     _debounce = Timer(MobileMapSearchTuning.searchDebounce, () {
       if (!mounted) return;
-      setState(() => _query = value.trim().toLowerCase());
-      unawaited(_runSearch());
+      final trimmed = value.trim().toLowerCase();
+      setState(() {
+        _query = trimmed;
+        if (trimmed.isEmpty) {
+          _pendingQueryFocus = false;
+        } else {
+          _selectedId = null;
+          _pendingQueryFocus = true;
+        }
+      });
+      unawaited(_runSearch(showLoading: true));
     });
+  }
+
+  void _clearSearchImmediately() {
+    _debounce?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _query = '';
+      _pendingQueryFocus = false;
+    });
+    unawaited(_runSearch(showLoading: true));
+  }
+
+  Future<void> _recenterOnUserLocation() async {
+    if (_recenteringLocation) return;
+    setState(() => _recenteringLocation = true);
+    try {
+      final servicesEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!servicesEnabled) {
+        _showRecenterError('Location services are off.');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showRecenterError('Location permission denied.');
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+        ),
+      );
+
+      if (!mounted) return;
+
+      _debounce?.cancel();
+      _filterDebounce?.cancel();
+      _searchController.clear();
+      _noiseMinController.clear();
+      _noiseMaxController.clear();
+      _occupancyMaxController.clear();
+
+      setState(() {
+        _query = '';
+        _pendingQueryFocus = false;
+        _selectedId = null;
+        _filter = null;
+        _minNoise = null;
+        _maxNoise = null;
+        _maxOccupancy = null;
+        _maxRadiusMeters = MobileMapSearchTuning.defaultMaxRadiusMeters;
+        _sortOrder = const [
+          SearchSort.relevance,
+          SearchSort.distance,
+          null,
+        ];
+        _showAllResults = true;
+        _showBuildings = true;
+        _showSpots = true;
+      });
+
+      _suppressNextCameraIdleSearch = true;
+      await _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: LatLng(position.latitude, position.longitude),
+            zoom: _defaultCamera.zoom,
+          ),
+        ),
+      );
+
+      await _runSearch(showLoading: true);
+    } catch (error) {
+      _showRecenterError('Unable to get your location right now.');
+    } finally {
+      if (mounted) {
+        setState(() => _recenteringLocation = false);
+      }
+    }
+  }
+
+  void _showRecenterError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  void _submitSearch(String value) {
+    _debounce?.cancel();
+    if (!mounted) return;
+    final trimmed = value.trim().toLowerCase();
+    setState(() {
+      _query = trimmed;
+      if (trimmed.isEmpty) {
+        _pendingQueryFocus = false;
+      } else {
+        _selectedId = null;
+        _pendingQueryFocus = true;
+      }
+    });
+    unawaited(_runSearch(showLoading: true));
   }
 
   void _setSortAt(int index, SearchSort? sort) {
@@ -812,7 +958,6 @@ class _MapSearchPageState extends State<MapSearchPage>
       _showAllResults = value;
       _showBuildings = value;
       _showSpots = value;
-      _showUsers = value;
     });
     unawaited(_runSearch());
   }
@@ -823,7 +968,7 @@ class _MapSearchPageState extends State<MapSearchPage>
   }) {
     setState(() {
       assign(value);
-      _showAllResults = _showBuildings && _showSpots && _showUsers;
+      _showAllResults = _showBuildings && _showSpots;
     });
     unawaited(_runSearch());
   }
@@ -842,18 +987,13 @@ class _MapSearchPageState extends State<MapSearchPage>
   }
 
   Future<void> _focusNode(MapNode node) async {
-    final targetNode = node.isGroup
-        ? _locations.firstWhere(
-            (candidate) => candidate.groupId == node.id,
-            orElse: () => node,
-          )
-        : node;
-
     setState(() {
-      _selectedId = targetNode.id;
+      _selectedId = node.id;
       _detailsExpanded = false;
       _screenPoints = const {};
     });
+
+    _suppressNextCameraIdleSearch = true;
 
     await _mapController?.animateCamera(
       CameraUpdate.newCameraPosition(
@@ -1104,15 +1244,47 @@ class _MapSearchPageState extends State<MapSearchPage>
             top: 12,
             right: 12,
             child: SafeArea(
-              child: Material(
-                color: Colors.white,
-                shape: const CircleBorder(),
-                elevation: 4,
-                child: IconButton(
-                  tooltip: 'Search & filters',
-                  icon: const Icon(Icons.search, color: Color(0xFF102A43)),
-                  onPressed: _openSearchSheet,
-                ),
+              child: Column(
+                children: [
+                  Material(
+                    color: Colors.white,
+                    shape: const CircleBorder(),
+                    elevation: 4,
+                    child: IconButton(
+                      tooltip: 'Search & filters',
+                      icon: const Icon(
+                        Icons.search,
+                        color: Color(0xFF102A43),
+                      ),
+                      onPressed: _openSearchSheet,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Material(
+                    color: Colors.white,
+                    shape: const CircleBorder(),
+                    elevation: 4,
+                    child: IconButton(
+                      tooltip: 'Recenter on my location',
+                      icon: _recenteringLocation
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF102A43),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.my_location_rounded,
+                              color: Color(0xFF102A43),
+                            ),
+                      onPressed: _recenteringLocation
+                          ? null
+                          : _recenterOnUserLocation,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1142,6 +1314,10 @@ class _MapSearchPageState extends State<MapSearchPage>
             onCameraMove: _onCameraMove,
             onCameraIdle: () {
               _scheduleProjectionRefresh();
+              if (_suppressNextCameraIdleSearch) {
+                _suppressNextCameraIdleSearch = false;
+                return;
+              }
               unawaited(_runSearch());
             },
             onTap: (_) => setState(() {
@@ -1207,14 +1383,23 @@ class _MapSearchPageState extends State<MapSearchPage>
             color: Color(0x55FFFFFF),
             child: Center(child: CircularProgressIndicator()),
           ),
-        if (selected != null)
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-              child: _detailCard(context, selected),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (selected != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: _detailCard(context, selected),
+                  ),
+                if (_results.isNotEmpty) _buildResultsStrip(),
+              ],
             ),
           ),
+        ),
       ],
     );
   }
@@ -1290,9 +1475,14 @@ class _MapSearchPageState extends State<MapSearchPage>
                                 children: [
                                   TextField(
                                     controller: _searchController,
+                                    textInputAction: TextInputAction.search,
                                     onChanged: (value) {
                                       setSheetState(() {});
                                       _onSearch(value);
+                                    },
+                                    onSubmitted: (value) {
+                                      _submitSearch(value);
+                                      Navigator.of(sheetContext).pop();
                                     },
                                     decoration: InputDecoration(
                                       hintText:
@@ -1305,7 +1495,7 @@ class _MapSearchPageState extends State<MapSearchPage>
                                               onPressed: () {
                                                 _searchController.clear();
                                                 setSheetState(() {});
-                                                _onSearch('');
+                                                _clearSearchImmediately();
                                               },
                                               icon: const Icon(Icons.close),
                                             ),
@@ -1437,18 +1627,6 @@ class _MapSearchPageState extends State<MapSearchPage>
                                                 setSheetState(() {});
                                               },
                                             ),
-                                            _showCheckbox(
-                                              label: 'Users',
-                                              value: _showUsers,
-                                              onChanged: (value) {
-                                                _toggleShowItem(
-                                                  value: value ?? false,
-                                                  assign: (next) =>
-                                                      _showUsers = next,
-                                                );
-                                                setSheetState(() {});
-                                              },
-                                            ),
                                           ],
                                         ),
                                       ],
@@ -1463,26 +1641,30 @@ class _MapSearchPageState extends State<MapSearchPage>
                                         ),
                                   ),
                                   const SizedBox(height: 12),
-                                  SizedBox(
-                                    height: 210,
-                                    child: _loading
-                                        ? const Center(
-                                            child: CircularProgressIndicator(),
-                                          )
-                                        : _results.isEmpty
-                                        ? Center(
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.all(24),
-                                              child: Text(
-                                                _query.isEmpty
-                                                    ? 'No study spots in this area yet. Pan the map to explore.'
-                                                    : 'No building or location matches your search and filters.',
-                                                textAlign: TextAlign.center,
-                                              ),
-                                            ),
-                                          )
-                                        : ListView.separated(
+                                  if (_loading)
+                                    const Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    )
+                                  else if (_results.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Center(
+                                        child: Text(
+                                          _query.isEmpty
+                                              ? 'No study spots in this area yet. Pan the map to explore.'
+                                              : 'No building or location matches your search and filters.',
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    ListView.separated(
+                                            shrinkWrap: true,
+                                            physics:
+                                                const NeverScrollableScrollPhysics(),
                                             padding:
                                                 const EdgeInsets.fromLTRB(
                                                   4,
@@ -1490,10 +1672,9 @@ class _MapSearchPageState extends State<MapSearchPage>
                                                   4,
                                                   8,
                                                 ),
-                                            scrollDirection: Axis.horizontal,
                                             itemCount: _results.length,
                                             separatorBuilder: (_, _) =>
-                                                const SizedBox(width: 12),
+                                                const SizedBox(height: 10),
                                             itemBuilder: (context, index) {
                                               final node = _results[index];
                                               final selectedNode =
@@ -1503,7 +1684,7 @@ class _MapSearchPageState extends State<MapSearchPage>
                                               final isFavorite =
                                                   _isFavoriteNode(node);
                                               return SizedBox(
-                                                width: 300,
+                                                width: double.infinity,
                                                 child: Material(
                                                   color: selectedNode
                                                       ? node.color.withValues(
@@ -1711,7 +1892,6 @@ class _MapSearchPageState extends State<MapSearchPage>
                                               );
                                             },
                                           ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -1849,6 +2029,113 @@ class _MapSearchPageState extends State<MapSearchPage>
           isSelected: selected,
           animation: _markerAnimation,
         ),
+      ),
+    );
+  }
+
+  Widget _buildResultsStrip() {
+    final results = _results;
+    if (results.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: results.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final node = results[index];
+          final isSelected = node.id == _selectedId;
+          return SizedBox(
+            width: 260,
+            child: Material(
+              color: isSelected
+                  ? node.color.withValues(alpha: 0.18)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              elevation: 4,
+              shadowColor: const Color(0x33000000),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => unawaited(_focusNode(node)),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected
+                          ? node.color
+                          : const Color(0xFFD5DEEA),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: node.color,
+                        foregroundColor: Colors.white,
+                        radius: 18,
+                        child: Text(
+                          node.badge,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _title(node),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF102A43),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                _pill(node.isGroup ? 'Building' : 'Spot'),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              node.isGroup
+                                  ? '${node.locationCount} study areas'
+                                  : (node.sublocationLabel ??
+                                        node.buildingName),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0F766E),
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              node.summary,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF486581),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
