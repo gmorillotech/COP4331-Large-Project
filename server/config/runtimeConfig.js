@@ -30,6 +30,14 @@ const SERVER_RUNTIME_CONFIG = Object.freeze({
   admin: Object.freeze({
     activeReportsDefaultPageSize: 50,
     activeReportsMaxPageSize: 200,
+    groupMergeAdjacencyMaxGapMeters:
+      Number(process.env.GROUP_MERGE_ADJACENCY_MAX_GAP_METERS) || 10,
+    // Narrow tolerance used to snap submitted polygon vertices onto existing
+    // neighbor group edges at save/merge time. Removes float-precision drift
+    // from admin-side boundary snapping so unionPolygons sees exact
+    // collinearity.
+    groupBoundaryNormalizeToleranceMeters:
+      Number(process.env.GROUP_BOUNDARY_NORMALIZE_TOLERANCE_METERS) || 0.3,
   }),
   auth: Object.freeze({
     verificationCodeTtlMs: 15 * 60 * 1000,

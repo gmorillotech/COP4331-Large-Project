@@ -465,6 +465,24 @@
   pointer-events: none;
 }
 
+/* ── POLYGON SNAP HINT ─────────────────────────────── */
+.polygon-snap-hint {
+  position: absolute;
+  top: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(33, 33, 33, 0.82);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.78em;
+  font-weight: 500;
+  max-width: 480px;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* ── CHILD LOCATION REFERENCE MARKERS ────────────────── */
 .child-marker {
   width: 12px;
@@ -627,8 +645,8 @@
 
 .group-selector__split-btn {
   background: none;
-  border: 1px solid #e91e63;
-  color: #e91e63;
+  border: 1px solid #d97706;
+  color: #d97706;
   font-size: 0.78em;
   font-weight: 600;
   padding: 4px 12px;
@@ -639,6 +657,29 @@
 }
 
 .group-selector__split-btn:hover {
-  background-color: #e91e63;
+  background-color: #d97706;
   color: white;
+}
+
+.group-selector__delete-btn {
+  background: none;
+  border: 1px solid #dc3545;
+  color: #dc3545;
+  font-size: 0.78em;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.group-selector__delete-btn:hover:not(:disabled) {
+  background-color: #dc3545;
+  color: white;
+}
+
+.group-selector__delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

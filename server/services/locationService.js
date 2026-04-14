@@ -2,6 +2,7 @@ const {
   isClosedPolygon,
   pointInPolygon,
   pointOnPolygonBoundary,
+  subtractPolygon,
 } = require("./geometryValidation");
 const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
@@ -183,13 +184,30 @@ class LocationService {
       throw new Error("You are already inside an existing location group. Choose that group instead of creating a new one.");
     }
 
+    const baseHexagon = buildRegularHexagonBoundary({
+      centerLatitude,
+      centerLongitude,
+      apothemMeters: this.userCreatedLocationGroupRadiusMeters,
+    });
+
+    // Cede any contested area to pre-existing groups so the new hexagon
+    // can't overlap and create an impossible redraw state later. Without
+    // this step, a child location could land in the overlap region and the
+    // admin would be unable to redraw either group without losing it.
+    let trimmedPolygon = baseHexagon;
+    for (const group of existingGroups) {
+      const boundary = await this._tryGetGroupBoundary(group.locationGroupId);
+      const existingPolygon = boundaryToPolygon(boundary);
+      if (!existingPolygon) continue;
+      const cut = subtractPolygon(trimmedPolygon, existingPolygon);
+      if (cut && cut.length >= 4) {
+        trimmedPolygon = cut;
+      }
+    }
+
     const proposedBoundary = {
       shapeType: "polygon",
-      polygon: buildRegularHexagonBoundary({
-        centerLatitude,
-        centerLongitude,
-        apothemMeters: this.userCreatedLocationGroupRadiusMeters,
-      }),
+      polygon: trimmedPolygon,
       centerLatitude,
       centerLongitude,
       radiusMeters: this.userCreatedLocationGroupRadiusMeters,
@@ -357,6 +375,50 @@ function haversineDistanceMeters(a, b) {
 
 function toRadians(value) {
   return (value * Math.PI) / 180;
+}
+
+function approximateCirclePolygon({ centerLatitude, centerLongitude, radiusMeters, segments = 48 }) {
+  if (
+    !Number.isFinite(centerLatitude) ||
+    !Number.isFinite(centerLongitude) ||
+    !Number.isFinite(radiusMeters) ||
+    radiusMeters <= 0
+  ) {
+    return null;
+  }
+
+  const metersPerDegreeLat = 111_320;
+  const metersPerDegreeLng =
+    metersPerDegreeLat * Math.max(Math.cos(toRadians(centerLatitude)), Number.EPSILON);
+
+  const openVertices = Array.from({ length: segments }, (_, index) => {
+    const theta = (2 * Math.PI * index) / segments;
+    return {
+      latitude: centerLatitude + (Math.cos(theta) * radiusMeters) / metersPerDegreeLat,
+      longitude: centerLongitude + (Math.sin(theta) * radiusMeters) / metersPerDegreeLng,
+    };
+  });
+
+  return isClosedPolygon(openVertices).vertices;
+}
+
+function boundaryToPolygon(boundary) {
+  if (!boundary) return null;
+  if (
+    boundary.shapeType === "polygon" &&
+    Array.isArray(boundary.polygon) &&
+    boundary.polygon.length >= 4
+  ) {
+    return boundary.polygon;
+  }
+  if (boundary.shapeType === "circle") {
+    return approximateCirclePolygon({
+      centerLatitude: boundary.centerLatitude,
+      centerLongitude: boundary.centerLongitude,
+      radiusMeters: boundary.radiusMeters,
+    });
+  }
+  return null;
 }
 
 function buildRegularHexagonBoundary({

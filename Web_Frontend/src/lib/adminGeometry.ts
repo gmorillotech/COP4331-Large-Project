@@ -536,6 +536,55 @@ export function snapToPolygonBoundary(
   return bestNode;
 }
 
+/**
+ * Snap the candidate point to the nearest eligible point on any of the
+ * supplied polygon boundaries. Preference order:
+ *   1. an exact neighbor vertex within `vertexThresholdDeg`
+ *   2. the nearest projected boundary point within `boundaryThresholdDeg`
+ *
+ * Returns the snapped point, or `null` if nothing is within threshold.
+ * Intended as an authoring assist for polygon editing — only the edited
+ * point is snapped, never untouched vertices.
+ */
+export function snapToNearbyPolygonBoundaries(
+  point: Vertex,
+  polygons: Vertex[][],
+  boundaryThresholdDeg = ADMIN_GEOMETRY_TUNING.boundarySnapThresholdDeg,
+  vertexThresholdDeg = ADMIN_GEOMETRY_TUNING.vertexSnapThresholdDeg,
+): Vertex | null {
+  let bestVertex: { point: Vertex; dist: number } | null = null;
+  let bestEdge: { point: Vertex; dist: number } | null = null;
+
+  for (const polygon of polygons) {
+    if (!polygon || polygon.length < 2) continue;
+    const ring = closePolygon(polygon);
+
+    for (let i = 0; i < ring.length - 1; i++) {
+      const v = ring[i];
+      const dv = Math.sqrt(
+        (point.latitude - v.latitude) ** 2 +
+        (point.longitude - v.longitude) ** 2,
+      );
+      if (dv < vertexThresholdDeg && (!bestVertex || dv < bestVertex.dist)) {
+        bestVertex = { point: v, dist: dv };
+      }
+
+      const projected = closestPointOnSegment(point, ring[i], ring[i + 1]);
+      const de = Math.sqrt(
+        (point.latitude - projected.latitude) ** 2 +
+        (point.longitude - projected.longitude) ** 2,
+      );
+      if (de < boundaryThresholdDeg && (!bestEdge || de < bestEdge.dist)) {
+        bestEdge = { point: projected, dist: de };
+      }
+    }
+  }
+
+  if (bestVertex) return bestVertex.point;
+  if (bestEdge) return bestEdge.point;
+  return null;
+}
+
 export function isPointOnPolygonEdge(
   point: Vertex,
   polygon: Vertex[],

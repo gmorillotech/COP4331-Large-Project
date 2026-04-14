@@ -1,14 +1,21 @@
 const crypto = require("crypto");
 const LocationGroup = require("../models/LocationGroup");
 const StudyLocation = require("../models/StudyLocation");
+const Report = require("../models/Report");
 const AuditLog = require("../models/AuditLog");
 const {
   isClosedPolygon,
   validatePolygon,
   polygonsTouchOrOverlap,
+  polygonsHaveAreaOverlap,
+  polygonsShareBorder,
+  minDistanceBetweenPolygons,
+  snapVerticesToNeighborEdges,
   unionPolygons,
+  findAdjacentMergeCandidate,
   validateSplitGeometry,
 } = require("../services/geometryValidation");
+const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
 /**
  * Load closed polygon rings from all groups whose locationGroupId is NOT
@@ -95,6 +102,42 @@ function polygonCentroid(vertices) {
   return computeCentroid(openVertices);
 }
 
+function formatMeters(meters) {
+  if (!Number.isFinite(meters)) return "an unknown distance";
+  if (meters < 0.5) return "less than half a meter";
+  if (meters < 10) return `about ${meters.toFixed(1)} meters`;
+  return `about ${Math.round(meters)} meters`;
+}
+
+/**
+ * Produce a specific diagnostic for why two polygons can't be merged. The
+ * generic "boundaries overlap, share a border, or …" message isn't actionable,
+ * so we distinguish the common failure modes an admin can fix:
+ *   - polygons only touch at a point (need a second snapped vertex)
+ *   - polygons are too far apart (> maxGapMeters)
+ *   - polygons are near each other but another group sits between them
+ */
+function describeMergeFailure(polyA, polyB, maxGapMeters) {
+  const haveAreaOverlap = polygonsHaveAreaOverlap(polyA, polyB);
+  const shareBorder = polygonsShareBorder(polyA, polyB);
+
+  if (haveAreaOverlap || shareBorder) {
+    return "Groups share geometry but a clean merged polygon could not be produced. Adjust one of the boundaries and try again.";
+  }
+
+  const gap = minDistanceBetweenPolygons(polyA, polyB);
+
+  if (gap < 0.5) {
+    return "Groups touch at only a single point. Drag a second consecutive boundary vertex onto the same neighboring edge to create a shared border, then try merging again.";
+  }
+
+  if (gap > maxGapMeters) {
+    return `Groups are ${formatMeters(gap)} apart (max allowed: ${maxGapMeters} meters). Redraw the boundaries so they meet or sit within the allowed gap.`;
+  }
+
+  return `Groups are ${formatMeters(gap)} apart but another group lies between them, so no clean merge corridor exists.`;
+}
+
 // --- Route handlers ---
 
 async function updateGroupShape(req, res) {
@@ -121,7 +164,12 @@ async function updateGroupShape(req, res) {
     }
 
     const childPoints = extractChildPoints(childLocations);
-    const validation = validatePolygon(polygon, otherPolygons, childPoints);
+    const normalizedPolygon = snapVerticesToNeighborEdges(
+      polygon,
+      otherPolygons,
+      SERVER_RUNTIME_CONFIG.admin.groupBoundaryNormalizeToleranceMeters,
+    );
+    const validation = validatePolygon(normalizedPolygon, otherPolygons, childPoints);
     if (!validation.valid) {
       return res.status(400).json({ errors: validation.errors });
     }
@@ -132,7 +180,7 @@ async function updateGroupShape(req, res) {
       shapeUpdatedAt: group.shapeUpdatedAt,
     };
 
-    const { vertices: closedPolygon } = isClosedPolygon(polygon);
+    const { vertices: closedPolygon } = isClosedPolygon(normalizedPolygon);
 
     group.shapeType = "polygon";
     group.polygon = closedPolygon;
@@ -185,32 +233,88 @@ async function mergeGroups(req, res) {
       return res.status(404).json({ error: "One or both source groups not found." });
     }
 
-    const sourcePolygons = sourceGroups.map(groupShapeToPolygon);
-    if (sourcePolygons.some((polygon) => !polygon || polygon.length < 4)) {
+    const rawSourcePolygons = sourceGroups.map(groupShapeToPolygon);
+    if (rawSourcePolygons.some((polygon) => !polygon || polygon.length < 4)) {
       return res.status(400).json({
         error: "Both groups must have valid saved boundaries before they can be merged.",
       });
     }
 
-    if (!polygonsTouchOrOverlap(sourcePolygons[0], sourcePolygons[1])) {
-      return res.status(400).json({
-        error: "Groups can only be merged if their boundaries overlap or share a border.",
-      });
+    const maxGapMeters =
+      SERVER_RUNTIME_CONFIG.admin.groupMergeAdjacencyMaxGapMeters;
+    const normalizeToleranceMeters =
+      SERVER_RUNTIME_CONFIG.admin.groupBoundaryNormalizeToleranceMeters;
+    const otherPolygons = await loadOtherGroupPolygons(sourceGroupIds);
+
+    // Normalize each source polygon against the other so tiny float-drift
+    // from admin-side snapping doesn't block unionPolygons. Tolerance is
+    // sub-meter, so this can't hide a real gap.
+    const sourcePolygons = [
+      isClosedPolygon(
+        snapVerticesToNeighborEdges(
+          rawSourcePolygons[0],
+          [rawSourcePolygons[1]],
+          normalizeToleranceMeters,
+        ),
+      ).vertices,
+      isClosedPolygon(
+        snapVerticesToNeighborEdges(
+          rawSourcePolygons[1],
+          [rawSourcePolygons[0]],
+          normalizeToleranceMeters,
+        ),
+      ).vertices,
+    ];
+
+    let mergedPolygon = null;
+    if (polygonsTouchOrOverlap(sourcePolygons[0], sourcePolygons[1])) {
+      mergedPolygon = unionPolygons(sourcePolygons[0], sourcePolygons[1]);
+    } else {
+      const candidate = findAdjacentMergeCandidate(
+        sourcePolygons[0],
+        sourcePolygons[1],
+        otherPolygons,
+        maxGapMeters,
+      );
+      if (candidate) {
+        mergedPolygon = candidate.mergedPolygon;
+      }
     }
 
-    const mergedPolygon = unionPolygons(sourcePolygons[0], sourcePolygons[1]);
     if (!mergedPolygon || mergedPolygon.length < 4) {
-      return res.status(400).json({
-        error: "Could not compute a valid merged boundary from the selected groups.",
+      const failureMessage = describeMergeFailure(
+        sourcePolygons[0],
+        sourcePolygons[1],
+        maxGapMeters,
+      );
+      console.error("[mergeGroups] union/merge failed", {
+        sourceGroupIds,
+        polyA: sourcePolygons[0],
+        polyB: sourcePolygons[1],
+        message: failureMessage,
       });
+      return res.status(400).json({ error: failureMessage });
     }
 
     const childPoints = extractChildPoints(childLocations);
-    const otherPolygons = await loadOtherGroupPolygons(sourceGroupIds);
     const validation = validatePolygon(mergedPolygon, otherPolygons, childPoints);
     if (!validation.valid) {
       return res.status(400).json({
         error: validation.errors.join(" "),
+      });
+    }
+
+    // Reject up front if the destination name conflicts with a group that
+    // isn't one of the sources being merged. A collision with a source name
+    // is allowed because those sources are about to be deleted.
+    const trimmedDestinationName = destinationName.trim();
+    const nameCollision = await LocationGroup.findOne({
+      name: trimmedDestinationName,
+      locationGroupId: { $nin: sourceGroupIds },
+    });
+    if (nameCollision) {
+      return res.status(400).json({
+        error: `A group named "${trimmedDestinationName}" already exists. Choose a different name.`,
       });
     }
 
@@ -221,13 +325,20 @@ async function mergeGroups(req, res) {
       { locationGroupId: newGroupId },
     );
 
+    // Delete the source groups BEFORE creating the destination so the
+    // admin can reuse one of the source group names — the unique `name`
+    // index would otherwise reject the insert.
+    await LocationGroup.deleteMany({
+      locationGroupId: { $in: sourceGroupIds },
+    });
+
     const avgNoise = averageFinite(childLocations.map((loc) => loc.currentNoiseLevel));
     const avgOccupancy = averageFinite(childLocations.map((loc) => loc.currentOccupancyLevel));
     const centroid = polygonCentroid(mergedPolygon);
 
     const destinationGroup = await LocationGroup.create({
       locationGroupId: newGroupId,
-      name: destinationName.trim(),
+      name: trimmedDestinationName,
       shapeType: "polygon",
       polygon: mergedPolygon,
       shapeUpdatedAt: new Date(),
@@ -237,10 +348,6 @@ async function mergeGroups(req, res) {
       currentNoiseLevel: avgNoise,
       currentOccupancyLevel: avgOccupancy,
       updatedAt: new Date(),
-    });
-
-    await LocationGroup.deleteMany({
-      locationGroupId: { $in: sourceGroupIds },
     });
 
     await AuditLog.create({
@@ -302,9 +409,17 @@ async function splitGroup(req, res) {
       return res.status(404).json({ error: "Location group not found." });
     }
 
+    // Normalize the parent polygon against neighbor edges so tiny drift from
+    // admin-side snapping doesn't cause validation or downstream merge issues.
+    const normalizedParentPolygon = snapVerticesToNeighborEdges(
+      parentPolygon,
+      otherPolygons,
+      SERVER_RUNTIME_CONFIG.admin.groupBoundaryNormalizeToleranceMeters,
+    );
+
     // Geometry validation
     const childPoints = extractChildPoints(childLocations);
-    const validation = validateSplitGeometry(parentPolygon, splitLine, otherPolygons, childPoints);
+    const validation = validateSplitGeometry(normalizedParentPolygon, splitLine, otherPolygons, childPoints);
     if (!validation.valid) {
       return res.status(400).json({ errors: validation.errors });
     }
@@ -410,8 +525,65 @@ async function splitGroup(req, res) {
   }
 }
 
+/**
+ * Cascade-delete a location group along with its StudyLocations and all
+ * Reports associated with those StudyLocations. Child data is irrecoverably
+ * removed because StudyLocation.locationGroupId is required — orphaning
+ * would need a schema change.
+ */
+async function deleteGroup(req, res) {
+  try {
+    const { groupId } = req.params;
+    if (typeof groupId !== "string" || groupId.trim() === "") {
+      return res.status(400).json({ error: "groupId is required." });
+    }
+
+    const group = await LocationGroup.findOne({ locationGroupId: groupId });
+    if (!group) {
+      return res.status(404).json({ error: "Location group not found." });
+    }
+
+    const childLocations = await StudyLocation.find({ locationGroupId: groupId });
+    const studyLocationIds = childLocations.map((l) => l.studyLocationId);
+
+    const reportDeleteResult = studyLocationIds.length > 0
+      ? await Report.deleteMany({ studyLocationId: { $in: studyLocationIds } })
+      : { deletedCount: 0 };
+
+    const locationDeleteResult = studyLocationIds.length > 0
+      ? await StudyLocation.deleteMany({ studyLocationId: { $in: studyLocationIds } })
+      : { deletedCount: 0 };
+
+    await LocationGroup.deleteOne({ locationGroupId: groupId });
+
+    await AuditLog.create({
+      auditId: crypto.randomUUID(),
+      adminUserId: req.user.userId,
+      actionType: "group_delete",
+      targetType: "location_group",
+      targetId: groupId,
+      beforeSnapshot: {
+        group: group.toObject(),
+        childLocations: childLocations.map((l) => l.toObject()),
+      },
+      afterSnapshot: null,
+    });
+
+    return res.status(200).json({
+      message: "Group deleted",
+      deletedGroupId: groupId,
+      deletedLocationCount: locationDeleteResult.deletedCount ?? 0,
+      deletedReportCount: reportDeleteResult.deletedCount ?? 0,
+    });
+  } catch (error) {
+    console.error("Error deleting group:", error);
+    return res.status(500).json({ error: "Server error deleting location group." });
+  }
+}
+
 module.exports = {
   updateGroupShape,
   mergeGroups,
   splitGroup,
+  deleteGroup,
 };

@@ -6,6 +6,7 @@ import GroupSelector from '../../components/admin/GroupSelector.tsx';
 import GroupBoundaryOverlays from '../../components/admin/GroupBoundaryOverlays.tsx';
 import MergeDialog from '../../components/admin/MergeDialog.tsx';
 import '../../components/admin/RedrawMerge.css';
+import '../../components/admin/ManageUsers.css';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -40,6 +41,10 @@ function LocationEditPage() {
   const [showMerge, setShowMerge] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [reloadCounter, setReloadCounter] = useState(0);
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState<LocationGroup | null>(null);
+  const [deleteNameInput, setDeleteNameInput] = useState('');
 
   useEffect(() => {
     let isActive = true;
@@ -94,7 +99,48 @@ function LocationEditPage() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [reloadCounter]);
+
+  function handleDeleteGroup(group: LocationGroup) {
+    setConfirmDeleteGroup(group);
+    setDeleteNameInput('');
+  }
+
+  function closeDeleteModal() {
+    setConfirmDeleteGroup(null);
+    setDeleteNameInput('');
+  }
+
+  async function confirmDeleteGroupNow() {
+    if (!confirmDeleteGroup) return;
+    const group = confirmDeleteGroup;
+    if (deleteNameInput !== group.name) return;
+
+    setDeletingGroupId(group.locationGroupId);
+    setError(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(
+        apiUrl(`/api/admin/location-groups/${group.locationGroupId}`),
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to delete group.');
+        return;
+      }
+      setSelectedIds((prev) => prev.filter((id) => id !== group.locationGroupId));
+      setReloadCounter((n) => n + 1);
+      closeDeleteModal();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reach the server.');
+    } finally {
+      setDeletingGroupId(null);
+    }
+  }
 
   function handleToggle(id: string) {
     setSelectedIds((prev) => {
@@ -134,6 +180,8 @@ function LocationEditPage() {
               groups={groups}
               selectedIds={selectedIds}
               onToggle={handleToggle}
+              onDelete={handleDeleteGroup}
+              deletingGroupId={deletingGroupId}
             />
           )}
         </div>
@@ -211,6 +259,62 @@ function LocationEditPage() {
           }}
           onCancel={() => setShowMerge(false)}
         />
+      )}
+
+      {confirmDeleteGroup && (
+        <div className="modal-overlay" onClick={closeDeleteModal}>
+          <div
+            className="modal-dialog confirm-dialog"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2>Delete Group</h2>
+              <button className="modal-close-btn" onClick={closeDeleteModal}>
+                ✕
+              </button>
+            </div>
+            <div className="confirm-body">
+              <p>
+                Delete group <strong>{confirmDeleteGroup.name}</strong>?
+              </p>
+              <p className="warning-text">
+                This will PERMANENTLY delete the group, every location inside
+                it, and every report tied to those locations. This cannot be
+                undone.
+              </p>
+              <p>Type the group's name to confirm:</p>
+              <input
+                type="text"
+                className="confirm-email-input"
+                placeholder={confirmDeleteGroup.name}
+                value={deleteNameInput}
+                onChange={(e) => setDeleteNameInput(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="confirm-footer">
+              <button
+                className="modal-btn cancel"
+                onClick={closeDeleteModal}
+                disabled={deletingGroupId === confirmDeleteGroup.locationGroupId}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn danger"
+                onClick={confirmDeleteGroupNow}
+                disabled={
+                  deleteNameInput !== confirmDeleteGroup.name ||
+                  deletingGroupId === confirmDeleteGroup.locationGroupId
+                }
+              >
+                {deletingGroupId === confirmDeleteGroup.locationGroupId
+                  ? 'Deleting...'
+                  : 'Delete Group'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

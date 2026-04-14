@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { APIProvider, Map } from '@vis.gl/react-google-maps';
 import { apiUrl } from '../../config';
@@ -187,6 +187,16 @@ function SplitGroupPage() {
     };
   }, [groupId]);
 
+  const snapPolygons = useMemo(() => {
+    const result: Vertex[][] = [];
+    for (const g of allGroups) {
+      if (g.locationGroupId === groupId) continue;
+      const poly = groupBoundaryToPolygon(g);
+      if (poly && poly.length >= 3) result.push(poly);
+    }
+    return result;
+  }, [allGroups, groupId]);
+
   // ── Computed values ─────────────────────────────────────────────────
   const splitValidation = validateSplitLineClient(splitLine, parentVertices);
   const childPolygons = splitValidation.valid
@@ -366,6 +376,7 @@ function SplitGroupPage() {
                 vertices={parentVertices}
                 onChange={setParentVertices}
                 childLocations={childLocations}
+                snapPolygons={snapPolygons}
               />
             ) : (
               <SplitLineEditor

@@ -406,7 +406,23 @@ function segmentIntersectionPoints(p1, q1, p2, q2) {
   }
 
   const intersection = lineIntersection(p1, q1, p2, q2);
-  return intersection ? [intersection] : [];
+  if (!intersection) return [];
+  // lineIntersection uses determinant ratios and can return a point that
+  // drifts by float-precision from an exact shared endpoint. When that drift
+  // survives pointKey's toFixed(12), downstream stitching sees phantom
+  // near-duplicate vertices with degree 1 or 3 and returns null. Snap the
+  // computed intersection to whichever of the four endpoints it's within
+  // ENDPOINT_SNAP_EPSILON of; otherwise keep it as computed.
+  const ENDPOINT_SNAP_EPSILON = 1e-8;
+  for (const endpoint of [p1, q1, p2, q2]) {
+    if (
+      Math.abs(endpoint.latitude - intersection.latitude) < ENDPOINT_SNAP_EPSILON &&
+      Math.abs(endpoint.longitude - intersection.longitude) < ENDPOINT_SNAP_EPSILON
+    ) {
+      return [{ latitude: endpoint.latitude, longitude: endpoint.longitude }];
+    }
+  }
+  return [intersection];
 }
 
 function projectPointT(point, start, end) {
@@ -610,6 +626,60 @@ function stitchSegmentsToPolygon(segments) {
   return simplifyPolygon(polygon);
 }
 
+function pointInDifference(point, subject, clip) {
+  return (
+    pointInOrOnPolygon(point, subject) &&
+    !pointInPolygonStrict(point, clip) &&
+    !pointOnPolygonBoundary(point, clip)
+  );
+}
+
+function shouldKeepDifferenceSubjectSegment(a, b, subject, clip) {
+  const mid = midpoint(a, b);
+
+  if (pointInPolygonStrict(mid, clip)) return false;
+  if (!pointOnPolygonBoundary(mid, clip)) return true;
+
+  const probeA = offsetPointAlongNormal(mid, a, b, 1);
+  const probeB = offsetPointAlongNormal(mid, a, b, -1);
+  return pointInDifference(probeA, subject, clip) !== pointInDifference(probeB, subject, clip);
+}
+
+function shouldKeepDifferenceClipSegment(a, b, subject, clip) {
+  const mid = midpoint(a, b);
+
+  if (pointInPolygonStrict(mid, subject)) return true;
+  if (!pointOnPolygonBoundary(mid, subject)) return false;
+
+  const probeA = offsetPointAlongNormal(mid, a, b, 1);
+  const probeB = offsetPointAlongNormal(mid, a, b, -1);
+  return pointInDifference(probeA, subject, clip) !== pointInDifference(probeB, subject, clip);
+}
+
+/**
+ * Return subject − clip as a single closed ring, or `null` if the result is
+ * empty, disconnected, or cannot be stitched into a simple polygon. Used to
+ * cede contested area to existing groups when auto-generating a new hexagon
+ * boundary.
+ */
+function subtractPolygon(subjectPolygon, clipPolygon) {
+  const subjectRing = isClosedPolygon(subjectPolygon).vertices;
+  const clipRing = isClosedPolygon(clipPolygon).vertices;
+  const keptSegments = new Map();
+
+  for (const [a, b] of splitPolygonIntoSegments(subjectRing, clipRing)) {
+    if (!shouldKeepDifferenceSubjectSegment(a, b, subjectRing, clipRing)) continue;
+    keptSegments.set(segmentMapKey(a, b), [a, b]);
+  }
+
+  for (const [a, b] of splitPolygonIntoSegments(clipRing, subjectRing)) {
+    if (!shouldKeepDifferenceClipSegment(a, b, subjectRing, clipRing)) continue;
+    keptSegments.set(segmentMapKey(a, b), [a, b]);
+  }
+
+  return stitchSegmentsToPolygon([...keptSegments.values()]);
+}
+
 function unionPolygons(polyA, polyB) {
   const ringA = isClosedPolygon(polyA).vertices;
   const ringB = isClosedPolygon(polyB).vertices;
@@ -664,6 +734,239 @@ function unionBySharedEdgeRemoval(ringA, ringB) {
   }
 
   return stitchSegmentsToPolygon(kept);
+}
+
+/**
+ * Approximate planar distance in meters between two lat/lng points using an
+ * equirectangular projection. Accurate enough for adjacency checks over tens
+ * of meters on campus-scale polygons. Provide `latitudeHint` to lock the
+ * longitude scale when a and b straddle the gap between groups.
+ */
+function distanceMeters(a, b, latitudeHint = null) {
+  const latRef = latitudeHint ?? (a.latitude + b.latitude) / 2;
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((latRef * Math.PI) / 180);
+  const dLat = (a.latitude - b.latitude) * mPerDegLat;
+  const dLng = (a.longitude - b.longitude) * mPerDegLng;
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+}
+
+/**
+ * Approximate the minimum distance in meters between the boundaries of two
+ * polygons. Returns 0 if they touch or overlap. Used to build specific merge
+ * diagnostics (point-touch vs. too-far vs. blocked-by-other-group).
+ */
+function minDistanceBetweenPolygons(polyA, polyB) {
+  const ringA = isClosedPolygon(polyA).vertices;
+  const ringB = isClosedPolygon(polyB).vertices;
+  if (!Array.isArray(ringA) || !Array.isArray(ringB)) return Infinity;
+  if (ringA.length < 2 || ringB.length < 2) return Infinity;
+
+  const latRef = (ringA[0].latitude + ringB[0].latitude) / 2;
+  let best = Infinity;
+
+  for (let i = 0; i < ringA.length - 1; i++) {
+    const a0 = ringA[i];
+    const a1 = ringA[i + 1];
+    for (let j = 0; j < ringB.length - 1; j++) {
+      const b0 = ringB[j];
+      const b1 = ringB[j + 1];
+
+      if (segmentsIntersect(a0, a1, b0, b1)) return 0;
+
+      const candidates = [
+        distanceMeters(a0, closestPointOnSegment(a0, b0, b1), latRef),
+        distanceMeters(a1, closestPointOnSegment(a1, b0, b1), latRef),
+        distanceMeters(b0, closestPointOnSegment(b0, a0, a1), latRef),
+        distanceMeters(b1, closestPointOnSegment(b1, a0, a1), latRef),
+      ];
+      for (const d of candidates) {
+        if (d < best) best = d;
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Snap each vertex onto the nearest edge of any neighbor polygon, but only
+ * when the vertex already lies within `toleranceMeters` of that edge. Intended
+ * as a narrow save-/merge-time normalization that eliminates float-precision
+ * drift left over from admin-side boundary snapping, so downstream
+ * `unionPolygons` sees exact collinearity.
+ *
+ * Returns a new vertex array; does not mutate the input.
+ */
+function snapVerticesToNeighborEdges(vertices, otherPolygons, toleranceMeters) {
+  if (!Array.isArray(vertices) || vertices.length === 0) return vertices;
+  if (!Array.isArray(otherPolygons) || otherPolygons.length === 0) return vertices;
+  if (!Number.isFinite(toleranceMeters) || toleranceMeters <= 0) return vertices;
+
+  return vertices.map((v) => {
+    const latRef = v.latitude;
+    let bestDist = Infinity;
+    let bestPoint = null;
+
+    for (const poly of otherPolygons) {
+      if (!Array.isArray(poly) || poly.length < 2) continue;
+      const ring = isClosedPolygon(poly).vertices;
+      for (let i = 0; i < ring.length - 1; i++) {
+        const proj = closestPointOnSegment(v, ring[i], ring[i + 1]);
+        const d = distanceMeters(v, proj, latRef);
+        if (d < bestDist) {
+          bestDist = d;
+          bestPoint = proj;
+        }
+      }
+    }
+
+    if (bestPoint && bestDist <= toleranceMeters) {
+      return { latitude: bestPoint.latitude, longitude: bestPoint.longitude };
+    }
+    return { latitude: v.latitude, longitude: v.longitude };
+  });
+}
+
+function polygonCentroidOpenRing(vertices) {
+  if (!Array.isArray(vertices) || vertices.length === 0) {
+    return null;
+  }
+  const open =
+    vertices.length > 1 && pointsEqual(vertices[0], vertices[vertices.length - 1])
+      ? vertices.slice(0, -1)
+      : vertices;
+  const sumLat = open.reduce((s, v) => s + v.latitude, 0);
+  const sumLng = open.reduce((s, v) => s + v.longitude, 0);
+  return { latitude: sumLat / open.length, longitude: sumLng / open.length };
+}
+
+function polygonEdges(ring) {
+  const closed = isClosedPolygon(ring).vertices;
+  const edges = [];
+  for (let i = 0; i < closed.length - 1; i++) {
+    edges.push([closed[i], closed[i + 1]]);
+  }
+  return edges;
+}
+
+function polygonShoelaceArea(ring) {
+  const closed = isClosedPolygon(ring).vertices;
+  let area = 0;
+  for (let i = 0; i < closed.length - 1; i++) {
+    area +=
+      closed[i].latitude * closed[i + 1].longitude -
+      closed[i + 1].latitude * closed[i].longitude;
+  }
+  return Math.abs(area) / 2;
+}
+
+/**
+ * Build a quadrilateral "corridor" between two edges of separate polygons.
+ * Picks the orientation of edgeB that produces a simple (non-self-intersecting)
+ * quad. Returns a closed ring or null if both orientations degenerate.
+ */
+function buildMergeCorridor(edgeA, edgeB) {
+  const [aStart, aEnd] = edgeA;
+
+  const attempt = (b0, b1) => {
+    const quad = [
+      { latitude: aStart.latitude, longitude: aStart.longitude },
+      { latitude: aEnd.latitude, longitude: aEnd.longitude },
+      { latitude: b1.latitude, longitude: b1.longitude },
+      { latitude: b0.latitude, longitude: b0.longitude },
+      { latitude: aStart.latitude, longitude: aStart.longitude },
+    ];
+    if (hasSelfIntersection(quad)) return null;
+    if (polygonShoelaceArea(quad) < EPSILON) return null;
+    return quad;
+  };
+
+  return attempt(edgeB[0], edgeB[1]) ?? attempt(edgeB[1], edgeB[0]);
+}
+
+/**
+ * Attempt to find a narrow corridor between two non-touching polygons so they
+ * can be merged. Edge pairs are ranked by combined distance from the midpoint
+ * between the two polygon centroids. Returns the merged ring + metadata, or
+ * null if no valid candidate exists within maxGapMeters with a clean corridor.
+ */
+function findAdjacentMergeCandidate(polyA, polyB, otherPolygons, maxGapMeters) {
+  if (!Number.isFinite(maxGapMeters) || maxGapMeters <= 0) return null;
+
+  const ringA = isClosedPolygon(polyA).vertices;
+  const ringB = isClosedPolygon(polyB).vertices;
+
+  const centroidA = polygonCentroidOpenRing(ringA);
+  const centroidB = polygonCentroidOpenRing(ringB);
+  if (!centroidA || !centroidB) return null;
+
+  const mid = midpoint(centroidA, centroidB);
+  const latRef = mid.latitude;
+
+  const rankEdges = (ring) =>
+    polygonEdges(ring)
+      .map((edge) => {
+        const proj = closestPointOnSegment(mid, edge[0], edge[1]);
+        const score = distanceMeters(mid, proj, latRef);
+        return { edge, proj, score };
+      })
+      .sort((x, y) => x.score - y.score);
+
+  const edgesA = rankEdges(ringA);
+  const edgesB = rankEdges(ringB);
+
+  const pairs = [];
+  for (const a of edgesA) {
+    for (const b of edgesB) {
+      pairs.push({ a, b, score: a.score + b.score });
+    }
+  }
+  pairs.sort((x, y) => x.score - y.score);
+
+  for (const { a, b } of pairs) {
+    const gap = distanceMeters(a.proj, b.proj, latRef);
+    if (gap <= EPSILON) continue;
+    if (gap > maxGapMeters) continue;
+
+    const corridor = buildMergeCorridor(a.edge, b.edge);
+    if (!corridor) continue;
+
+    // Corridor must not strictly overlap either source polygon's interior.
+    // Shared borders along the selected edges are allowed.
+    if (polygonsHaveAreaOverlap(corridor, ringA)) continue;
+    if (polygonsHaveAreaOverlap(corridor, ringB)) continue;
+
+    // Corridor must not overlap any other group polygon.
+    let corridorClean = true;
+    if (Array.isArray(otherPolygons)) {
+      for (const other of otherPolygons) {
+        if (polygonsHaveAreaOverlap(corridor, other)) {
+          corridorClean = false;
+          break;
+        }
+      }
+    }
+    if (!corridorClean) continue;
+
+    const firstUnion = unionPolygons(ringA, corridor);
+    if (!firstUnion || firstUnion.length < 4) continue;
+
+    const mergedPolygon = unionPolygons(firstUnion, ringB);
+    if (!mergedPolygon || mergedPolygon.length < 4) continue;
+
+    if (hasSelfIntersection(mergedPolygon)) continue;
+
+    return {
+      mergedPolygon,
+      corridor,
+      edgeA: a.edge,
+      edgeB: b.edge,
+      gapMeters: gap,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -1131,7 +1434,16 @@ module.exports = {
   validatePolygon,
   computeConvexHull,
   bufferPolygon,
+  subtractPolygon,
   unionPolygons,
+  distanceMeters,
+  minDistanceBetweenPolygons,
+  snapVerticesToNeighborEdges,
+  polygonCentroidOpenRing,
+  polygonEdges,
+  closestPointOnSegment,
+  buildMergeCorridor,
+  findAdjacentMergeCandidate,
   findVertexIndex,
   validateSplitLine,
   splitPolygonByPolyline,

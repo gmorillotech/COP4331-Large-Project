@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { APIProvider, Map } from '@vis.gl/react-google-maps';
 import { apiUrl } from '../../config';
@@ -162,6 +162,16 @@ function RedrawGroupPage() {
     };
   }, [groupId]);
 
+  const snapPolygons = useMemo(() => {
+    const result: Vertex[][] = [];
+    for (const g of allGroups) {
+      if (g.locationGroupId === groupId) continue;
+      const poly = groupBoundaryToPolygon(g);
+      if (poly && poly.length >= 3) result.push(poly);
+    }
+    return result;
+  }, [allGroups, groupId]);
+
   const hasEnoughVertices = vertices.length >= 3;
   const allChildrenInside =
     hasEnoughVertices &&
@@ -260,6 +270,7 @@ function RedrawGroupPage() {
               vertices={vertices}
               onChange={setVertices}
               childLocations={childLocations}
+              snapPolygons={snapPolygons}
             />
           </Map>
         </APIProvider>

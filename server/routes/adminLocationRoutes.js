@@ -1,6 +1,6 @@
 const express = require("express");
 const { protect, requireAdmin } = require("../middleware/authMiddleware");
-const { updateGroupShape, mergeGroups, splitGroup } = require("../controllers/adminLocationController");
+const { updateGroupShape, mergeGroups, splitGroup, deleteGroup } = require("../controllers/adminLocationController");
 
 const router = express.Router();
 
@@ -16,5 +16,8 @@ router.post("/location-groups/merge", mergeGroups);
 
 // POST /api/admin/location-groups/:groupId/split
 router.post("/location-groups/:groupId/split", splitGroup);
+
+// DELETE /api/admin/location-groups/:groupId
+router.delete("/location-groups/:groupId", deleteGroup);
 
 module.exports = router;

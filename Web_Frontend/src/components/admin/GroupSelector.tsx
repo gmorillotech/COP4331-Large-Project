@@ -13,9 +13,11 @@ type GroupSelectorProps = {
   groups: LocationGroup[];
   selectedIds: string[];
   onToggle: (id: string) => void;
+  onDelete?: (group: LocationGroup) => void;
+  deletingGroupId?: string | null;
 };
 
-function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
+function GroupSelector({ groups, selectedIds, onToggle, onDelete, deletingGroupId }: GroupSelectorProps) {
   const navigate = useNavigate();
   const [filter, setFilter] = useState('');
 
@@ -38,6 +40,7 @@ function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
       <ul className="group-selector__list">
         {filtered.map((group) => {
           const isSelected = selectedIds.includes(group.locationGroupId);
+          const isDeleting = deletingGroupId === group.locationGroupId;
           return (
             <li
               key={group.locationGroupId}
@@ -71,6 +74,19 @@ function GroupSelector({ groups, selectedIds, onToggle }: GroupSelectorProps) {
               >
                 Split
               </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  className="group-selector__delete-btn"
+                  disabled={isDeleting}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(group);
+                  }}
+                >
+                  {isDeleting ? '...' : 'Delete'}
+                </button>
+              )}
             </li>
           );
         })}
