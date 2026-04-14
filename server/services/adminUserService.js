@@ -3,6 +3,7 @@ const sgMail = require("@sendgrid/mail");
 
 const User = require("../models/User");
 const Report = require("../models/Report");
+const ReportTagMetadata = require("../models/ReportTagMetadata");
 const AuditLog = require("../models/AuditLog");
 const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
@@ -220,7 +221,12 @@ async function deleteUser(userId, adminUserId) {
 
   const beforeSnap = snapshotUser(user);
 
-  await Report.deleteMany({ userId, reportKind: "live" });
+  const liveReports = await Report.find({ userId, reportKind: "live" }).select("reportId").lean();
+  const reportIds = liveReports.map((r) => r.reportId);
+  await Promise.all([
+    Report.deleteMany({ reportId: { $in: reportIds } }),
+    ReportTagMetadata.deleteMany({ reportId: { $in: reportIds } }),
+  ]);
   await User.deleteOne({ userId });
 
   await writeAuditLog({

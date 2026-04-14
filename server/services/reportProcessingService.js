@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 
 const {
   A1Service,
@@ -246,9 +245,12 @@ class ReportProcessingService {
     if (!existingLocation) {
       throw new Error(`Study location ${reportData.studyLocationId} is not configured.`);
     }
-    await this.#ensureCollectorUser(reportData.userId);
+    const resolvedUserId = await this.#ensureCollectorUser(reportData.userId);
 
-    const report = await this.reportService.submitNewReport(reportData);
+    const report = await this.reportService.submitNewReport({
+      ...reportData,
+      userId: resolvedUserId,
+    });
     const metadataRecords = await this.reportRepository.getReportsByLocation(report.studyLocationId);
     const createdRecord =
       metadataRecords.find((record) => record.report.reportId === report.reportId) ?? null;
@@ -376,40 +378,12 @@ class ReportProcessingService {
   }
 
   async #ensureCollectorUser(userId) {
-    const normalizedUserId =
-      typeof userId === "string" && userId.trim().length > 0 ? userId.trim() : "local-user";
-    const existing = await User.findOne({ userId: normalizedUserId }).select("userId");
-    if (existing) {
-      return normalizedUserId;
+    if (!userId || typeof userId !== "string" || userId.trim().length === 0) {
+      return null;
     }
-
-    const passwordHash = await bcrypt.hash(`collector-${normalizedUserId}`, 10);
-    const safeLogin = normalizedUserId.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
-    await new User({
-      userId: normalizedUserId,
-      login: `collector-${safeLogin}`,
-      email: `${safeLogin}@local.invalid`,
-      passwordHash,
-      role: "user",
-      accountStatus: "active",
-      firstName: "Local",
-      lastName: "Collector",
-      displayName: "Local Collector",
-      hideLocation: false,
-      pinColor: "#0F766E",
-      favorites: [],
-      userNoiseWF: 1,
-      userOccupancyWF: 1,
-      emailVerificationCode: null,
-      emailVerificationExpiresAt: null,
-      emailVerifiedAt: new Date(),
-      passwordResetCode: null,
-      passwordResetCodeExpiresAt: null,
-      passwordChangedAt: new Date(),
-    }).save();
-
-    return normalizedUserId;
+    const normalizedUserId = userId.trim();
+    const existing = await User.findOne({ userId: normalizedUserId }).select("userId");
+    return existing ? normalizedUserId : null;
   }
 }
 

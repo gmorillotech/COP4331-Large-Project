@@ -13,9 +13,7 @@ const reportSchema = new Schema(
     },
     userId: {
       type: String,
-      required() {
-        return this.reportKind === "live";
-      },
+      required: false,
       index: true,
       trim: true,
       default: null,

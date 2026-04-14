@@ -323,25 +323,7 @@ function installInMemoryModelPatches() {
 
 it("submitCanonicalReport persists report metadata and leaves aggregate state for polling", async () => {
   const harness = installInMemoryModelPatches();
-  harness.state.locationGroups.push({
-    locationGroupId: "group-john-c-hitt-library",
-    name: "John C. Hitt Library",
-    currentNoiseLevel: null,
-    currentOccupancyLevel: null,
-    updatedAt: null,
-  });
-  harness.state.studyLocations.push({
-    studyLocationId: "library-floor-1-quiet",
-    locationGroupId: "group-john-c-hitt-library",
-    name: "Quiet Study",
-    floorLabel: "Floor 1",
-    sublocationLabel: "North Reading Room",
-    latitude: 28.60024,
-    longitude: -81.20182,
-    currentNoiseLevel: null,
-    currentOccupancyLevel: null,
-    updatedAt: null,
-  });
+  // Initial state already seeds "library-floor-1-quiet" and "group-john-c-hitt-library"
   const service = new ReportProcessingService();
 
   try {
@@ -368,7 +350,7 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
 
     assert.equal(harness.state.reports.length, 2);
     assert.equal(harness.state.metadata.length, 2);
-    assert.equal(harness.state.users.length, 2);
+    assert.equal(harness.state.users.length, 0); // no collector accounts auto-created
     assert.equal(harness.state.studyLocations.length, 1);
     assert.equal(harness.state.locationGroups.length, 1);
 
