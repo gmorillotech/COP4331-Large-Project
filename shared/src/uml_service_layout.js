@@ -468,10 +468,29 @@ class A1Service {
             const noiseDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.noiseWeightFactor, 0);
             const occupancyNumerator = locationRecords.reduce((sum, record) => sum + record.report.occupancy * record.metadata.occupancyWeightFactor, 0);
             const occupancyDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.occupancyWeightFactor, 0);
+            // If the weighted aggregation produced zero denominators for BOTH
+            // dimensions (e.g. session-correction or trust factors collapsed
+            // the weight), treat this exactly like the "no active records"
+            // case: preserve prior values inside the freshness window rather
+            // than flashing the card to null. Reports vanished at ~22 min
+            // of age in prod because of this; preservation here keeps the
+            // card populated even when weights go sideways.
+            const bothDenominatorsZero = noiseDenominator <= 0 && occupancyDenominator <= 0;
+            if (bothDenominatorsZero) {
+                const priorUpdatedAt = location.updatedAt;
+                const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
+                const withinFreshnessWindow =
+                    Number.isFinite(priorMs) &&
+                    now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
+                console.log(`[A1-zero-weight] loc=${location.studyLocationId} records=${locationRecords.length} noiseDenom=${noiseDenominator} occDenom=${occupancyDenominator} withinWindow=${withinFreshnessWindow}`);
+                if (withinFreshnessWindow) {
+                    return { ...location, updatedAt: location.updatedAt };
+                }
+            }
             return {
                 ...location,
-                currentNoiseLevel: noiseDenominator > 0 ? noiseNumerator / noiseDenominator : null,
-                currentOccupancyLevel: occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : null,
+                currentNoiseLevel: noiseDenominator > 0 ? noiseNumerator / noiseDenominator : location.currentNoiseLevel,
+                currentOccupancyLevel: occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : location.currentOccupancyLevel,
                 updatedAt: now,
             };
         });
