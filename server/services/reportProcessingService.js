@@ -239,11 +239,38 @@ class ReportProcessingService {
   }
 
   async submitCanonicalReport(reportData) {
-    const existingLocation = await StudyLocation.findOne({
+    let existingLocation = await StudyLocation.findOne({
       studyLocationId: reportData.studyLocationId,
-    }).select("studyLocationId");
+    }).select("studyLocationId locationGroupId");
+
     if (!existingLocation) {
-      throw new Error(`Study location ${reportData.studyLocationId} is not configured.`);
+      const { studyLocationId, studyLocationName, locationGroupId, latitude, longitude } = reportData;
+
+      if (
+        !locationGroupId ||
+        !studyLocationName ||
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+      ) {
+        throw new Error(
+          `Study location ${studyLocationId} does not exist and insufficient metadata was provided to create it.`,
+        );
+      }
+
+      await new StudyLocation({
+        studyLocationId,
+        locationGroupId,
+        name: studyLocationName,
+        floorLabel: "",
+        sublocationLabel: "",
+        latitude,
+        longitude,
+        currentNoiseLevel: null,
+        currentOccupancyLevel: null,
+        updatedAt: null,
+      }).save();
+
+      existingLocation = { studyLocationId, locationGroupId };
     }
     const resolvedUserId = await this.#ensureCollectorUser(reportData.userId);
 

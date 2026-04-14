@@ -887,6 +887,8 @@ class CapturedReportDraft {
     required this.studyLocationId,
     required this.studyLocationName,
     required this.locationGroupId,
+    required this.latitude,
+    required this.longitude,
     required this.createdAt,
     required this.avgNoise,
     required this.maxNoise,
@@ -902,6 +904,8 @@ class CapturedReportDraft {
   final String studyLocationId;
   final String studyLocationName;
   final String locationGroupId;
+  final double latitude;
+  final double longitude;
   final DateTime createdAt;
   final double avgNoise;
   final double maxNoise;
@@ -920,6 +924,8 @@ class CapturedReportDraft {
     String? studyLocationId,
     String? studyLocationName,
     String? locationGroupId,
+    double? latitude,
+    double? longitude,
     DateTime? createdAt,
     double? avgNoise,
     double? maxNoise,
@@ -935,6 +941,8 @@ class CapturedReportDraft {
       studyLocationId: studyLocationId ?? this.studyLocationId,
       studyLocationName: studyLocationName ?? this.studyLocationName,
       locationGroupId: locationGroupId ?? this.locationGroupId,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       createdAt: createdAt ?? this.createdAt,
       avgNoise: avgNoise ?? this.avgNoise,
       maxNoise: maxNoise ?? this.maxNoise,
@@ -969,8 +977,10 @@ class CapturedReportDraftBuilder {
       reportId: _buildDraftId(location.studyLocationId, timestamp),
       userId: userId,
       studyLocationId: location.studyLocationId,
-      studyLocationName: location.displayLabel,
+      studyLocationName: location.locationName,
       locationGroupId: location.locationGroupId,
+      latitude: location.latitude,
+      longitude: location.longitude,
       createdAt: timestamp,
       avgNoise: summary.avgNoise,
       maxNoise: summary.maxNoise,
@@ -1081,6 +1091,10 @@ class ApiReportDraftRepository implements ReportDraftRepository {
               ? apiConfig.resolvedUserId
               : draft.userId,
           'studyLocationId': draft.studyLocationId,
+          'studyLocationName': draft.studyLocationName,
+          'locationGroupId': draft.locationGroupId,
+          'latitude': draft.latitude,
+          'longitude': draft.longitude,
           'createdAt': draft.createdAt.toIso8601String(),
           'avgNoise': draft.avgNoise,
           'maxNoise': draft.maxNoise,

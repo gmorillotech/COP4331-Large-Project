@@ -10,12 +10,15 @@ function createReportController({
     try {
       const {
         studyLocationId,
+        studyLocationName,
+        locationGroupId,
+        latitude,
+        longitude,
         avgNoise,
         maxNoise,
         variance,
         occupancy,
         createdAt,
-        userId: bodyUserId,
       } = req.body ?? {};
 
       if (
@@ -31,6 +34,10 @@ function createReportController({
       const processed = await reportProcessingService.submitCanonicalReport({
         userId: req.user?.userId ?? null,
         studyLocationId,
+        studyLocationName: studyLocationName ?? null,
+        locationGroupId: locationGroupId ?? null,
+        latitude: latitude !== undefined ? Number(latitude) : null,
+        longitude: longitude !== undefined ? Number(longitude) : null,
         createdAt: createdAt ? new Date(createdAt) : new Date(),
         avgNoise: Number(avgNoise),
         maxNoise: Number(maxNoise),

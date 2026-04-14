@@ -92,6 +92,10 @@ class HttpDataCollectionBackendClient implements DataCollectionBackendClient {
       body: <String, dynamic>{
         'userId': draft.userId,
         'studyLocationId': draft.studyLocationId,
+        'studyLocationName': draft.studyLocationName,
+        'locationGroupId': draft.locationGroupId,
+        'latitude': draft.latitude,
+        'longitude': draft.longitude,
         'createdAt': draft.createdAt.toUtc().toIso8601String(),
         'avgNoise': draft.avgNoise,
         'maxNoise': draft.maxNoise,
