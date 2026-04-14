@@ -100,8 +100,9 @@ studyLocationSchema.pre(["findOneAndUpdate", "updateOne", "updateMany"], functio
       .filter((line) => !line.includes("node_modules") && !line.includes("node:internal"))
       .slice(0, 8)
       .join(" | ");
+    const cycleId = process.env.A1_CURRENT_CYCLE_ID || "none";
     console.log(
-      `[SL-write] op=${this.op} filter=${JSON.stringify(filter)} ` +
+      `[SL-write] cycle=${cycleId} op=${this.op} filter=${JSON.stringify(filter)} ` +
         `set={noise:${$set.currentNoiseLevel},occ:${$set.currentOccupancyLevel},updatedAt:${$set.updatedAt?.toISOString?.() ?? $set.updatedAt}} ` +
         `stack=${stack}`,
     );

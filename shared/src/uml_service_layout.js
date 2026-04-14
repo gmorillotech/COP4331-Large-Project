@@ -252,6 +252,19 @@ class A1Service {
             this.studyLocationRepository.getAllStudyLocations(),
             this.locationGroupRepository.getAllLocationGroups(),
         ]);
+        // Diagnostic: detect if studyLocations array contains duplicate
+        // studyLocationIds. That would explain the "two writes in the
+        // same cycle for the same location" pattern we've been chasing.
+        {
+            const slIds = studyLocations.map((l) => l.studyLocationId);
+            const uniqueSlIds = new Set(slIds);
+            if (slIds.length !== uniqueSlIds.size) {
+                const counts = {};
+                for (const id of slIds) counts[id] = (counts[id] || 0) + 1;
+                const dupes = Object.entries(counts).filter(([, c]) => c > 1);
+                console.log(`[A1-dup] studyLocations dupes detected array_len=${slIds.length} unique=${uniqueSlIds.size} dupes=${JSON.stringify(dupes)}`);
+            }
+        }
         const userIds = unique(reportRecords.map((record) => record.report.userId));
         const fetchedUsers = await this.userRepository.findUsersByIds(userIds);
         const userMap = new Map(fetchedUsers.map((user) => [user.userId, { ...user }]));

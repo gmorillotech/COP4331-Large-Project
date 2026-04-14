@@ -366,6 +366,9 @@ class ReportProcessingService {
     // reveal whether reports are being dropped from aggregation or the
     // cycle is silently erroring. Stdout-only; cheap to run.
     const started = Date.now();
+    const cycleId = Math.random().toString(36).slice(2, 8);
+    process.env.A1_CURRENT_CYCLE_ID = cycleId;
+    console.log(`[A1-cycle-start] id=${cycleId} at=${now.toISOString()}`);
     try {
       const result = await this.a1Service.runPollingCycle(now);
       // Log only fields that exist on the running runPollingCycle return
