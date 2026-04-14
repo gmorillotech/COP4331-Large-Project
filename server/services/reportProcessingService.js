@@ -231,31 +231,14 @@ class ReportProcessingService {
     // value so the A1 cycle and the /api/map-annotations / locationSearch
     // "is live data fresh" checks can never drift apart.
     //
-    // Env overrides (honored if set to a positive finite number):
-    //   REPORT_HALF_LIFE_MS       — shrinks decay half-life; useful for
-    //                                 reproducing the "no active records"
-    //                                 codepath in < 1 minute instead of
-    //                                 waiting hours.
-    //   REPORT_ARCHIVE_THRESHOLD_MS — when source rows get bucketed into
-    //                                 archive_summary. Keep >= half-life so
-    //                                 we don't mutate reports mid-test.
-    //   REPORT_MIN_WEIGHT_THRESHOLD — decay cutoff below which a report is
-    //                                 dropped from the active set.
-    const envNum = (name) => {
-      const v = Number(process.env[name]);
-      return Number.isFinite(v) && v > 0 ? v : null;
-    };
-    const halfLifeOverride = envNum("REPORT_HALF_LIFE_MS");
-    const archiveOverride = envNum("REPORT_ARCHIVE_THRESHOLD_MS");
-    const minWeightOverride = Number(process.env.REPORT_MIN_WEIGHT_THRESHOLD);
+    // Env overrides for REPORT_HALF_LIFE_MS / REPORT_ARCHIVE_THRESHOLD_MS /
+    // REPORT_MIN_WEIGHT_THRESHOLD were removed after a stale pm2-saved
+    // REPORT_HALF_LIFE_MS=60000 on a later restart caused mass report
+    // deletion in prod. Use explicit code changes if these ever need to
+    // move, never env vars.
     this.a1Config = {
       ...defaultA1Config,
       groupFreshnessWindowMs: SERVER_RUNTIME_CONFIG.freshness.freshnessMs,
-      ...(halfLifeOverride != null ? { reportHalfLifeMs: halfLifeOverride } : {}),
-      ...(archiveOverride != null ? { archiveThresholdMs: archiveOverride } : {}),
-      ...(Number.isFinite(minWeightOverride) && minWeightOverride > 0
-        ? { minWeightThreshold: minWeightOverride }
-        : {}),
     };
     this.a1Service = new A1Service(
       this.reportRepository,
