@@ -90,10 +90,15 @@ studyLocationSchema.pre(["findOneAndUpdate", "updateOne", "updateMany"], functio
       Object.prototype.hasOwnProperty.call($set, "updatedAt");
     if (!touchesAggregates) return;
     const filter = this.getFilter?.() || this.getQuery?.() || {};
+    // Keep the full stack so we can see the user-code caller past the
+    // Mongoose/kareem internal frames, but drop node_modules + node
+    // internals to keep the line readable.
     const stack = new Error("[SL-write-trace]").stack
       ?.split("\n")
-      .slice(1, 6)
+      .slice(1)
       .map((line) => line.trim())
+      .filter((line) => !line.includes("node_modules") && !line.includes("node:internal"))
+      .slice(0, 8)
       .join(" | ");
     console.log(
       `[SL-write] op=${this.op} filter=${JSON.stringify(filter)} ` +
