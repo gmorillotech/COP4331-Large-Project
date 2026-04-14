@@ -1,11 +1,12 @@
 /* ── Admin shell layout ── */
 
 .admin-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: #f1f5f9;
   color: #1e293b;
+  overflow: hidden;
 }
 
 /* ── Header ── */
@@ -100,11 +101,10 @@
 
 .admin-content {
   flex: 1;
-  padding: 2rem;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
-  box-sizing: border-box;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
 }
 
 /* ── Responsive ── */

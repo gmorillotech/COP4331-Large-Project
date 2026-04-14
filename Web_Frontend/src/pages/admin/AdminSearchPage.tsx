@@ -156,19 +156,18 @@ function AdminSearchPage() {
             onSelect={handleSelect}
           />
         </div>
-      </div>
-
-      <div className="admin-detail-panel">
-        {selected ? (
-          <AdminLocationDetail
-            selected={selected}
-            onSelectChild={handleSelect}
-          />
-        ) : (
-          <div className="admin-detail__no-selection">
-            Search for a location or group above to view details
-          </div>
-        )}
+        <div className="admin-detail-panel">
+          {selected ? (
+            <AdminLocationDetail
+              selected={selected}
+              onSelectChild={handleSelect}
+            />
+          ) : (
+            <div className="admin-detail__no-selection">
+              Select a location or group to view details
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
