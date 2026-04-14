@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_application_1/account_center/account_center_page.dart';
 import 'package:flutter_application_1/auth/auth_service.dart';
 import 'package:flutter_application_1/auth/login_page.dart';
@@ -23,6 +24,26 @@ const String _loginRoute = '/login';
 const String _mapRoute = '/map';
 const String _dataCollectionRoute = '/data-collection';
 const String _accountCenterRoute = '/account-center';
+const String _darkMapStyle = r'''[
+  {"elementType":"geometry","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.stroke","stylers":[{"color":"#242f3e"}]},
+  {"elementType":"labels.text.fill","stylers":[{"color":"#746855"}]},
+  {"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#263c3f"}]},
+  {"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#6b9a76"}]},
+  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#38414e"}]},
+  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#212a37"}]},
+  {"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#9ca5b3"}]},
+  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#746855"}]},
+  {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#1f2835"}]},
+  {"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#f3d19c"}]},
+  {"featureType":"transit","elementType":"geometry","stylers":[{"color":"#2f3948"}]},
+  {"featureType":"transit.station","elementType":"labels.text.fill","stylers":[{"color":"#d59563"}]},
+  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#17263c"}]},
+  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#515c6d"}]},
+  {"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#17263c"}]}
+]''';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1012,10 +1033,16 @@ class _MapSearchPageState extends State<MapSearchPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       backgroundColor: const Color(0xFFF3F7FB),
       appBar: AppBar(
         title: const Text('Study Space Search'),
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xCC17263C),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 4),
@@ -1103,6 +1130,7 @@ class _MapSearchPageState extends State<MapSearchPage>
           key: _mapViewportKey,
           child: GoogleMap(
             initialCameraPosition: _defaultCamera,
+            style: _darkMapStyle,
             markers: const <Marker>{},
             myLocationButtonEnabled: false,
             mapToolbarEnabled: false,
