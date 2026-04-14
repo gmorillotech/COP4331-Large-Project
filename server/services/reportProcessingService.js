@@ -214,7 +214,7 @@ class MongooseUserRepository {
           userOccupancyWF: user.userOccupancyWF,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     return updated ? toUser(updated) : user;

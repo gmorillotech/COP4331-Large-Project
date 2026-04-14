@@ -58,7 +58,7 @@ class LocationGroupRepository {
           updatedAt: group.updatedAt,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ));
 
     return updated ? toLocationGroup(updated) : null;

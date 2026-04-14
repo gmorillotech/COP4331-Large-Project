@@ -142,7 +142,7 @@ async function deleteReport(reportId, adminUserId) {
         updatedAt: new Date(),
       },
     },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
 
   if (location) {
