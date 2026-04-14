@@ -69,7 +69,7 @@ function AdminNav() {
       <div className="admin-header-right">
         <span className="admin-user-name">{displayName}</span>
         <NavLink to="/home" className="admin-nav-link admin-back-link">
-          Back to App
+          ← App
         </NavLink>
         <button type="button" className="admin-logout-btn" onClick={handleLogout}>
           Logout

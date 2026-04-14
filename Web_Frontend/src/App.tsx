@@ -3,6 +3,7 @@ import './App.css';
 import HomePage from './pages/HomePage.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import AdminGuard from './components/admin/AdminGuard.tsx';
+import AdminErrorBoundary from './components/admin/AdminErrorBoundary.tsx';
 import AdminLayout from './pages/admin/AdminLayout.tsx';
 import AdminSearchPage from './pages/admin/AdminSearchPage.tsx';
 import ManageUsersPage from './pages/admin/ManageUsersPage.tsx';
@@ -19,7 +20,7 @@ function App() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/collect" element={<DataCollectionPage />} />
         <Route path="/admin" element={<AdminGuard />}>
-          <Route element={<AdminLayout />}>
+          <Route element={<AdminErrorBoundary><AdminLayout /></AdminErrorBoundary>}>
             <Route index element={<AdminSearchPage />} />
             <Route path="users" element={<ManageUsersPage />} />
             <Route path="redraw/:groupId" element={<RedrawGroupPage />} />

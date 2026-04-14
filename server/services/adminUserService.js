@@ -144,12 +144,18 @@ async function editUser(userId, updates, adminUserId) {
     if (!["user", "admin"].includes(updates.role)) {
       return { error: "role must be 'user' or 'admin'", status: 400 };
     }
+    if (adminUserId === userId) {
+      return { error: "You cannot change your own role.", status: 400 };
+    }
     user.role = updates.role;
   }
 
   if (updates.accountStatus !== undefined) {
     if (!["active", "forced_reset", "suspended"].includes(updates.accountStatus)) {
       return { error: "accountStatus must be 'active', 'forced_reset', or 'suspended'", status: 400 };
+    }
+    if (adminUserId === userId) {
+      return { error: "You cannot change your own account status.", status: 400 };
     }
     user.accountStatus = updates.accountStatus;
   }

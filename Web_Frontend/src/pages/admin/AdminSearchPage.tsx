@@ -117,7 +117,7 @@ function AdminSearchPage() {
         </div>
         <div className="admin-search-bar__input-wrapper">
           <input
-            type="search"
+            type="text"
             className="admin-search-bar__input"
             placeholder="Search locations and groups..."
             value={searchInput}

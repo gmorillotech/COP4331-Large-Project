@@ -68,42 +68,48 @@ function ManageUsersPage() {
 
   return (
     <div className="manage-users-page">
-      <h1>Manage Users</h1>
-
-      <div className="manage-users-toolbar">
-        <input
-          type="text"
-          className="manage-users-search"
-          placeholder="Search users by name, email, or ID..."
-          value={searchTerm}
-          onChange={handleSearchChange}
-        />
-        <button
-          className="manage-users-refresh-btn"
-          onClick={handleRefresh}
-          disabled={loading}
-        >
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
+      <div className="manage-users-header">
+        <div className="manage-users-header__title">
+          <p className="manage-users-header__eyebrow">Admin</p>
+          <h2>Manage Users</h2>
+        </div>
+        <div className="manage-users-toolbar">
+          <input
+            type="text"
+            className="manage-users-search"
+            placeholder="Search by name, email, or ID..."
+            value={searchTerm}
+            onChange={handleSearchChange}
+          />
+          <button
+            className="manage-users-refresh-btn"
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
-      {loading && (
-        <div className="manage-users-loading">Loading users...</div>
-      )}
+      <div className="manage-users-body">
+        {loading && (
+          <div className="manage-users-loading">Loading users...</div>
+        )}
 
-      {error && !loading && (
-        <div className="manage-users-error">{error}</div>
-      )}
+        {error && !loading && (
+          <div className="manage-users-error">{error}</div>
+        )}
 
-      {!loading && !error && users.length === 0 && (
-        <div className="manage-users-empty">
-          {searchTerm ? 'No users match your search.' : 'No users found.'}
-        </div>
-      )}
+        {!loading && !error && users.length === 0 && (
+          <div className="manage-users-empty">
+            {searchTerm ? 'No users match your search.' : 'No users found.'}
+          </div>
+        )}
 
-      {!loading && !error && users.length > 0 && (
-        <UserTable users={users} onUserUpdated={handleUserUpdated} />
-      )}
+        {!loading && !error && users.length > 0 && (
+          <UserTable users={users} onUserUpdated={handleUserUpdated} />
+        )}
+      </div>
     </div>
   );
 }

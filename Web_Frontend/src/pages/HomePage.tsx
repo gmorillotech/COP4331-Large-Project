@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import MapExplorer from '../components/map/index.ts';
 import ProfilePanel from '../components/ProfilePanel';
 import './HomePage.css';
@@ -15,14 +15,27 @@ function getName(raw: string | null): string {
   } catch { return 'User'; }
 }
 
+function isAdmin(): boolean {
+  try {
+    const data = JSON.parse(localStorage.getItem('user_data') ?? '{}');
+    return data.role === 'admin';
+  } catch {
+    return false;
+  }
+}
+
 function HomePage() {
   const navigate = useNavigate();
   const [name, setName] = useState(() => getName(localStorage.getItem('user_data')));
   const [profileOpen, setProfileOpen] = useState(false);
   const [favoritesOpen, setFavoritesOpen] = useState(false);
+  const [admin, setAdmin] = useState(() => isAdmin());
 
   useEffect(() => {
-    function onStorage() { setName(getName(localStorage.getItem('user_data'))); }
+    function onStorage() {
+      setName(getName(localStorage.getItem('user_data')));
+      setAdmin(isAdmin());
+    }
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
@@ -82,6 +95,16 @@ function HomePage() {
           </button>
 
           <span className="dash-divider" aria-hidden="true" />
+
+          {/* Admin Panel — only visible to admins */}
+          {admin && (
+            <>
+              <Link to="/admin" className="dash-admin-btn" aria-label="Go to admin panel">
+                Admin
+              </Link>
+              <span className="dash-divider" aria-hidden="true" />
+            </>
+          )}
 
           {/* Logout */}
           <button

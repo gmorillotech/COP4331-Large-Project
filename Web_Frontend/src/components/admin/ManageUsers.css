@@ -1,26 +1,68 @@
 /* ── MANAGE USERS PAGE ─────────────────────────────────── */
 .manage-users-page {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px 20px;
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 16px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: var(--bg);
 }
 
-.manage-users-page h1 {
-  font-size: 1.6em;
+/* ── HEADER BAR (matches .admin-search-bar) ────────────── */
+.manage-users-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top left, rgba(170, 59, 255, 0.08), transparent 40%),
+    var(--bg);
+  flex-shrink: 0;
+}
+
+.manage-users-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.manage-users-header__eyebrow {
+  font-size: 12px;
   font-weight: 700;
-  color: #333;
-  margin: 0 0 20px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
 }
 
-/* ── SEARCH BAR ────────────────────────────────────────── */
+.manage-users-header__title h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
+/* ── TOOLBAR (search + refresh inside header) ──────────── */
 .manage-users-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  flex: 1;
   flex-wrap: wrap;
+}
+
+/* ── BODY (scrollable content area) ───────────────────── */
+.manage-users-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 8px;
+  background: #fff;
 }
 
 .manage-users-search {
@@ -31,6 +73,8 @@
   border-radius: 12px;
   font-size: 1em;
   outline: none;
+  background: #fff;
+  color: #1e293b;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -89,6 +133,7 @@
   border-radius: 12px;
   border: 1px solid #ddd;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background: #fff;
 }
 
 .user-table {
@@ -96,6 +141,12 @@
   border-collapse: collapse;
   font-size: 0.9em;
   min-width: 900px;
+}
+
+.user-table th:nth-child(4),
+.user-table td:nth-child(4) {
+  width: 60px;
+  text-align: center;
 }
 
 .user-table th {
@@ -133,15 +184,16 @@
   border-bottom: 1px solid #eee;
   color: #333;
   vertical-align: middle;
+  background-color: #fff;
 }
 
 /* Striped rows */
-.user-table tbody tr:nth-child(even) {
+.user-table tbody tr:nth-child(even) td {
   background-color: #fafbfc;
 }
 
 /* Hover highlight */
-.user-table tbody tr:hover {
+.user-table tbody tr:hover td {
   background-color: #e8f0fe;
 }
 
@@ -230,7 +282,7 @@
 }
 
 .action-btn {
-  padding: 5px 12px;
+  padding: 5px 10px;
   border-radius: 8px;
   border: none;
   font-size: 0.8em;

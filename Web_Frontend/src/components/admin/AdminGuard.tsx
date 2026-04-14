@@ -1,23 +1,49 @@
 import { useState, useEffect } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
+import { apiUrl } from '../../config';
 
-type UserData = {
-  role?: string;
-};
-
-function getAuthStatus(): 'admin' | 'denied' | 'noauth' {
-  const raw = localStorage.getItem('user_data');
-  if (!raw) return 'noauth';
-  try {
-    const user: UserData = JSON.parse(raw);
-    return user.role === 'admin' ? 'admin' : 'denied';
-  } catch {
-    return 'noauth';
-  }
-}
+type AuthStatus = 'loading' | 'admin' | 'denied' | 'noauth';
 
 function AdminGuard() {
-  const status = getAuthStatus();
+  const [status, setStatus] = useState<AuthStatus>('loading');
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setStatus('noauth');
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch(apiUrl('/api/auth/profile'), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('unauthorized');
+        return res.json() as Promise<{ role?: string }>;
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setStatus(data.role === 'admin' ? 'admin' : 'denied');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('noauth');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (status === 'loading') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#94a3b8', fontSize: '0.95rem' }}>
+        Verifying access...
+      </div>
+    );
+  }
 
   if (status === 'noauth') {
     return <Navigate to="/" replace />;
@@ -28,7 +54,6 @@ function AdminGuard() {
       <div style={{ padding: '2rem', textAlign: 'center' }}>
         <h2>Access Denied</h2>
         <p>You do not have admin privileges.</p>
-        <p>Redirecting&hellip;</p>
         <RedirectAfterDelay to="/" ms={1500} />
       </div>
     );

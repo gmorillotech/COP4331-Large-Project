@@ -62,6 +62,10 @@ const locationGroupSchema = new Schema(
       type: Date,
       default: null,
     },
+    shapeUpdatedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: { createdAt: true, updatedAt: false },

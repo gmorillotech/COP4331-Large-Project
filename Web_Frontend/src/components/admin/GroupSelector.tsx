@@ -47,46 +47,50 @@ function GroupSelector({ groups, selectedIds, onToggle, onDelete, deletingGroupI
               className={`group-selector__item${isSelected ? ' is-selected' : ''}`}
               onClick={() => onToggle(group.locationGroupId)}
             >
-              <div className="group-selector__checkbox">
-                {isSelected && <span className="group-selector__checkmark">&#10003;</span>}
+              <div className="group-selector__item-top">
+                <div className="group-selector__checkbox">
+                  {isSelected && <span className="group-selector__checkmark">&#10003;</span>}
+                </div>
+                <div className="group-selector__info">
+                  <div className="group-selector__name">{group.name}</div>
+                  <div className="group-selector__id">{group.locationGroupId}</div>
+                </div>
               </div>
-              <div className="group-selector__info">
-                <div className="group-selector__name">{group.name}</div>
-                <div className="group-selector__id">{group.locationGroupId}</div>
-              </div>
-              <button
-                type="button"
-                className="group-selector__redraw-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/admin/redraw/${group.locationGroupId}`);
-                }}
-              >
-                Redraw
-              </button>
-              <button
-                type="button"
-                className="group-selector__split-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/admin/split/${group.locationGroupId}`);
-                }}
-              >
-                Split
-              </button>
-              {onDelete && (
+              <div className="group-selector__item-actions">
                 <button
                   type="button"
-                  className="group-selector__delete-btn"
-                  disabled={isDeleting}
+                  className="group-selector__redraw-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onDelete(group);
+                    navigate(`/admin/redraw/${group.locationGroupId}`);
                   }}
                 >
-                  {isDeleting ? '...' : 'Delete'}
+                  Redraw
                 </button>
-              )}
+                <button
+                  type="button"
+                  className="group-selector__split-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/split/${group.locationGroupId}`);
+                  }}
+                >
+                  Split
+                </button>
+                {onDelete && (
+                  <button
+                    type="button"
+                    className="group-selector__delete-btn"
+                    disabled={isDeleting}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(group);
+                    }}
+                  >
+                    {isDeleting ? '...' : 'Delete'}
+                  </button>
+                )}
+              </div>
             </li>
           );
         })}

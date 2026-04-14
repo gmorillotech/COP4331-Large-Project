@@ -33,6 +33,15 @@ function EditUserDialog({ user, onSave, onClose }: EditUserDialogProps) {
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
 
+  const isSelf = (() => {
+    try {
+      const data = JSON.parse(localStorage.getItem('user_data') ?? '{}') as { userId?: string };
+      return data.userId === user.userId;
+    } catch {
+      return false;
+    }
+  })();
+
   async function handleSave() {
     // Build changed fields only
     const changes: Record<string, unknown> = {};
@@ -75,6 +84,11 @@ function EditUserDialog({ user, onSave, onClose }: EditUserDialogProps) {
         </div>
 
         <div className="modal-body">
+          {isSelf && (
+            <div className="modal-message error">
+              You are editing your own account. Role and status changes are disabled to prevent lockout.
+            </div>
+          )}
           {message && (
             <div className={`modal-message ${isError ? 'error' : 'success'}`}>
               {message}
@@ -98,27 +112,35 @@ function EditUserDialog({ user, onSave, onClose }: EditUserDialogProps) {
 
           <div className="form-group">
             <label className="form-label">Role</label>
-            <select
-              className="form-select"
-              value={role}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => setRole(e.target.value)}
-            >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
+            {isSelf ? (
+              <div className="form-readonly">{role}</div>
+            ) : (
+              <select
+                className="form-select"
+                value={role}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setRole(e.target.value)}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            )}
           </div>
 
           <div className="form-group">
             <label className="form-label">Account Status</label>
-            <select
-              className="form-select"
-              value={accountStatus}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => setAccountStatus(e.target.value)}
-            >
-              <option value="active">Active</option>
-              <option value="forced_reset">Forced Reset</option>
-              <option value="suspended">Suspended</option>
-            </select>
+            {isSelf ? (
+              <div className="form-readonly">{accountStatus}</div>
+            ) : (
+              <select
+                className="form-select"
+                value={accountStatus}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setAccountStatus(e.target.value)}
+              >
+                <option value="active">Active</option>
+                <option value="forced_reset">Forced Reset</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            )}
           </div>
 
           <div className="form-group">

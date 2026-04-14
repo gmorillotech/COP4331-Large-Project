@@ -162,10 +162,11 @@ function LocationEditPage() {
     <div className="location-edit-page">
       <div className="location-edit-sidebar">
         <div className="location-edit-sidebar__header">
+          <p className="location-edit-sidebar__eyebrow">Admin</p>
           <h2>Location Groups</h2>
-          <p className="location-edit-sidebar__selection-count">
-            {selectedIds.length}/2 groups selected
-          </p>
+          <span className="location-edit-sidebar__selection-count">
+            {selectedIds.length}/2 selected for merge
+          </span>
         </div>
 
         <div className="location-edit-sidebar__body">
