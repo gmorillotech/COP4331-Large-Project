@@ -348,7 +348,7 @@
 
 .admin-detail__meta-item {
   display: grid;
-  grid-template-columns: 88px 1fr;
+  grid-template-columns: 100px 1fr;
   align-items: baseline;
   gap: 12px;
   min-width: 0;
@@ -367,6 +367,7 @@
   text-transform: uppercase;
   color: #8b95a8;
   opacity: 0.75;
+  white-space: nowrap;
 }
 
 .admin-detail__meta-value {

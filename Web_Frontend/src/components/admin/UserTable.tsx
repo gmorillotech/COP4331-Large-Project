@@ -27,6 +27,13 @@ function getDisplayName(u: AdminUser): string {
     || u.login;
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-US', {
@@ -274,7 +281,14 @@ function UserTable({ users, onUserUpdated }: UserTableProps) {
           <tbody>
             {sortedUsers.map((user) => (
               <tr key={user.userId}>
-                <td>{getDisplayName(user)}</td>
+                <td>
+                  <div className="user-identity">
+                    <span className="user-avatar" aria-hidden="true">
+                      {getInitials(getDisplayName(user))}
+                    </span>
+                    <span className="user-identity__name">{getDisplayName(user)}</span>
+                  </div>
+                </td>
                 <td>{user.email}</td>
                 <td>
                   <span

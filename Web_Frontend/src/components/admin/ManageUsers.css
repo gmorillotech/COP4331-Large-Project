@@ -5,10 +5,10 @@
   flex: 1;
   min-height: 0;
   margin: 16px;
-  border: 1px solid var(--border);
-  border-radius: 24px;
+  border: 1px solid rgba(170, 59, 255, 0.18);
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: var(--shadow);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   background: var(--bg);
 }
 
@@ -61,8 +61,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 8px;
-  background: #fff;
+  padding: 16px 10px;
+  background: var(--bg);
 }
 
 .manage-users-search {
@@ -79,15 +79,15 @@
 }
 
 .manage-users-search:focus {
-  border-color: #007bff;
-  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+  border-color: #aa3bff;
+  box-shadow: 0 0 0 3px rgba(170, 59, 255, 0.18);
 }
 
 .manage-users-refresh-btn {
   padding: 10px 20px;
   border-radius: 12px;
-  border: 1px solid #007bff;
-  background-color: #007bff;
+  border: 1px solid #aa3bff;
+  background-color: #aa3bff;
   color: white;
   font-weight: 600;
   font-size: 0.95em;
@@ -96,8 +96,8 @@
 }
 
 .manage-users-refresh-btn:hover {
-  background-color: #0056b3;
-  transform: translateY(-2px);
+  background-color: #8b2fd1;
+  transform: translateY(-1px);
 }
 
 .manage-users-refresh-btn:disabled {
@@ -131,15 +131,16 @@
 .user-table-wrapper {
   overflow-x: auto;
   border-radius: 12px;
-  border: 1px solid #ddd;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e4e7ec;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.04);
   background: #fff;
+  padding: 4px;
 }
 
 .user-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9em;
+  font-size: 0.85em;
   min-width: 900px;
 }
 
@@ -150,51 +151,101 @@
 }
 
 .user-table th {
-  background-color: #f0f4f8;
-  color: #555;
+  background-color: #fafbfc;
+  color: #64748b;
   font-weight: 700;
-  font-size: 0.78em;
+  font-size: 0.72em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 12px 14px;
+  letter-spacing: 0.07em;
+  padding: 12px 16px;
   text-align: left;
-  border-bottom: 2px solid #ddd;
+  border-bottom: 1px solid #e4e7ec;
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .user-table th:hover {
-  background-color: #e4eaf0;
+  background-color: #f1f3f6;
+  color: #334155;
+}
+
+/* Active sort column emphasis */
+.user-table th:has(.sort-indicator.active) {
+  background-color: #f5efff;
+  color: #6b21a8;
 }
 
 .user-table th .sort-indicator {
   margin-left: 4px;
-  font-size: 0.9em;
-  color: #999;
+  font-size: 0.95em;
+  color: #cbd5e1;
+  transition: color 0.15s ease;
+}
+
+.user-table th:hover .sort-indicator {
+  color: #94a3b8;
 }
 
 .user-table th .sort-indicator.active {
-  color: #007bff;
+  color: #aa3bff;
+  font-weight: 700;
 }
 
 .user-table td {
-  padding: 10px 14px;
-  border-bottom: 1px solid #eee;
-  color: #333;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f3f6;
+  color: #334155;
   vertical-align: middle;
   background-color: #fff;
+  font-size: 0.95em;
 }
 
-/* Striped rows */
-.user-table tbody tr:nth-child(even) td {
-  background-color: #fafbfc;
+.user-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
-/* Hover highlight */
+/* Hover highlight (replaces zebra striping for cleaner look) */
+.user-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+
 .user-table tbody tr:hover td {
-  background-color: #e8f0fe;
+  background-color: #faf6ff;
+}
+
+/* ── USER IDENTITY (avatar + name) ─────────────────────── */
+.user-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.user-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #aa3bff 0%, #7c3aed 100%);
+  color: #fff;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.user-identity__name {
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Truncated user ID */
@@ -248,8 +299,8 @@
 }
 
 .status-badge.active {
-  background-color: #e8f5e9;
-  color: #2e7d32;
+  background-color: #d1fae5;
+  color: #047857;
 }
 
 .status-badge.forced_reset {
@@ -265,13 +316,14 @@
 /* Verified cell */
 .verified-yes {
   color: #2e7d32;
-  font-size: 0.88em;
+  font-size: 0.95em;
 }
 
 .verified-no {
-  color: #c62828;
+  color: #b45a5a;
   font-weight: 600;
-  font-size: 0.88em;
+  font-size: 0.95em;
+  opacity: 0.9;
 }
 
 /* ── ACTION BUTTONS ────────────────────────────────────── */
@@ -282,53 +334,57 @@
 }
 
 .action-btn {
-  padding: 5px 10px;
-  border-radius: 8px;
-  border: none;
-  font-size: 0.8em;
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 0.78em;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.15s ease, transform 0.1s ease;
-}
-
-.action-btn:hover {
-  transform: translateY(-1px);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
 }
 
+/* Edit — primary neutral (filled subtle slate) */
 .action-btn.edit {
-  background-color: #e0e0e0;
-  color: #333;
+  background-color: #eef1f5;
+  color: #334155;
+  border-color: #eef1f5;
 }
 
 .action-btn.edit:hover {
-  background-color: #bdbdbd;
+  background-color: #e2e7ed;
+  border-color: #d6dbe2;
 }
 
+/* Reset Password — secondary outline */
 .action-btn.reset-pw {
-  background-color: #fff3e0;
-  color: #e65100;
-  border: 1px solid #ffcc80;
+  background-color: transparent;
+  color: #64748b;
+  border: 1px solid #d6dbe2;
 }
 
 .action-btn.reset-pw:hover {
-  background-color: #ffe0b2;
+  background-color: #f5f6f8;
+  color: #334155;
+  border-color: #c4cbd6;
 }
 
+/* Delete — subtle danger */
 .action-btn.delete {
-  background-color: #ffebee;
-  color: #c62828;
-  border: 1px solid #ef9a9a;
+  background-color: transparent;
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.25);
 }
 
 .action-btn.delete:hover {
-  background-color: #ffcdd2;
+  background-color: #fef2f2;
+  border-color: rgba(185, 28, 28, 0.5);
 }
 
 /* ── MODAL OVERLAY ─────────────────────────────────────── */
