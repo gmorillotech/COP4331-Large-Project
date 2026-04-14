@@ -374,6 +374,34 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
   }
 });
 
+it("runPollingCycle deletes stale reports and their metadata when retention threshold is exceeded", async () => {
+  const harness = installInMemoryModelPatches();
+  const service = new ReportProcessingService();
+
+  try {
+    const createdAt = new Date("2026-03-20T12:00:00.000Z");
+    await service.submitCanonicalReport({
+      studyLocationId: "library-floor-1-quiet",
+      userId: "collector-1",
+      createdAt,
+      avgNoise: 52,
+      maxNoise: 58,
+      variance: 4,
+      occupancy: 3,
+    });
+
+    assert.equal(harness.state.reports.length, 1);
+    assert.equal(harness.state.metadata.length, 1);
+
+    await service.runPollingCycle(new Date("2026-04-15T12:00:00.000Z"));
+
+    assert.equal(harness.state.reports.length, 0);
+    assert.equal(harness.state.metadata.length, 0);
+  } finally {
+    harness.restore();
+  }
+});
+
 void run();
 
 async function run() {

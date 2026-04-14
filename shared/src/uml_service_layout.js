@@ -66,6 +66,7 @@ exports.defaultA1Config = {
     neutralUserWeight: 1.0,
     // Tune these later after calibration with real report data.
 };
+const MIN_REPORT_RETENTION_MS = 2 * 60 * 60 * 1000;
 class AuthService {
     userRepository;
     constructor(userRepository) {
@@ -247,6 +248,7 @@ class A1Service {
         this.config = config;
     }
     async runPollingCycle(now = new Date()) {
+        const effectiveArchiveThresholdMs = Math.max(this.config.archiveThresholdMs, MIN_REPORT_RETENTION_MS);
         const [reportRecords, studyLocations, locationGroups] = await Promise.all([
             this.reportRepository.getAllReportsWithMetadata(),
             this.studyLocationRepository.getAllStudyLocations(),
@@ -263,7 +265,7 @@ class A1Service {
             const metadata = this.evaluateReportMetadata(record.report, reportRecords, user, now);
             if (metadata.decayFactor <= this.config.minWeightThreshold) {
                 const ageMs = Math.max(0, now.getTime() - record.report.createdAt.getTime());
-                if (ageMs >= this.config.archiveThresholdMs) {
+                if (ageMs >= effectiveArchiveThresholdMs) {
                     staleReportIds.push(record.report.reportId);
                 }
                 continue;
@@ -361,13 +363,14 @@ class A1Service {
         await this.locationGroupRepository.updateLocationGroup(updatedGroup);
     }
     async pruneExpiredReports(locationId) {
+        const effectiveArchiveThresholdMs = Math.max(this.config.archiveThresholdMs, MIN_REPORT_RETENTION_MS);
         const reportRecords = await this.reportRepository.getReportsByLocation(locationId);
         const staleReportIds = reportRecords
             .map((record) => {
             const now = new Date();
             const ageMs = Math.max(0, now.getTime() - record.report.createdAt.getTime());
             const decayFactor = computeReportDecayFactor(record.report.createdAt, now, this.config.initialDecayWF, this.config.reportHalfLifeMs);
-            if (ageMs < this.config.archiveThresholdMs) {
+            if (ageMs < effectiveArchiveThresholdMs) {
                 return null;
             }
             return decayFactor <= this.config.minWeightThreshold ? record.report.reportId : null;
@@ -402,10 +405,12 @@ class A1Service {
         return studyLocations.map((location) => {
             const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
             if (locationRecords.length === 0) {
+                // Preserve last-known values instead of blanking this location when no
+                // report currently clears the active-weight threshold. This prevents
+                // location cards from falling back to "Awaiting live reports" between
+                // submissions while still allowing staleness to be inferred from updatedAt.
                 return {
                     ...location,
-                    currentNoiseLevel: null,
-                    currentOccupancyLevel: null,
                     updatedAt: location.updatedAt,
                 };
             }

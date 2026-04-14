@@ -355,6 +355,8 @@ export const defaultA1Config: A1Config = {
   // Tune these later after calibration with real report data.
 };
 
+const MIN_REPORT_RETENTION_MS = 2 * 60 * 60 * 1000;
+
 export class AuthService {
   constructor(private readonly userRepository: AuthUserRepository) {}
 
@@ -755,6 +757,10 @@ export class A1Service {
   }
 
   async pruneExpiredReports(locationId: string): Promise<void> {
+    const effectiveArchiveThresholdMs = Math.max(
+      this.config.archiveThresholdMs,
+      MIN_REPORT_RETENTION_MS,
+    );
     const reportRecords = await this.reportRepository.getReportsByLocation(locationId);
     const staleReportIds = reportRecords
       .map((record) => {
@@ -767,7 +773,7 @@ export class A1Service {
           this.config.reportHalfLifeMs,
         );
 
-        if (ageMs < this.config.archiveThresholdMs) {
+        if (ageMs < effectiveArchiveThresholdMs) {
           return null;
         }
 
@@ -781,7 +787,11 @@ export class A1Service {
   }
 
   buildArchivedSummaries(reportRecords: ReportRecord[], now: Date): ArchivedReportSummary[] {
-    const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
+    const effectiveArchiveThresholdMs = Math.max(
+      this.config.archiveThresholdMs,
+      MIN_REPORT_RETENTION_MS,
+    );
+    const archiveCutoff = new Date(now.getTime() - effectiveArchiveThresholdMs);
     const archiveEligible = reportRecords.filter(
       (record) => record.report.createdAt.getTime() < archiveCutoff.getTime(),
     );
@@ -834,7 +844,7 @@ export class A1Service {
           reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
           reportKind: "archive_summary",
           studyLocationId,
-          createdAt: new Date(windowStart.getTime() + this.config.archiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
+          createdAt: new Date(windowStart.getTime() + effectiveArchiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
           avgNoise:
             noiseWeightBasis > 0
               ? noiseContributionBasis / noiseWeightBasis
@@ -873,7 +883,11 @@ export class A1Service {
     evaluatedRecords: Array<{ report: Report; metadata: ReportTagMetadata; user: User }>,
     now: Date,
   ): Promise<{ compressedReportIds: string[]; deletedSourceReportIds: string[] }> {
-    const archiveCutoff = new Date(now.getTime() - this.config.archiveThresholdMs);
+    const effectiveArchiveThresholdMs = Math.max(
+      this.config.archiveThresholdMs,
+      MIN_REPORT_RETENTION_MS,
+    );
+    const archiveCutoff = new Date(now.getTime() - effectiveArchiveThresholdMs);
     const buckets = new Map<
       string,
       Array<{ report: Report; metadata: ReportTagMetadata }>
@@ -937,7 +951,7 @@ export class A1Service {
         reportId: `archive-${studyLocationId}-${windowStart.toISOString()}`,
         reportKind: "archive_summary",
         studyLocationId,
-        createdAt: new Date(windowStart.getTime() + this.config.archiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
+        createdAt: new Date(windowStart.getTime() + effectiveArchiveThresholdMs + this.config.archiveBucketMinutes * 60 * 1000),
         avgNoise:
           noiseWeightBasis > 0
             ? noiseContributionBasis / noiseWeightBasis
@@ -974,10 +988,12 @@ export class A1Service {
       const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
 
       if (locationRecords.length === 0) {
+        // Preserve last-known values instead of blanking this location when no
+        // report currently clears the active-weight threshold. This prevents
+        // location cards from falling back to "Awaiting live reports" between
+        // submissions while still allowing staleness to be inferred from updatedAt.
         return {
           ...location,
-          currentNoiseLevel: null,
-          currentOccupancyLevel: null,
           updatedAt: location.updatedAt,
         };
       }
