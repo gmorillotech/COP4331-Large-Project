@@ -983,9 +983,15 @@ export class A1Service {
         // falls within groupFreshnessWindowMs of now; only blank them once
         // the location is genuinely stale past the freshness window.
         const priorUpdatedAt = location.updatedAt;
+        // Coerce to timestamp rather than relying on `instanceof Date`.
+        // Lean Mongoose docs crossing module boundaries can present the
+        // field as a non-Date (string / cross-realm Date) which made the
+        // prior check spuriously return false and flip populated cards
+        // to null within one cycle.
+        const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
         const withinFreshnessWindow =
-          priorUpdatedAt instanceof Date &&
-          now.getTime() - priorUpdatedAt.getTime() <= this.config.groupFreshnessWindowMs;
+          Number.isFinite(priorMs) &&
+          now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
 
         if (withinFreshnessWindow) {
           return { ...location, updatedAt: location.updatedAt };

@@ -287,6 +287,29 @@ class A1Service {
         if (staleReportIds.length > 0) {
             await this.reportRepository.deleteReports(staleReportIds);
         }
+        // Diagnostic: summarize the per-cycle report fate so we can spot the
+        // cycle in which a young report (well above minWeight) drops out of
+        // activeRecords — which would explain the premature locationRecords=0
+        // branch being hit for a 13-minute-old report.
+        try {
+            const cycleIdForLog = process.env.A1_CURRENT_CYCLE_ID || "none";
+            const activeByLoc = {};
+            for (const rec of activeRecords) {
+                const id = rec.report.studyLocationId;
+                activeByLoc[id] = (activeByLoc[id] || 0) + 1;
+            }
+            const totalByLoc = {};
+            for (const rec of reportRecords) {
+                const id = rec.report.studyLocationId;
+                totalByLoc[id] = (totalByLoc[id] || 0) + 1;
+            }
+            const locsWithTotal = Object.keys(totalByLoc);
+            const dropped = locsWithTotal.filter((id) => (activeByLoc[id] || 0) < totalByLoc[id]);
+            console.log(`[A1-cycle-summary] cycle=${cycleIdForLog} totalReports=${reportRecords.length} activeReports=${activeRecords.length} stale=${staleReportIds.length} droppedLocs=${JSON.stringify(dropped)} activeByLoc=${JSON.stringify(activeByLoc)}`);
+        }
+        catch (err) {
+            console.log(`[A1-cycle-summary] log failed: ${err.message}`);
+        }
         const updatedStudyLocations = this.recalculateAllStudyLocations(studyLocations, activeRecords, now);
         await this.studyLocationRepository.bulkUpdateStudyLocations(updatedStudyLocations);
         const updatedLocationGroups = this.recalculateAllLocationGroups(locationGroups, updatedStudyLocations, now);
@@ -421,9 +444,16 @@ class A1Service {
                 // updatedAt is within groupFreshnessWindowMs; only blank
                 // once the location is genuinely stale past that window.
                 const priorUpdatedAt = location.updatedAt;
+                // Coerce to timestamp rather than relying on `instanceof Date`.
+                // Lean Mongoose docs crossing module boundaries can present the
+                // field as a non-Date (string / cross-realm Date) which made the
+                // prior check spuriously return false and flip populated cards
+                // to null within one cycle.
+                const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
                 const withinFreshnessWindow =
-                    priorUpdatedAt instanceof Date &&
-                    now.getTime() - priorUpdatedAt.getTime() <= this.config.groupFreshnessWindowMs;
+                    Number.isFinite(priorMs) &&
+                    now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
+                console.log(`[A1-recalc-empty] loc=${location.studyLocationId} priorType=${typeof priorUpdatedAt} priorIsDate=${priorUpdatedAt instanceof Date} prior=${priorUpdatedAt} ageMs=${Number.isFinite(priorMs) ? now.getTime() - priorMs : "NaN"} windowMs=${this.config.groupFreshnessWindowMs} withinWindow=${withinFreshnessWindow}`);
                 if (withinFreshnessWindow) {
                     return { ...location, updatedAt: location.updatedAt };
                 }
