@@ -264,7 +264,7 @@ function SplitGroupPage() {
 
   // ── Loading state ───────────────────────────────────────────────────
   if (isLoading) {
-    return <div className="redraw-loading">Loading group data...</div>;
+    return <div className="split-loading">Loading group data…</div>;
   }
 
   const mapCenter =
@@ -276,27 +276,36 @@ function SplitGroupPage() {
     <div className="split-page">
       {/* Top bar */}
       <div className="split-topbar">
-        <h1 className="split-topbar__title">
-          Split: {group?.name ?? 'Unknown Group'}
-        </h1>
+        <div className="split-topbar__heading">
+          <p className="split-topbar__eyebrow">Split group</p>
+          <h1 className="split-topbar__title">
+            Split: {group?.name ?? 'Unknown Group'}
+          </h1>
+        </div>
         <div className="split-topbar__actions">
-          <button
-            type="button"
-            className={phase === 'boundary' ? 'btn-primary' : 'btn-secondary'}
-            onClick={() => {
-              setPhase('boundary');
-              setSplitLine([]);
-            }}
-          >
-            Edit Boundary
-          </button>
-          <button
-            type="button"
-            className={phase === 'split' ? 'btn-primary' : 'btn-secondary'}
-            onClick={() => setPhase('split')}
-          >
-            Draw Split Line
-          </button>
+          <div className="split-phase-toggle" role="tablist" aria-label="Edit mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={phase === 'boundary'}
+              className={`split-phase-btn${phase === 'boundary' ? ' is-active' : ''}`}
+              onClick={() => {
+                setPhase('boundary');
+                setSplitLine([]);
+              }}
+            >
+              Edit Boundary
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={phase === 'split'}
+              className={`split-phase-btn${phase === 'split' ? ' is-active' : ''}`}
+              onClick={() => setPhase('split')}
+            >
+              Draw Split Line
+            </button>
+          </div>
           <button
             type="button"
             className="btn-secondary"
