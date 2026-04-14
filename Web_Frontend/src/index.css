@@ -1372,6 +1372,27 @@ code {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Greyed-out variant used when the underlying live reading is stale.
+   We still surface the last-known label so users see *something* instead of
+   the chip vanishing between report submissions. */
+.location-card__noise-chip.is-stale {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+}
+
+.location-card__noise-chip.is-stale .location-card__noise-dot {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+}
+
+.location-card__noise-chip__stale-tag {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
 /* The colored circle dot */
 .location-card__noise-dot {
   width: 9px;
