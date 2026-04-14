@@ -28,3 +28,4 @@ flutter:
   assets:
     - assets/map_markers/animated/
     - assets/map_markers/static/
+    - assets/data_collection/
