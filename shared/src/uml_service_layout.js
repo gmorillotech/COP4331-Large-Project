@@ -287,6 +287,12 @@ class A1Service {
         }
         return {
             evaluatedAt: now,
+            // Item 2: expose the raw count of live reports read from the
+            // repository so callers can tell "decay filtered them out" (total
+            // non-zero, active=0) from "reports are missing from the DB"
+            // (total=0). Without this the [A1] log can't distinguish Bug A
+            // (aggregate blank-out) from Bug B (persistence/kind-flip).
+            totalReportCount: reportRecords.length,
             activeReportCount: activeRecords.length,
             staleReportIds,
             updatedStudyLocations,
@@ -394,6 +400,20 @@ class A1Service {
         return studyLocations.map((location) => {
             const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
             if (locationRecords.length === 0) {
+                // Bug A fix: do NOT unconditionally null the aggregates when
+                // a cycle sees no active records for this location. The last
+                // known reading is still the best estimate we have. Mirror
+                // the LocationGroup freshness behaviour: preserve the prior
+                // currentNoiseLevel / currentOccupancyLevel while the prior
+                // updatedAt is within groupFreshnessWindowMs; only blank
+                // once the location is genuinely stale past that window.
+                const priorUpdatedAt = location.updatedAt;
+                const withinFreshnessWindow =
+                    priorUpdatedAt instanceof Date &&
+                    now.getTime() - priorUpdatedAt.getTime() <= this.config.groupFreshnessWindowMs;
+                if (withinFreshnessWindow) {
+                    return { ...location, updatedAt: location.updatedAt };
+                }
                 return {
                     ...location,
                     currentNoiseLevel: null,
@@ -419,14 +439,11 @@ class A1Service {
             const childLocations = (locationsByGroupId.get(group.locationGroupId) ?? []).filter((location) => location.updatedAt !== null &&
                 location.currentNoiseLevel !== null &&
                 location.currentOccupancyLevel !== null);
-            if (childLocations.length === 0) {
-                return {
-                    ...group,
-                    currentNoiseLevel: null,
-                    currentOccupancyLevel: null,
-                    updatedAt: group.updatedAt,
-                };
-            }
+            // Bug A fix: do NOT null the group's aggregate when every child
+            // happens to have null values in this cycle. Fall through to the
+            // freshness-preservation branch below (activeWeightedChildren
+            // will be empty, which preserves the previously-published group
+            // aggregates instead of blanking the card).
             const weightedChildren = childLocations.map((location) => ({
                 location,
                 recencyWeight: computeLocationRecencyWeight(location.updatedAt, now, this.config.groupFreshnessWindowMs),

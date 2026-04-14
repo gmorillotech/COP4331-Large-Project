@@ -30,8 +30,10 @@ const { loadSearchSource } = require("./services/locationSearchSource");
 const { defaultA1Config } = require("../shared/src/uml_service_layout");
 
 const REPORT_STALE_MINUTES = SERVER_RUNTIME_CONFIG.display.reportStaleMinutes;
+// Unified freshness window — same value A1 uses for groupFreshnessWindowMs
+// and locationSearchService uses for live-data fallback text.
 const STATUS_FALLBACK_FRESHNESS_MINUTES =
-  SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
+  SERVER_RUNTIME_CONFIG.freshness.freshnessMinutes;
 
 // Startup diagnostic: echoes the A1 retention config the running process
 // actually captured from defaultA1Config. If the numbers don't match the

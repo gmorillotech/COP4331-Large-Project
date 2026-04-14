@@ -4,11 +4,36 @@
 // flutter_application_1/lib/config/app_tuning.dart.
 const sharedLocationTuning = require("../../shared/config/locationTuning.json");
 
+// Single source of truth for "how recent must live data be to still be trusted
+// as the current status." Historically this was spread across two independent
+// env vars (STATUS_FALLBACK_FRESHNESS_MINUTES in the server, and
+// GROUP_FRESHNESS_WINDOW_MS in shared/A1), which could drift out of sync and
+// cause the UI card to blank while A1 still believed the group was fresh (or
+// vice versa). LOCATION_FRESHNESS_MINUTES is the preferred override; the two
+// legacy env vars are still honored for backwards compatibility but resolve
+// to the same value everywhere downstream.
+const FRESHNESS_MINUTES = (() => {
+  const explicit = Number(process.env.LOCATION_FRESHNESS_MINUTES);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  const legacyStatus = Number(process.env.STATUS_FALLBACK_FRESHNESS_MINUTES);
+  if (Number.isFinite(legacyStatus) && legacyStatus > 0) return legacyStatus;
+
+  const legacyGroupMs = Number(process.env.GROUP_FRESHNESS_WINDOW_MS);
+  if (Number.isFinite(legacyGroupMs) && legacyGroupMs > 0) return legacyGroupMs / 60_000;
+
+  return 180;
+})();
+
 const SERVER_RUNTIME_CONFIG = Object.freeze({
+  freshness: Object.freeze({
+    freshnessMinutes: FRESHNESS_MINUTES,
+    freshnessMs: FRESHNESS_MINUTES * 60 * 1000,
+  }),
   display: Object.freeze({
     reportStaleMinutes: Number(process.env.REPORT_STALE_MINUTES) || 2880,
-    statusFallbackFreshnessMinutes:
-      Number(process.env.STATUS_FALLBACK_FRESHNESS_MINUTES) || 180,
+    // Retained for backwards compatibility — mirrors the unified value above.
+    statusFallbackFreshnessMinutes: FRESHNESS_MINUTES,
     noiseThresholds: Object.freeze({
       quiet: Number(process.env.NOISE_THRESHOLD_QUIET) || 50,
       moderate: Number(process.env.NOISE_THRESHOLD_MODERATE) || 60,

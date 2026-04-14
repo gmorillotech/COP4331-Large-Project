@@ -15,8 +15,10 @@ const {
 const { loadSearchSource } = require("./locationSearchSource");
 const { SERVER_RUNTIME_CONFIG } = require("../config/runtimeConfig");
 
+// Unified freshness window — single source of truth shared with A1's
+// groupFreshnessWindowMs and server.js map-annotation status text.
 const STATUS_FALLBACK_FRESHNESS_MINUTES =
-  SERVER_RUNTIME_CONFIG.display.statusFallbackFreshnessMinutes;
+  SERVER_RUNTIME_CONFIG.freshness.freshnessMinutes;
 
 function isFiniteNumber(value) {
   return Number.isFinite(value);
