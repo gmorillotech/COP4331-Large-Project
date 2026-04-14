@@ -7,6 +7,11 @@
   overflow: hidden;
   background-color: #0C1A49;
   z-index: 0;
+  /* Scope the bg token so descendants (e.g. .map-page) using var(--bg)
+     inherit the home navy instead of the dark-mode fallback (#16171d).
+     Without this, tall viewports exposed a mismatched dark-gray strip
+     at the bottom of the map area. Mirrors the admin-shell pattern. */
+  --bg: #0C1A49;
 }
 
 /* ── DASHBOARD BAR ──────────────────────────────────── */
@@ -121,4 +126,20 @@
   border: none;
   height: 100%;
   box-shadow: none;
+}
+
+/* Let the map body stretch to fill all remaining vertical space inside
+   the map-page shell. The default .map-body-row only has min-height: 580px
+   with no flex-grow, so on tall viewports it left empty space below the
+   map that exposed the map-page background. */
+.home-map-container .map-body-row {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The sidebar defaults to max-height: 580px, which leaves a gap below it
+   once the body row stretches taller than 580px. Let it fill the row. */
+.home-map-container .map-sidebar {
+  max-height: none;
+  height: auto;
 }
