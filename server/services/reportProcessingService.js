@@ -138,45 +138,11 @@ class MongooseReportRepository {
   }
 
   async deleteReports(reportIds) {
-    if (reportIds.length === 0) {
-      return;
-    }
 
-    await Promise.all([
-      Report.deleteMany({ reportId: { $in: reportIds } }),
-      ReportTagMetadata.deleteMany({ reportId: { $in: reportIds } }),
-    ]);
   }
 
   async createArchivedReports(records) {
-    if (records.length === 0) {
-      return;
     }
-
-    await Report.bulkWrite(
-      records.map((record) => ({
-        updateOne: {
-          filter: { reportId: record.reportId },
-          update: {
-            $set: {
-              reportId: record.reportId,
-              reportKind: "archive_summary",
-              userId: null,
-              studyLocationId: record.studyLocationId,
-              createdAt: record.createdAt,
-              avgNoise: record.avgNoise,
-              maxNoise: null,
-              variance: null,
-              occupancy: record.occupancy,
-              windowStart: record.windowStart,
-              windowEnd: record.windowEnd,
-            },
-          },
-          upsert: true,
-        },
-      })),
-    );
-  }
 
   async #attachMetadata(reports) {
     if (reports.length === 0) {

@@ -157,12 +157,6 @@ class InMemoryReportRepository implements ReportRepository {
   }
 
   async deleteReports(reportIds: string[]): Promise<void> {
-    for (const reportId of reportIds) {
-      const index = this.records.findIndex((record) => record.report.reportId === reportId);
-      if (index >= 0) {
-        this.records.splice(index, 1);
-      }
-    }
   }
 
   snapshot(): ReportRecord[] {
