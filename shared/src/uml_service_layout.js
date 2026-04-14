@@ -400,6 +400,9 @@ class A1Service {
         return studyLocations.map((location) => {
             const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
             if (locationRecords.length === 0) {
+                if (location.currentNoiseLevel !== null || location.currentOccupancyLevel !== null) {
+                    console.log(`[A1-dbg] ${location.studyLocationId} no-active-records branch. prior=(${location.currentNoiseLevel},${location.currentOccupancyLevel}) priorUpdatedAt=${location.updatedAt?.toISOString?.() ?? location.updatedAt} now=${now.toISOString()}`);
+                }
                 // Bug A fix: do NOT unconditionally null the aggregates when
                 // a cycle sees no active records for this location. The last
                 // known reading is still the best estimate we have. Mirror
@@ -425,10 +428,15 @@ class A1Service {
             const noiseDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.noiseWeightFactor, 0);
             const occupancyNumerator = locationRecords.reduce((sum, record) => sum + record.report.occupancy * record.metadata.occupancyWeightFactor, 0);
             const occupancyDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.occupancyWeightFactor, 0);
+            const nextNoise = noiseDenominator > 0 ? noiseNumerator / noiseDenominator : null;
+            const nextOcc = occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : null;
+            if (nextNoise === null || nextOcc === null) {
+                console.log(`[A1-dbg] ${location.studyLocationId} denominator-path NULL. records=${locationRecords.length} noiseDenom=${noiseDenominator} occDenom=${occupancyDenominator} metadata=${JSON.stringify(locationRecords.map((r) => r.metadata))}`);
+            }
             return {
                 ...location,
-                currentNoiseLevel: noiseDenominator > 0 ? noiseNumerator / noiseDenominator : null,
-                currentOccupancyLevel: occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : null,
+                currentNoiseLevel: nextNoise,
+                currentOccupancyLevel: nextOcc,
                 updatedAt: now,
             };
         });
