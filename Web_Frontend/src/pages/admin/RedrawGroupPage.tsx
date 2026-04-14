@@ -222,7 +222,7 @@ function RedrawGroupPage() {
   }
 
   if (isLoading) {
-    return <div className="redraw-loading">Loading group data...</div>;
+    return <div className="redraw-loading">Loading group data…</div>;
   }
 
   const mapCenter = group && group.centerLatitude != null && group.centerLongitude != null
@@ -232,9 +232,12 @@ function RedrawGroupPage() {
   return (
     <div className="redraw-page">
       <div className="redraw-topbar">
-        <h1 className="redraw-topbar__title">
-          Redraw: {group?.name ?? 'Unknown Group'}
-        </h1>
+        <div className="redraw-topbar__heading">
+          <p className="redraw-topbar__eyebrow">Group editor</p>
+          <h1 className="redraw-topbar__title">
+            Redraw: {group?.name ?? 'Unknown Group'}
+          </h1>
+        </div>
         <div className="redraw-topbar__actions">
           <button
             type="button"

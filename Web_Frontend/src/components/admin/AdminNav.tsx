@@ -20,6 +20,13 @@ function getDisplayName(raw: string | null): string {
   }
 }
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'A';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
 function AdminNav() {
   const navigate = useNavigate();
   const [displayName, setDisplayName] = useState(() =>
@@ -67,7 +74,12 @@ function AdminNav() {
         </nav>
       </div>
       <div className="admin-header-right">
-        <span className="admin-user-name">{displayName}</span>
+        <div className="admin-user-chip" title={displayName}>
+          <span className="admin-user-chip__avatar" aria-hidden="true">
+            {getInitials(displayName)}
+          </span>
+          <span className="admin-user-chip__name">{displayName}</span>
+        </div>
         <NavLink to="/home" className="admin-nav-link admin-back-link">
           ← App
         </NavLink>
