@@ -42,12 +42,11 @@ void main() {
       expect(s.progress, closeTo(0.5, 0.001));
     });
 
-    test('t=1200 → mid third transition, progress=0.5', () {
+    test('t=1200 → mid step 1 transition, progress=0.5', () {
+      // stepIndex=1 → currentFrame=sequence[1]=1, nextFrame=sequence[2]=2.
       final s = computeAnimationState(1200);
-      expect(s.currentFrame, 2);
-      expect(s.nextFrame, 1);
-      // This is actually step 1 (0-800 = step0, 800-1600=step1)
-      // 1200 ms → stepIndex=1, elapsed in step=400 → progress=0.5
+      expect(s.currentFrame, 1);
+      expect(s.nextFrame, 2);
       expect(s.progress, closeTo(0.5, 0.001));
     });
 
