@@ -22,7 +22,7 @@ const FRESHNESS_MINUTES = (() => {
   const legacyGroupMs = Number(process.env.GROUP_FRESHNESS_WINDOW_MS);
   if (Number.isFinite(legacyGroupMs) && legacyGroupMs > 0) return legacyGroupMs / 60_000;
 
-  return 180;
+  return 720;
 })();
 
 const SERVER_RUNTIME_CONFIG = Object.freeze({
