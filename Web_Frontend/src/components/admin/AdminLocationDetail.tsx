@@ -194,7 +194,7 @@ function AdminLocationDetail({ selected, onSelectChild }: AdminLocationDetailPro
               ))}
             </ul>
           ) : (
-            !childLoading && <p style={{ fontSize: '14px', color: 'var(--text)' }}>No child locations</p>
+            !childLoading && <p className="admin-detail__inline-empty">No child locations</p>
           )}
         </>
       )}
