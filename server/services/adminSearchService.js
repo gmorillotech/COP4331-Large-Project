@@ -109,78 +109,20 @@ async function deleteReport(reportId, adminUserId) {
     return null;
   }
 
-  const studyLocationId = report.studyLocationId;
-
+  // Just remove the report + its metadata. DO NOT touch StudyLocation or
+  // LocationGroup aggregates here — that used to recompute with a naive
+  // mean (sum/count) that bypassed A1's weighted-decay formula AND
+  // instantly nulled the card with `updatedAt: new Date()` when the
+  // deleted report was the last one, defeating the freshness-window
+  // preservation fix. The next A1 polling cycle will recompute the
+  // aggregates correctly with the proper decay/trust-weighted math, or
+  // (if no live reports remain) fall through the freshness-preservation
+  // branch so the UI card keeps the last known values until the window
+  // elapses.
   await Promise.all([
     ReportTagMetadata.deleteOne({ reportId }),
     Report.deleteOne({ reportId }),
   ]);
-
-  const staleCutoff = new Date(Date.now() - REPORT_STALE_MINUTES * 60 * 1000);
-  const remainingReports = await Report.find({
-    studyLocationId,
-    reportKind: "live",
-    createdAt: { $gte: staleCutoff },
-  }).lean();
-
-  let newNoise = null;
-  let newOccupancy = null;
-
-  if (remainingReports.length > 0) {
-    const noiseSum = remainingReports.reduce((sum, r) => sum + r.avgNoise, 0);
-    const occupancySum = remainingReports.reduce((sum, r) => sum + r.occupancy, 0);
-    newNoise = noiseSum / remainingReports.length;
-    newOccupancy = occupancySum / remainingReports.length;
-  }
-
-  const location = await StudyLocation.findOneAndUpdate(
-    { studyLocationId },
-    {
-      $set: {
-        currentNoiseLevel: newNoise,
-        currentOccupancyLevel: newOccupancy,
-        updatedAt: new Date(),
-      },
-    },
-    { new: true },
-  ).lean();
-
-  if (location) {
-    const siblingLocations = await StudyLocation.find({
-      locationGroupId: location.locationGroupId,
-    }).lean();
-
-    const locationsWithData = siblingLocations.filter(
-      (loc) => loc.currentNoiseLevel != null && loc.currentOccupancyLevel != null,
-    );
-
-    let groupNoise = null;
-    let groupOccupancy = null;
-
-    if (locationsWithData.length > 0) {
-      const groupNoiseSum = locationsWithData.reduce(
-        (sum, loc) => sum + loc.currentNoiseLevel,
-        0,
-      );
-      const groupOccupancySum = locationsWithData.reduce(
-        (sum, loc) => sum + loc.currentOccupancyLevel,
-        0,
-      );
-      groupNoise = groupNoiseSum / locationsWithData.length;
-      groupOccupancy = groupOccupancySum / locationsWithData.length;
-    }
-
-    await LocationGroup.findOneAndUpdate(
-      { locationGroupId: location.locationGroupId },
-      {
-        $set: {
-          currentNoiseLevel: groupNoise,
-          currentOccupancyLevel: groupOccupancy,
-          updatedAt: new Date(),
-        },
-      },
-    );
-  }
 
   await new AuditLog({
     auditId: crypto.randomUUID(),

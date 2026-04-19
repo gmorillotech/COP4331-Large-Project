@@ -58,7 +58,7 @@ class StudyLocationRepository {
           updatedAt: location.updatedAt,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ));
 
     return updated ? toStudyLocation(updated) : null;

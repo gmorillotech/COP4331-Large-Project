@@ -285,7 +285,7 @@ it("GET /api/locations/search prefers fresh live status text over historical bas
 });
 
 it("GET /api/locations/search falls back to historical text when live data is older than the freshness window", async () => {
-  const staleUpdatedAt = new Date(Date.now() - 4 * 60 * 60 * 1000); // 4 hours ago (> 3h)
+  const staleUpdatedAt = new Date(Date.now() - 13 * 60 * 60 * 1000); // 13 hours ago (> 12h freshness window)
 
   const StudyLocationModel = createQueryModel([
     {
@@ -495,7 +495,7 @@ it("GET /api/locations/search skips historical baseline fetches for locations wi
 });
 
 it("GET /api/locations/search limits baseline hydration to returned locations", async () => {
-  const staleUpdatedAt = new Date(Date.now() - 4 * 60 * 60 * 1000);
+  const staleUpdatedAt = new Date(Date.now() - 13 * 60 * 60 * 1000);
 
   const StudyLocationModel = createQueryModel([
     {

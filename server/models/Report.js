@@ -91,4 +91,31 @@ reportSchema.index({ studyLocationId: 1, createdAt: -1 });
 reportSchema.index({ studyLocationId: 1, reportKind: 1, windowStart: 1 });
 reportSchema.index({ userId: 1, createdAt: -1 });
 
+// Last-resort diagnostic: log every Report deletion with its filter + the
+// user-code caller stack. Reports have been vanishing at 22 min without
+// hitting any of the tracked delete paths (A1 stale, admin delete, admin
+// user delete, group delete). Catching every invocation at the model layer
+// guarantees we see the culprit regardless of whether it's a known path,
+// a missed code path, or a direct mongosh/script deletion.
+reportSchema.pre(
+  ["deleteOne", "deleteMany", "findOneAndDelete"],
+  function preDeleteLog() {
+    try {
+      const filter = this.getFilter?.() || this.getQuery?.() || {};
+      const stack = new Error("[Report-delete-trace]").stack
+        ?.split("\n")
+        .slice(1)
+        .map((l) => l.trim())
+        .filter((l) => !l.includes("node_modules") && !l.includes("node:internal"))
+        .slice(0, 8)
+        .join(" | ");
+      console.log(
+        `[Report-delete] op=${this.op} filter=${JSON.stringify(filter)} stack=${stack}`,
+      );
+    } catch (err) {
+      console.log(`[Report-delete] log hook failed: ${err.message}`);
+    }
+  },
+);
+
 module.exports = mongoose.models.Report || mongoose.model("Report", reportSchema);

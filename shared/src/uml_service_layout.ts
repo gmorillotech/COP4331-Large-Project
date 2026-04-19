@@ -265,6 +265,7 @@ export interface HistoricalBaseline {
 
 export interface A1PollingCycleResult {
   evaluatedAt: Date;
+  totalReportCount: number;
   activeReportCount: number;
   compressedReportIds: string[];
   staleReportIds: string[];
@@ -644,6 +645,11 @@ export class A1Service {
 
     return {
       evaluatedAt: now,
+      // Raw count of live reports read from the repository this cycle. Used
+      // by the server-side diagnostic log to distinguish "reports exist but
+      // got decay-filtered" (total > 0, active === 0) from "reports missing
+      // from DB" (total === 0) without issuing additional queries.
+      totalReportCount: reportRecords.length,
       activeReportCount: activeRecords.length,
       compressedReportIds,
       staleReportIds: deletedSourceReportIds,
@@ -974,6 +980,29 @@ export class A1Service {
       const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
 
       if (locationRecords.length === 0) {
+        // No active reports for this location this cycle. Previously we
+        // unconditionally nulled currentNoiseLevel/currentOccupancyLevel here,
+        // which caused the UI card to go blank within a single cycle of a
+        // quiet period — even though the previous reading is still the most
+        // accurate estimate we have. Mirror the LocationGroup freshness
+        // behaviour: keep the last-known values as long as the prior update
+        // falls within groupFreshnessWindowMs of now; only blank them once
+        // the location is genuinely stale past the freshness window.
+        const priorUpdatedAt = location.updatedAt;
+        // Coerce to timestamp rather than relying on `instanceof Date`.
+        // Lean Mongoose docs crossing module boundaries can present the
+        // field as a non-Date (string / cross-realm Date) which made the
+        // prior check spuriously return false and flip populated cards
+        // to null within one cycle.
+        const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
+        const withinFreshnessWindow =
+          Number.isFinite(priorMs) &&
+          now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
+
+        if (withinFreshnessWindow) {
+          return { ...location, updatedAt: location.updatedAt };
+        }
+
         return {
           ...location,
           currentNoiseLevel: null,
@@ -1024,14 +1053,11 @@ export class A1Service {
           location.currentOccupancyLevel !== null,
       );
 
-      if (childLocations.length === 0) {
-        return {
-          ...group,
-          currentNoiseLevel: null,
-          currentOccupancyLevel: null,
-          updatedAt: group.updatedAt,
-        };
-      }
+      // Bug A fix: do NOT null the group's aggregate when every child
+      // happens to have null values in this cycle. Fall through to the
+      // freshness-preservation branch below (activeWeightedChildren will be
+      // empty, which preserves the previously-published group aggregates
+      // instead of blanking the card).
 
       const weightedChildren = childLocations.map((location) => ({
         location,

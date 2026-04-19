@@ -252,6 +252,19 @@ class A1Service {
             this.studyLocationRepository.getAllStudyLocations(),
             this.locationGroupRepository.getAllLocationGroups(),
         ]);
+        // Diagnostic: detect if studyLocations array contains duplicate
+        // studyLocationIds. That would explain the "two writes in the
+        // same cycle for the same location" pattern we've been chasing.
+        {
+            const slIds = studyLocations.map((l) => l.studyLocationId);
+            const uniqueSlIds = new Set(slIds);
+            if (slIds.length !== uniqueSlIds.size) {
+                const counts = {};
+                for (const id of slIds) counts[id] = (counts[id] || 0) + 1;
+                const dupes = Object.entries(counts).filter(([, c]) => c > 1);
+                console.log(`[A1-dup] studyLocations dupes detected array_len=${slIds.length} unique=${uniqueSlIds.size} dupes=${JSON.stringify(dupes)}`);
+            }
+        }
         const userIds = unique(reportRecords.map((record) => record.report.userId));
         const fetchedUsers = await this.userRepository.findUsersByIds(userIds);
         const userMap = new Map(fetchedUsers.map((user) => [user.userId, { ...user }]));
@@ -277,6 +290,29 @@ class A1Service {
         if (staleReportIds.length > 0) {
             await this.reportRepository.deleteReports(staleReportIds);
         }
+        // Diagnostic: summarize the per-cycle report fate so we can spot the
+        // cycle in which a young report (well above minWeight) drops out of
+        // activeRecords — which would explain the premature locationRecords=0
+        // branch being hit for a 13-minute-old report.
+        try {
+            const cycleIdForLog = process.env.A1_CURRENT_CYCLE_ID || "none";
+            const activeByLoc = {};
+            for (const rec of activeRecords) {
+                const id = rec.report.studyLocationId;
+                activeByLoc[id] = (activeByLoc[id] || 0) + 1;
+            }
+            const totalByLoc = {};
+            for (const rec of reportRecords) {
+                const id = rec.report.studyLocationId;
+                totalByLoc[id] = (totalByLoc[id] || 0) + 1;
+            }
+            const locsWithTotal = Object.keys(totalByLoc);
+            const dropped = locsWithTotal.filter((id) => (activeByLoc[id] || 0) < totalByLoc[id]);
+            console.log(`[A1-cycle-summary] cycle=${cycleIdForLog} totalReports=${reportRecords.length} activeReports=${activeRecords.length} stale=${staleReportIds.length} droppedLocs=${JSON.stringify(dropped)} activeByLoc=${JSON.stringify(activeByLoc)}`);
+        }
+        catch (err) {
+            console.log(`[A1-cycle-summary] log failed: ${err.message}`);
+        }
         const updatedStudyLocations = this.recalculateAllStudyLocations(studyLocations, activeRecords, now);
         await this.studyLocationRepository.bulkUpdateStudyLocations(updatedStudyLocations);
         const updatedLocationGroups = this.recalculateAllLocationGroups(locationGroups, updatedStudyLocations, now);
@@ -290,6 +326,12 @@ class A1Service {
         }
         return {
             evaluatedAt: now,
+            // Item 2: expose the raw count of live reports read from the
+            // repository so callers can tell "decay filtered them out" (total
+            // non-zero, active=0) from "reports are missing from the DB"
+            // (total=0). Without this the [A1] log can't distinguish Bug A
+            // (aggregate blank-out) from Bug B (persistence/kind-flip).
+            totalReportCount: reportRecords.length,
             activeReportCount: activeRecords.length,
             staleReportIds,
             updatedStudyLocations,
@@ -402,6 +444,27 @@ class A1Service {
         return studyLocations.map((location) => {
             const locationRecords = reportsByLocationId.get(location.studyLocationId) ?? [];
             if (locationRecords.length === 0) {
+                // Bug A fix: do NOT unconditionally null the aggregates when
+                // a cycle sees no active records for this location. The last
+                // known reading is still the best estimate we have. Mirror
+                // the LocationGroup freshness behaviour: preserve the prior
+                // currentNoiseLevel / currentOccupancyLevel while the prior
+                // updatedAt is within groupFreshnessWindowMs; only blank
+                // once the location is genuinely stale past that window.
+                const priorUpdatedAt = location.updatedAt;
+                // Coerce to timestamp rather than relying on `instanceof Date`.
+                // Lean Mongoose docs crossing module boundaries can present the
+                // field as a non-Date (string / cross-realm Date) which made the
+                // prior check spuriously return false and flip populated cards
+                // to null within one cycle.
+                const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
+                const withinFreshnessWindow =
+                    Number.isFinite(priorMs) &&
+                    now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
+                console.log(`[A1-recalc-empty] loc=${location.studyLocationId} priorType=${typeof priorUpdatedAt} priorIsDate=${priorUpdatedAt instanceof Date} prior=${priorUpdatedAt} ageMs=${Number.isFinite(priorMs) ? now.getTime() - priorMs : "NaN"} windowMs=${this.config.groupFreshnessWindowMs} withinWindow=${withinFreshnessWindow}`);
+                if (withinFreshnessWindow) {
+                    return { ...location, updatedAt: location.updatedAt };
+                }
                 return {
                     ...location,
                     currentNoiseLevel: null,
@@ -413,10 +476,29 @@ class A1Service {
             const noiseDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.noiseWeightFactor, 0);
             const occupancyNumerator = locationRecords.reduce((sum, record) => sum + record.report.occupancy * record.metadata.occupancyWeightFactor, 0);
             const occupancyDenominator = locationRecords.reduce((sum, record) => sum + record.metadata.occupancyWeightFactor, 0);
+            // If the weighted aggregation produced zero denominators for BOTH
+            // dimensions (e.g. session-correction or trust factors collapsed
+            // the weight), treat this exactly like the "no active records"
+            // case: preserve prior values inside the freshness window rather
+            // than flashing the card to null. Reports vanished at ~22 min
+            // of age in prod because of this; preservation here keeps the
+            // card populated even when weights go sideways.
+            const bothDenominatorsZero = noiseDenominator <= 0 && occupancyDenominator <= 0;
+            if (bothDenominatorsZero) {
+                const priorUpdatedAt = location.updatedAt;
+                const priorMs = priorUpdatedAt ? new Date(priorUpdatedAt).getTime() : NaN;
+                const withinFreshnessWindow =
+                    Number.isFinite(priorMs) &&
+                    now.getTime() - priorMs <= this.config.groupFreshnessWindowMs;
+                console.log(`[A1-zero-weight] loc=${location.studyLocationId} records=${locationRecords.length} noiseDenom=${noiseDenominator} occDenom=${occupancyDenominator} withinWindow=${withinFreshnessWindow}`);
+                if (withinFreshnessWindow) {
+                    return { ...location, updatedAt: location.updatedAt };
+                }
+            }
             return {
                 ...location,
-                currentNoiseLevel: noiseDenominator > 0 ? noiseNumerator / noiseDenominator : null,
-                currentOccupancyLevel: occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : null,
+                currentNoiseLevel: noiseDenominator > 0 ? noiseNumerator / noiseDenominator : location.currentNoiseLevel,
+                currentOccupancyLevel: occupancyDenominator > 0 ? occupancyNumerator / occupancyDenominator : location.currentOccupancyLevel,
                 updatedAt: now,
             };
         });
@@ -427,14 +509,11 @@ class A1Service {
             const childLocations = (locationsByGroupId.get(group.locationGroupId) ?? []).filter((location) => location.updatedAt !== null &&
                 location.currentNoiseLevel !== null &&
                 location.currentOccupancyLevel !== null);
-            if (childLocations.length === 0) {
-                return {
-                    ...group,
-                    currentNoiseLevel: null,
-                    currentOccupancyLevel: null,
-                    updatedAt: group.updatedAt,
-                };
-            }
+            // Bug A fix: do NOT null the group's aggregate when every child
+            // happens to have null values in this cycle. Fall through to the
+            // freshness-preservation branch below (activeWeightedChildren
+            // will be empty, which preserves the previously-published group
+            // aggregates instead of blanking the card).
             const weightedChildren = childLocations.map((location) => ({
                 location,
                 recencyWeight: computeLocationRecencyWeight(location.updatedAt, now, this.config.groupFreshnessWindowMs),

@@ -374,6 +374,97 @@ it("submitCanonicalReport persists report metadata and leaves aggregate state fo
   }
 });
 
+it("runPollingCycle retains reports across the 20-minute boundary", async () => {
+  // Regression test for the "reports vanish after ~20 min" bug. With the
+  // current retention config (reportHalfLifeMs=48h, archiveThresholdMs=48h,
+  // minWeightThreshold=0.05), a report that is merely 21-25 minutes old
+  // MUST still be counted as active. If this assertion ever fails the
+  // regression is in one of: decay formula, minWeightThreshold, the
+  // reportKind:"live" filter in getAllReportsWithMetadata, or the archive
+  // compression threshold. `totalReportCount` vs `activeReportCount`
+  // distinguishes which.
+  //
+  // We seed state directly rather than go through submitCanonicalReport so
+  // this test is not perturbed by the fire-and-forget triggerPollNow call
+  // the submission path issues (which would otherwise race with the cycle
+  // we explicitly invoke below).
+  const harness = installInMemoryModelPatches();
+  const service = new ReportProcessingService();
+
+  try {
+    const now = new Date("2026-03-30T18:30:00.000Z");
+    const twentyOneMinAgo = new Date(now.getTime() - 21 * 60 * 1000);
+    const twentyFiveMinAgo = new Date(now.getTime() - 25 * 60 * 1000);
+    const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
+    harness.state.reports.push(
+      {
+        reportId: "r-21",
+        reportKind: "live",
+        userId: null,
+        studyLocationId: "library-floor-1-quiet",
+        createdAt: twentyOneMinAgo,
+        avgNoise: 50,
+        maxNoise: 55,
+        variance: 4,
+        occupancy: 2,
+      },
+      {
+        reportId: "r-25",
+        reportKind: "live",
+        userId: null,
+        studyLocationId: "library-floor-1-quiet",
+        createdAt: twentyFiveMinAgo,
+        avgNoise: 52,
+        maxNoise: 58,
+        variance: 5,
+        occupancy: 3,
+      },
+      {
+        reportId: "r-30",
+        reportKind: "live",
+        userId: null,
+        studyLocationId: "library-floor-1-quiet",
+        createdAt: thirtyMinAgo,
+        avgNoise: 48,
+        maxNoise: 54,
+        variance: 3,
+        occupancy: 2,
+      },
+    );
+
+    const result = await service.runPollingCycle(now);
+
+    assert.equal(
+      result.totalReportCount,
+      3,
+      "all three live reports must be read from the repository — if this is 0, Bug B (persistence/kind-flip) regressed",
+    );
+    assert.equal(
+      result.activeReportCount,
+      3,
+      "all three reports must stay active across the 20-minute boundary — if this is 0 while totalReportCount is 3, Bug B's decay/session logic regressed",
+    );
+    assert.equal(
+      result.staleReportIds.length,
+      0,
+      "no report this young should ever be deleted as stale",
+    );
+
+    const [location] = result.updatedStudyLocations;
+    assert.ok(
+      Number.isFinite(location.currentNoiseLevel),
+      "StudyLocation must have a numeric currentNoiseLevel (not null) after the cycle",
+    );
+    assert.ok(
+      Number.isFinite(location.currentOccupancyLevel),
+      "StudyLocation must have a numeric currentOccupancyLevel (not null) after the cycle",
+    );
+  } finally {
+    harness.restore();
+  }
+});
+
 void run();
 
 async function run() {

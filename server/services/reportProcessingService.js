@@ -180,7 +180,7 @@ class MongooseUserRepository {
           userOccupancyWF: user.userOccupancyWF,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     return updated ? toUser(updated) : user;
@@ -193,12 +193,49 @@ class ReportProcessingService {
     this.userRepository = new MongooseUserRepository();
     this.studyLocationRepository = new StudyLocationRepository();
     this.locationGroupRepository = new LocationGroupRepository();
+    // Bind A1's groupFreshnessWindowMs to the single server-wide freshness
+    // value so the A1 cycle and the /api/map-annotations / locationSearch
+    // "is live data fresh" checks can never drift apart.
+    //
+    // Env overrides for REPORT_HALF_LIFE_MS / REPORT_ARCHIVE_THRESHOLD_MS /
+    // REPORT_MIN_WEIGHT_THRESHOLD were removed after a stale pm2-saved
+    // REPORT_HALF_LIFE_MS=60000 on a later restart caused mass report
+    // deletion in prod. Use explicit code changes if these ever need to
+    // move, never env vars.
+    this.a1Config = {
+      ...defaultA1Config,
+      groupFreshnessWindowMs: SERVER_RUNTIME_CONFIG.freshness.freshnessMs,
+    };
     this.a1Service = new A1Service(
       this.reportRepository,
       this.userRepository,
       this.studyLocationRepository,
       this.locationGroupRepository,
+      this.a1Config,
     );
+    // Item 4: boot-time audit of the resolved A1 config so env-override drift
+    // (e.g., a stale REPORT_HALF_LIFE_MS=10m left in the PM2 env, or a
+    // GROUP_FRESHNESS_WINDOW_MS override fighting the unified setting) is
+    // obvious in logs the first time the service is constructed.
+    if (!ReportProcessingService.__a1ConfigLogged) {
+      ReportProcessingService.__a1ConfigLogged = true;
+      console.log(
+        "[startup] A1 resolved config: " +
+          JSON.stringify(
+            {
+              reportHalfLifeMs: this.a1Config.reportHalfLifeMs,
+              archiveThresholdMs: this.a1Config.archiveThresholdMs,
+              archiveBucketMinutes: this.a1Config.archiveBucketMinutes,
+              minWeightThreshold: this.a1Config.minWeightThreshold,
+              groupFreshnessWindowMs: this.a1Config.groupFreshnessWindowMs,
+              peerWindowMs: this.a1Config.peerWindowMs,
+              initialDecayWF: this.a1Config.initialDecayWF,
+            },
+            null,
+            0,
+          ),
+      );
+    }
     this.reportService = new ReportService(this.reportRepository, this.a1Service);
     this.pollTimer = null;
     this.pollInFlight = null;
@@ -278,6 +315,9 @@ class ReportProcessingService {
     // reveal whether reports are being dropped from aggregation or the
     // cycle is silently erroring. Stdout-only; cheap to run.
     const started = Date.now();
+    const cycleId = Math.random().toString(36).slice(2, 8);
+    process.env.A1_CURRENT_CYCLE_ID = cycleId;
+    console.log(`[A1-cycle-start] id=${cycleId} at=${now.toISOString()}`);
     try {
       const result = await this.a1Service.runPollingCycle(now);
       // Log only fields that exist on the running runPollingCycle return
@@ -286,8 +326,18 @@ class ReportProcessingService {
       // return them — referencing them throws "Cannot read properties of
       // undefined (reading 'length')" which previously poisoned every
       // cycle and made it look like A1 was failing.
+      // Item 2: log `total` alongside `active` so operators can tell which
+      // bug class fired:
+      //   total > 0, active === 0  → decay / session-correction is the
+      //                               culprit (live rows exist but A1
+      //                               filtered every one of them).
+      //   total === 0              → persistence or reportKind flip is the
+      //                               culprit (nothing is coming out of
+      //                               Report.find({ reportKind: "live" })).
+      //   deleted > 0              → archive-compression is culling rows.
       console.log(
         `[A1] cycle ok (${Date.now() - started} ms): ` +
+          `total=${result.totalReportCount ?? "?"}, ` +
           `active=${result.activeReportCount}, ` +
           `locations=${result.updatedStudyLocations.length}, ` +
           `groups=${result.updatedLocationGroups.length}, ` +
